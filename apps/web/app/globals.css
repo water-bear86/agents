@@ -514,8 +514,10 @@ legend + * { clear: both; }
 .world-svg .slab.r { fill: var(--w-slab-r); }
 .world-svg .ground { fill: var(--w-grass); }
 .world-svg .grass-alt { fill: var(--w-grass-alt); }
-.world-svg .road { fill: var(--w-asphalt); stroke: color-mix(in oklab, var(--w-asphalt) 60%, var(--w-lane)); stroke-width: 1.5; }
-.world-svg .road.junction { stroke: none; }
+.world-svg .road { fill: var(--w-asphalt); }
+.world-svg .lot { stroke: color-mix(in oklab, var(--w-paving) 70%, var(--w-asphalt)); stroke-width: 2.5; }
+.world-svg .lot.civic { fill: var(--w-paving); }
+.world-svg .lot.homes { fill: var(--w-grass); }
 .world-svg .lane { stroke: var(--w-lane); stroke-width: 1.4; stroke-dasharray: 9 9; opacity: 0.8; }
 .world-svg .shadow { fill: var(--w-shadow); }
 

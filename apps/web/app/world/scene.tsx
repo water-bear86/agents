@@ -3,7 +3,7 @@
 // right). Colours are CSS tokens (--w-*) so the same model reads as day in the light theme and
 // night in the dark one, where windows and lamps light up.
 
-import { HOUSE, box, cylinder, diamond, house, iso, quadL, quadR, shadowOf, windows, type Place } from "../../lib/world";
+import { BLOCK, HOUSE, PITCH, box, cylinder, diamond, house, iso, quadL, quadR, shadowOf, townBounds, townLots, windows, type Place } from "../../lib/world";
 
 type Faces = ReturnType<typeof box>;
 
@@ -50,23 +50,24 @@ export function Defs() {
   );
 }
 
-/** The base board: a slab with visible edges, grass in two shades, and the two roads. */
-export function Board({ grid }: { grid: number }) {
-  const slab = box(-0.5, -0.5, grid + 1, grid + 1, 12, -12);
-  const tiles = [];
-  for (let i = 0; i < grid; i++) for (let j = 0; j < grid; j++) if ((i + j) % 2) tiles.push(<polygon key={`${i}-${j}`} points={diamond(i, j)} className="grass-alt" />);
-  const lane = (a: { x: number; y: number }, b: { x: number; y: number }) => <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="lane" />;
+/** The base board: a slab with visible edges, streets everywhere between the blocks, and one lot per block. */
+export function Board({ rings }: { rings: number }) {
+  const { min, max } = townBounds(rings);
+  const size = max - min;
+  const slab = box(min, min, size, size, 12, -12);
+  const lanes = [];
+  for (let k = -rings; k <= 2 + rings; k++) {
+    const c = k * PITCH - 0.5;
+    const a = iso(c, min), b = iso(c, max), d = iso(min, c), e = iso(max, c);
+    lanes.push(<line key={`x${k}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="lane" />, <line key={`y${k}`} x1={d.x} y1={d.y} x2={e.x} y2={e.y} className="lane" />);
+  }
   return (
     <g className="board" aria-hidden>
       <polygon points={slab.left} className="slab l" />
       <polygon points={slab.right} className="slab r" />
-      <polygon points={diamond(-0.5, -0.5, grid + 1, grid + 1)} className="ground" />
-      {tiles}
-      <polygon points={diamond(3.3, 5, grid - 3.3, 1.4)} className="road" />
-      <polygon points={diamond(5, 2.6, 1.4, grid - 2.6)} className="road" />
-      {lane(iso(3.5, 5.7), iso(grid, 5.7))}
-      {lane(iso(5.7, 2.8), iso(5.7, grid))}
-      <polygon points={diamond(5, 5, 1.4, 1.4)} className="road junction" />
+      <polygon points={diamond(min, min, size, size)} className="road" />
+      {lanes}
+      {townLots(rings).map((l) => <polygon key={`${l.bx},${l.by}`} points={diamond(l.bx * PITCH, l.by * PITCH, BLOCK, BLOCK)} className={`lot ${l.kind}`} />)}
     </g>
   );
 }

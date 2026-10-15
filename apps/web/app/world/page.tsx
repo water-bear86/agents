@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../lib/api";
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
-import { ART_TOP, HOMES, HOUSE, LAMPS, PLACES, TREES, diamond, doorstep, gridFor, housePlot, iso, placeById, placeName, spots, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
+import { ART_TOP, HOMES, HOUSE, PLACES, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
 import { Board, Defs, HouseArt, Lamp, PlaceArt, Robot, Tree } from "./scene";
 
 const W = 860;
@@ -138,10 +138,15 @@ export default function World() {
   const symbols = useMemo(() => new Map((coins.data?.coins ?? []).map((c) => [c.token, c.symbol])), [coins.data]);
   // House order follows sign-up order, so existing houses never move when someone new arrives.
   const roster = agents.data?.agents ?? [];
-  const grid = gridFor(roster.length);
-  const center = useMemo(() => ({ x: 0, y: (grid * 32) / 2 - 10 }), [grid]);
+  const rings = townRings(roster.length);
+  // Default view: the whole town, centred on its middle; the board grows a ring at a time.
+  const home = useMemo(() => {
+    const { min, max } = townBounds(rings);
+    const c = (min + max) / 2;
+    return { ...iso(c, c), z: Math.min(1.1, Math.max(0.3, W / ((max - min) * 64 * 0.92))) };
+  }, [rings]);
   const [view, setView] = useState<{ x: number; y: number; z: number } | null>(null);
-  const v = view ?? { ...center, z: grid > 12 ? 1 : 1.1 };
+  const v = view ?? home;
 
   // Latest turn per agent decides where it stands.
   const placed = useMemo(() => {
@@ -158,8 +163,7 @@ export default function World() {
     const out: Placed[] = [];
     for (const [id, list] of byPlace) {
       if (id === "home") { for (const p of list) { p.at = doorstep(p.home); out.push(p); } continue; }
-      const s = spots(placeById[id]);
-      list.sort((x, y) => x.agent.handle.localeCompare(y.agent.handle)).forEach((p, i) => { p.at = s[i % s.length]!; out.push(p); });
+      list.sort((x, y) => x.agent.handle.localeCompare(y.agent.handle)).forEach((p, i) => { p.at = spotAt(placeById[id], i); out.push(p); });
     }
     return out;
   }, [roster, decisions.data, symbols]);
@@ -175,9 +179,9 @@ export default function World() {
     ...PLACES.map((p): Drawable => ({ depth: p.x + p.sx + p.y + p.sy - 0.1, place: p })),
     ...roster.map((a, i): Drawable => { const h = housePlot(i); return { depth: h.x + h.y + HOUSE.size, house: { agent: a, i } }; }),
     ...placed.map((p): Drawable => ({ depth: p.at.x + p.at.y, pawn: p })),
-    ...TREES.map((t): Drawable => ({ depth: t.x + t.y, tree: t })),
-    ...LAMPS.map((l): Drawable => ({ depth: l.x + l.y, lamp: l })),
-  ].sort((a, b) => a.depth - b.depth), [placed, roster]);
+    ...townTrees(rings, roster.length).map((t): Drawable => ({ depth: t.x + t.y, tree: t })),
+    ...townLamps(rings).map((l): Drawable => ({ depth: l.x + l.y, lamp: l })),
+  ].sort((a, b) => a.depth - b.depth), [placed, roster, rings]);
 
   // ---------------------------------------------------------------- viewport
   const toSvg = useCallback((clientX: number, clientY: number) => {
@@ -190,13 +194,13 @@ export default function World() {
 
   const zoomAt = useCallback((factor: number, at?: { x: number; y: number }) => {
     setView((cur) => {
-      const v0 = cur ?? { ...center, z: 1.1 };
-      const z = Math.min(3, Math.max(0.5, v0.z * factor));
+      const v0 = cur ?? home;
+      const z = Math.min(3, Math.max(0.25, v0.z * factor));
       const k = v0.z / z;
       const fx = at?.x ?? v0.x, fy = at?.y ?? v0.y;
       return { z, x: fx + (v0.x - fx) * k, y: fy + (v0.y - fy) * k };
     });
-  }, [center]);
+  }, [home]);
 
   // Pinch on a trackpad, or Ctrl/Cmd + scroll, zooms; plain scrolling still scrolls the page.
   useEffect(() => {
@@ -260,7 +264,7 @@ export default function World() {
           {offline ? <Offline /> : (
             <svg ref={svg} className="world-svg" viewBox={vb} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} role="group" aria-label="Isometric map of the agents' world">
               <Defs />
-              <Board grid={grid} />
+              <Board rings={rings} />
               {drawables.map(({ place, pawn, house: h, tree, lamp }) => tree ? <Tree key={`t${tree.x},${tree.y}`} {...tree} />
                 : lamp ? <Lamp key={`l${lamp.x},${lamp.y}`} {...lamp} />
                 : place
