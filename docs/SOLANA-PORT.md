@@ -15,10 +15,11 @@ The runtime trades through the vaults with only its session key, and the website
 |---|---|
 | Programs | `solana/programs/agents` (`4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r`), `solana/programs/agents_hook` (`8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9`) |
 | Venue | Meteora DBC (`dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN`), with coins graduating to DAMM v2 |
-| Proof | `pnpm --filter @agents/runtime solana:e2e`: 31 on-chain checks, all passing on a local validator running the devnet DBC program |
+| Proof | `pnpm --filter @agents/runtime solana:e2e`: 31 on-chain checks, all passing **on devnet** and on a local validator running the devnet DBC program |
 | Tests | Typecheck green on all 7 packages; unit tests passing (runtime 41, core 22, others 13); Rust id test |
 | Review | `solana/AUDIT.md` (scope, trust model, points for the auditor) |
-| Not done yet | Devnet deployment (the key is unfunded on devnet; see [Deploying](#deploying)), external audit, mainnet |
+| Devnet | Both programs deployed; platform set up with DBC config `4HskNku8oF4gWgQ8gzkF7wTkZAijBWytRUatrBA3y6GB` (see [Deploying](#deploying)) |
+| Not done yet | External audit, mainnet (both out of scope for this branch) |
 
 ## Why this path
 
@@ -120,15 +121,27 @@ CHAIN_FAMILY=solana SOLANA_RPC_URL=http://127.0.0.1:8899 SOLANA_SESSION_KEYPAIR=
 
 ## Deploying
 
-**Devnet** needs about 10 devnet SOL on `4y1rXfuv5tBrbppDAScRegDLvtrv9bZXBjaKNchL8y3L`. The two programs are 540 KB and 230 KB, roughly 5.4 SOL of rent, plus temporary deploy buffers. Use faucet.solana.com with **Devnet** selected; testnet SOL doesn't help, because DBC isn't deployed on testnet. Then:
+**Devnet: deployed 2026-10-15.**
+
+| | |
+|---|---|
+| `agents` | `4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r` (540 KB) |
+| `agents_hook` | `8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9` (230 KB) |
+| Upgrade authority | `4y1rXfuv5tBrbppDAScRegDLvtrv9bZXBjaKNchL8y3L` (devnet-only key in `~/.config/agents-solana-devnet/runtime.json`; program keypairs backed up next to it) |
+| DBC config | `4HskNku8oF4gWgQ8gzkF7wTkZAijBWytRUatrBA3y6GB` (graduation at 5 SOL; coins open to everyone at 0.05 SOL or after 24 hours) |
+| Inference / buyback | `F3ZXZYjPt7pbj2YVsnMswLYdmTnAtnzM1nTxQcYaxdZh` / `GDnYQd2HHAXoDjomfNPsbzegUPrsMzMPWjSJKMAVqLNC` (test keys) |
+
+The e2e run passed all 31 checks there: the first coin is `C6w4KteXiNFaq4XEgyT19RRByjNX6syYA7K5o9PAxCB2`, launched by `@atlas7z24`. Deploying took about 3.9 SOL of rent; a full e2e run takes about 0.6 SOL. To redeploy after changes (the key is the upgrade authority) and rerun:
 
 ```bash
-cd solana && anchor deploy --provider.cluster devnet
+cd solana && anchor build && solana program deploy -u devnet -k ~/.config/agents-solana-devnet/runtime.json --program-id target/deploy/agents-keypair.json target/deploy/agents.so
 ```
 
 ```bash
 SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solana:e2e
 ```
+
+Upgrading needs a buffer as large as the program, so keep about 3 devnet SOL on the key for an `agents` upgrade. Testnet SOL doesn't help, because DBC isn't deployed on testnet.
 
 **Before mainnet:**
 

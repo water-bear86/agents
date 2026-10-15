@@ -35,6 +35,9 @@ const cluster = /127\.0\.0\.1|localhost/.test(url) ? "localnet" : /devnet/.test(
 const dir = process.env.SOLANA_KEY_DIR ?? join(homedir(), ".config", "agents-solana-devnet");
 mkdirSync(dir, { recursive: true, mode: 0o700 });
 const local = cluster === "localnet";
+// Off localnet, fund test wallets lightly: devnet SOL is scarce. Each vault still covers a launch and the cap checks.
+const AGENT_FUND = BigInt(local ? LAMPORTS_PER_SOL / 2 : LAMPORTS_PER_SOL / 5);
+const OUTSIDER_FUND = local ? LAMPORTS_PER_SOL / 5 : LAMPORTS_PER_SOL * 0.06;
 
 const sol = (l: bigint | number) => `${formatUnits(BigInt(l), 9)} SOL`;
 const link = (sig: string) => local ? sig.slice(0, 16) + "…" : `https://explorer.solana.com/tx/${sig}?cluster=${cluster}`;
@@ -64,7 +67,7 @@ if (local && balance < 20 * LAMPORTS_PER_SOL) {
   await conn.confirmTransaction(await conn.requestAirdrop(admin.publicKey, 50 * LAMPORTS_PER_SOL), "confirmed");
   balance = await conn.getBalance(admin.publicKey);
 }
-if (balance < 1.5 * LAMPORTS_PER_SOL) throw new Error(`fund ${admin.publicKey.toBase58()} on ${cluster} (has ${sol(balance)})`);
+if (balance < (local ? 1.5 : 0.7) * LAMPORTS_PER_SOL) throw new Error(`fund ${admin.publicKey.toBase58()} on ${cluster} (has ${sol(balance)})`);
 console.log(`balance ${sol(balance)}`);
 
 const program = agentsProgram(conn);
@@ -85,8 +88,8 @@ if (existing) {
 } else {
   console.log("\nsetting up the platform");
   const intruder = keypair("outsider");
-  if (BigInt(await conn.getBalance(intruder.publicKey)) < BigInt(LAMPORTS_PER_SOL / 5)) {
-    await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: intruder.publicKey, lamports: LAMPORTS_PER_SOL / 5 })], [admin]);
+  if (await conn.getBalance(intruder.publicKey) < OUTSIDER_FUND) {
+    await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: intruder.publicKey, lamports: OUTSIDER_FUND })], [admin]);
   }
   await refused("a stranger front-runs platform setup", /NotUpgradeAuthority/, async () => sendIxs(conn, [await program.methods.initPlatform({
     dbcConfig: intruder.publicKey, platformMint: PublicKey.default, holdPerSlot: bn(0), inference: intruder.publicKey, buyback: intruder.publicKey,
@@ -113,12 +116,12 @@ const owners: Keypair[] = [];
 for (const [name, style] of [["atlas", "momentum"], ["vesper", "contrarian"]] as [string, Style][]) {
   const handle = `${name.slice(0, 6)}${run}`;
   const owner = keypair(`owner-${name}`);
-  const need = BigInt(0.8 * LAMPORTS_PER_SOL);
+  const need = AGENT_FUND + BigInt(LAMPORTS_PER_SOL / 20); // vault funding plus rent for the agent records
   const have = BigInt(await conn.getBalance(owner.publicKey));
   if (have < need) await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: owner.publicKey, lamports: need - have })], [admin]);
   const sig = await sendIxs(conn, [await createAgentIx(program, owner.publicKey, {
     handle, modelId: "demo/model", sessionKey: admin.publicKey, maxTradeLamports: MAX_TRADE, dailyLimitLamports: BigInt(LAMPORTS_PER_SOL / 5),
-    fundLamports: BigInt(LAMPORTS_PER_SOL / 2),
+    fundLamports: AGENT_FUND,
   })], [owner]);
   const agent = pdas.agent(handle);
   const a: Agent = { account: agent.toBase58(), owner: owner.publicKey.toBase58(), handle, name: handle, persona: "", modelId: "demo/model", plan: planFor(style, SOLANA_UNITS), awake: true, external: false, createdAt: Date.now() };
@@ -163,8 +166,8 @@ console.log("\nagents-only phase");
 await act("vesper (an agent) buys during the phase", vesper, { type: "buy", token: mint.toBase58(), ethIn: String(LAMPORTS_PER_SOL / 50), reason: "e2e" });
 
 const outsider = keypair("outsider");
-if (BigInt(await conn.getBalance(outsider.publicKey)) < BigInt(LAMPORTS_PER_SOL / 5)) {
-  await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: outsider.publicKey, lamports: LAMPORTS_PER_SOL / 5 })], [admin]);
+if (await conn.getBalance(outsider.publicKey) < OUTSIDER_FUND) {
+  await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: outsider.publicKey, lamports: OUTSIDER_FUND })], [admin]);
 }
 const dbcClient = new DynamicBondingCurveClient(conn, "confirmed");
 /** A plain DBC buy by a wallet that isn't an agent, bypassing our program: only the hook can stop it. */
