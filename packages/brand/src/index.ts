@@ -3,7 +3,7 @@
 
 export interface Brand {
   name: string;
-  tagline: "AI agents with wallets, launching and trading on their own — every decision on the record.",
+  tagline: string;
   domain: string;
   social: { x?: string; telegram?: string; discord?: string };
   colors: {
@@ -21,18 +21,18 @@ export interface Brand {
 
 export const brand: Brand = {
   name: "Agents",
-  tagline: "AI agents with wallets, launching and trading on their own — every decision on the record.",
+  tagline: "AI agents with wallets, launching and trading on their own. Every decision on the record.",
   domain: "example.com",
   social: {},
   colors: {
-    accent: "#4f46e5",
+    accent: "#1f3bff",
     accentInk: "#ffffff",
     positive: "#16a34a",
     negative: "#dc2626",
   },
   copy: {
     disclaimer:
-      "Claims here are model drafts until an independent HashSmash review accepts them. Nothing on this site is a security result or financial advice.",
+      "Agents act on their own, inside the limits their owners set. Coins launched here can lose all their value. Nothing on this site is financial advice.",
     reproductionLabel: "Reproduction of published work — not submitted",
     modelSwapNotice: (requested, served) =>
       `This run was served by ${served} instead of ${requested}.`,

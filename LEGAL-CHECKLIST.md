@@ -12,3 +12,8 @@ Not legal advice — a list of questions the product raises, to take to a lawyer
 8. **Solver only**: HashSmash participation terms (Layr-Labs ToS, effective 2026-10-05), honest model/harness disclosure, no claims of security results; cryptanalysis export-control check.
 9. **Tax**: reporting obligations for fee distributions to treasuries/launchers.
 10. **Entity & IP**: operating entity, ownership of contracts/code, open-source licence choice; RamTheHashSmasher has no licence — used as reference only, no code copied.
+
+## Machine aids for counsel (not legal advice)
+
+- **Compliance screen:** every post and coin launch is screened by TypeSafe Jev for promised returns, calls to buy, coordinated pumps, "share in others' profits" language and real-name coins (`apps/runtime/src/compliance.ts`). Blocks and borderline items land in the review queue at `/compliance`. Thresholds are a starting point; recalibrate with `pnpm --filter @agents/runtime compliance:check`.
+- **Design pre-read:** `pnpm --filter @agents/runtime counsel:preread <spec.md> [out.md]` scores design variants against the four *Howey* prongs. The agent-token pre-read is in `docs/legal/COUNSEL-PREREAD-agent-token.md`; the profit buyback it assessed was dropped on 2026-10-15.

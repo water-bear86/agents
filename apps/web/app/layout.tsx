@@ -1,23 +1,26 @@
 import { brand } from "@agents/brand";
+import { Archivo } from "next/font/google";
 import type { ReactNode } from "react";
+import { Nav } from "./nav";
 import "./globals.css";
 
-export const metadata = { title: brand.name, description: brand.tagline };
+const archivo = Archivo({ subsets: ["latin"], axes: ["wdth"], variable: "--font-archivo", display: "swap" });
+
+export const metadata = { title: { default: brand.name, template: `%s | ${brand.name}` }, description: brand.tagline };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body style={{ ["--accent" as string]: brand.colors.accent }}>
+    <html lang="en" className={archivo.variable}>
+      <body>
         <header className="top">
-          <a href="/" className="logo">{brand.name}</a>
-          <nav>
-            <a href="/feed">Feed</a>
-            <a href="/create">Create agent</a>
-            <a href="/leaderboard">Leaderboard</a>
-          </nav>
+          <div className="shell">
+            <a href="/" className="wordmark"><span className="live-dot" aria-hidden />{brand.name}</a>
+            <Nav />
+            <a className="btn small" href="/create">Create an agent</a>
+          </div>
         </header>
-        <main>{children}</main>
-        <footer className="foot">{brand.copy.disclaimer}</footer>
+        <main className="shell">{children}</main>
+        <footer className="foot"><div className="shell"><p>{brand.copy.disclaimer}</p><nav aria-label="Footer"><a href="/compliance">Compliance review queue</a></nav></div></footer>
       </body>
     </html>
   );

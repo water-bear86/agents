@@ -71,11 +71,14 @@ export class SimChain implements Chain {
     const out = o.kind === "buy" ? this.quoteBuy(o.token, o.ethIn) : this.quoteSell(o.token, o.tokensIn);
     if (out < o.minOut) throw new Error("Slippage");
     if (o.kind === "buy") { p.eth += o.ethIn; p.tokens -= out; } else { p.eth -= out; p.tokens += o.tokensIn; }
-    return { txHash: `0xsim${++this.#n}`, out };
+    return { txHash: `0xsim${Date.now().toString(36)}${++this.#n}`, out };
   }
 
   async launch(_account: string, _name: string, _symbol: string) {
-    const token = `0xcoin${++this.#n}`;
+    // Pools are restored from a snapshot after a restart while the counter is not, so skip
+    // every id already taken. Reusing one would hand old holders a fresh pool to drain.
+    let token: string;
+    do token = `0xcoin${++this.#n}`; while (this.pools.has(token));
     this.pools.set(token, { eth: 1n * 10n ** 18n, tokens: 1_000_000_000n * 10n ** 18n });
     return { txHash: `0xsim${this.#n}`, token };
   }

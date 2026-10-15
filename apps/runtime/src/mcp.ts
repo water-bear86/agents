@@ -32,6 +32,8 @@ server.tool("my_agent", "Your balance, positions and recent decisions.", {}, asy
 server.tool("post", "Publish a post (must be novel; near-duplicates are rejected).", { body: z.string().max(500), token: z.string().optional() }, async ({ body, token }) => text(await act([{ type: "post", body, token }])));
 server.tool("launch_coin", "Launch a coin you'll earn 80% of trading fees from.", { name: z.string().max(32), symbol: z.string().max(10), pitch: z.string().max(500) }, async (a) => text(await act([{ type: "launch", ...a }])));
 server.tool("buy", "Buy a coin with ETH (wei). Size may be clipped by your owner's plan; min output is enforced.", { token: z.string(), ethInWei: z.string(), reason: z.string() }, async ({ token, ethInWei, reason }) => text(await act([{ type: "buy", token, ethIn: ethInWei, reason }])));
+server.tool("predict", "Make a price call on a coin. No money moves; it is scored right or wrong when the window closes. At most 3 open.", { token: z.string(), direction: z.enum(["up", "down"]), minutes: z.number().int().min(1).max(120), reason: z.string().max(300) }, async (a) => text(await act([{ type: "predict", ...a }])));
+server.tool("debate", "Answer another agent's post. Jev judges which side made the stronger, better-supported case.", { postId: z.string(), stance: z.enum(["agree", "disagree"]), body: z.string().max(500) }, async (a) => text(await act([{ type: "debate", ...a }])));
 server.tool("sell", "Sell tokens (base units).", { token: z.string(), tokensIn: z.string(), reason: z.string() }, async (a) => text(await act([{ type: "sell", ...a }])));
 
 await server.connect(new StdioServerTransport());

@@ -1,7 +1,8 @@
 import { checkIntent, noveltyCheck, tickerAllowed, type AgentState, type CoinView, type TradeIntent } from "@agents/core";
 import type { Tracer } from "@agents/trace";
 import type { Chain, SimChain } from "./chain.js";
-import type { Agent, World } from "./world.js";
+import { describe as describeVerdict, type ComplianceScreen, type Verdict } from "./compliance.js";
+import type { Agent, Debate, ReviewItem, World } from "./world.js";
 
 export type Action =
   | { type: "post"; body: string; replyTo?: string; token?: string }
@@ -9,7 +10,34 @@ export type Action =
   | { type: "follow"; handle: string }
   | { type: "launch"; name: string; symbol: string; pitch: string }
   | { type: "buy"; token: string; ethIn: string; reason: string }
-  | { type: "sell"; token: string; tokensIn: string; reason: string };
+  | { type: "sell"; token: string; tokensIn: string; reason: string }
+  | { type: "predict"; token: string; direction: "up" | "down"; minutes: number; reason: string }
+  | { type: "debate"; postId: string; stance: "agree" | "disagree"; body: string };
+
+/** Open calls an agent may have at once, and the window bounds in minutes. */
+export const MAX_OPEN_CALLS = 3;
+export const CALL_MINUTES = { min: 1, max: 120 };
+const E = 10n ** 18n;
+
+/** Spot price in ETH per token, from a small quote so fees and size barely matter. */
+export function priceOf(quoter: Quoter, token: string): number {
+  const out = quoter.quoteBuy(token, E / 1000n);
+  return out > 0n ? Number(E / 1000n) / Number(out) : NaN;
+}
+
+/** Scores every call whose window has closed. Returns the calls it resolved. */
+export function resolvePredictions(world: World, quoter: Quoter, now = Date.now()) {
+  const done = [];
+  for (const p of world.predictions) {
+    if (p.outcome || p.resolveAt > now) continue;
+    const exit = world.coins.has(p.token) ? priceOf(quoter, p.token) : NaN;
+    p.exitPrice = exit;
+    const move = (exit - p.entryPrice) / p.entryPrice;
+    p.outcome = !Number.isFinite(move) || Math.abs(move) < 1e-6 ? "flat" : (move > 0) === (p.direction === "up") ? "right" : "wrong";
+    done.push({ p, move });
+  }
+  return done;
+}
 
 /** Mirrors LaunchHook.LAUNCH_COOLDOWN so refused launches never cost gas. */
 export const LAUNCH_COOLDOWN_MS = 60 * 60_000;
@@ -37,7 +65,49 @@ export function coinView(world: World, q: Quoter, token: string): CoinView | nul
 }
 
 /** Applies one action under the platform rules. Used for our agents and external ones alike. */
-export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action, tracer?: Tracer): Promise<ActionResult> {
+/**
+ * Runs the compliance screen (when configured) and records the outcome. Returns a blocking
+ * detail when the item must not go out. A screen outage lets posts through (queued as
+ * unscreened) but holds launches, which can't be taken back.
+ */
+async function screened(
+  world: World, agent: Agent, kind: "post" | "launch", text: string,
+  check: (() => Promise<Verdict>) | null, tracer?: Tracer,
+): Promise<{ block?: string; verdict?: Verdict; queue: (ref?: string) => void }> {
+  if (!check) return { queue: () => {} };
+  const traceId = tracer?.current()?.record.traceId;
+  const enqueue = (item: Omit<ReviewItem, "id" | "at" | "agent" | "kind" | "text" | "traceId">) =>
+    world.reviews.push({ id: crypto.randomUUID(), at: Date.now(), agent: agent.account, kind, text: text.slice(0, 600), traceId, ...item });
+  let verdict: Verdict;
+  try {
+    const run = () => check();
+    verdict = tracer
+      ? await tracer.withSpan("compliance", "tool_call", async (s) => {
+          const v = await run();
+          s.setAttrs({ model: v.model, outcome: v.outcome, ok: v.outcome !== "block", severity: v.severity }).setOutput(v).addCost((v.inputTokens * 0.042) / 1e6);
+          return v;
+        }, { input: { kind, text } })
+      : await run();
+  } catch {
+    if (kind === "launch") return { block: "compliance screen unavailable, launch held", queue: () => {} };
+    return { queue: (ref) => enqueue({ outcome: "unscreened", flags: [], severity: 0, ref }) };
+  }
+  world.compliance.screened++;
+  world.compliance.inputTokens += verdict.inputTokens;
+  if (verdict.outcome === "block") {
+    world.compliance.blocked++;
+    enqueue({ outcome: "block", flags: verdict.flags, severity: verdict.severity });
+    return { block: describeVerdict(verdict), verdict, queue: () => {} };
+  }
+  if (verdict.outcome === "review") {
+    world.compliance.review++;
+    return { verdict, queue: (ref) => enqueue({ outcome: "review", flags: verdict.flags, severity: verdict.severity, ref }) };
+  }
+  world.compliance.passed++;
+  return { verdict, queue: () => {} };
+}
+
+export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action, tracer?: Tracer, screen?: ComplianceScreen | null): Promise<ActionResult> {
   const run = async (): Promise<ActionResult> => {
     switch (action.type) {
       case "post": {
@@ -47,8 +117,57 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const feed = world.feed(60).map((p) => p.body);
         const n = noveltyCheck(body, own, feed);
         if (!n.ok) return { action, ok: false, detail: n.reason };
+        const c = await screened(world, agent, "post", body, screen ? () => screen.post(body, agent.handle, agent.persona) : null, tracer);
+        if (c.block) return { action, ok: false, detail: c.block };
         const p = world.addPost({ agent: agent.account, body, replyTo: action.replyTo, token: action.token });
+        if (c.verdict?.quality) {
+          p.jev = c.verdict.quality;
+          if (p.jev.pick) world.highlight({ agent: agent.account, kind: "jev_pick", text: `got a Jev's pick: "${body.length > 90 ? `${body.slice(0, 89)}…` : body}"` });
+        }
+        c.queue(p.id);
         return { action, ok: true, detail: p.id };
+      }
+      case "predict": {
+        const coin = world.coins.get(action.token);
+        if (!coin) return { action, ok: false, detail: "unknown coin" };
+        if (action.direction !== "up" && action.direction !== "down") return { action, ok: false, detail: "direction must be up or down" };
+        const reason = String(action.reason ?? "").trim().slice(0, 300);
+        if (!reason) return { action, ok: false, detail: "a call needs a reason" };
+        const open = world.predictions.filter((x) => x.agent === agent.account && !x.outcome);
+        if (open.length >= MAX_OPEN_CALLS) return { action, ok: false, detail: `already has ${MAX_OPEN_CALLS} open calls` };
+        if (open.some((x) => x.token === action.token)) return { action, ok: false, detail: `already has an open call on $${coin.symbol}` };
+        const entryPrice = priceOf(quoter, action.token);
+        if (!Number.isFinite(entryPrice)) return { action, ok: false, detail: "no price for this coin yet" };
+        const minutes = Math.min(CALL_MINUTES.max, Math.max(CALL_MINUTES.min, Math.round(Number(action.minutes) || 10)));
+        const now = Date.now();
+        const p = { id: crypto.randomUUID(), at: now, agent: agent.account, token: action.token, direction: action.direction, minutes, reason, entryPrice, resolveAt: now + minutes * 60_000, traceId: tracer?.current()?.record.traceId };
+        world.predictions.push(p);
+        return { action, ok: true, detail: `called $${coin.symbol} ${action.direction} over ${minutes} min at ${entryPrice.toExponential(3)} ETH` };
+      }
+      case "debate": {
+        const id = String(action.postId ?? "");
+        const original = world.posts.find((x) => x.id === id || (id.length >= 6 && x.id.startsWith(id)));
+        if (!original) return { action, ok: false, detail: "unknown post" };
+        if (original.agent === agent.account) return { action, ok: false, detail: "cannot debate its own post" };
+        if (world.debates.some((d) => d.agent === agent.account && d.postId === original.id)) return { action, ok: false, detail: "already answered this post" };
+        const stance = action.stance === "agree" ? "agree" : "disagree";
+        const body = String(action.body ?? "").trim().slice(0, 500);
+        if (!body) return { action, ok: false, detail: "empty" };
+        const n = noveltyCheck(body, world.feed(20, agent.account).map((p) => p.body), world.feed(60).map((p) => p.body));
+        if (!n.ok) return { action, ok: false, detail: n.reason };
+        const them = world.agents.get(original.agent);
+        const call = { original: { author: them?.handle ?? "unknown", text: original.body }, stance } as const;
+        const c = await screened(world, agent, "post", body, screen ? () => screen.post(body, agent.handle, agent.persona, call) : null, tracer);
+        if (c.block) return { action, ok: false, detail: c.block };
+        const reply = world.addPost({ agent: agent.account, body, replyTo: original.id, token: original.token });
+        if (c.verdict?.quality) reply.jev = c.verdict.quality;
+        c.queue(reply.id);
+        const d: Debate = { id: crypto.randomUUID(), at: Date.now(), agent: agent.account, against: original.agent, postId: original.id, replyId: reply.id, stance, winner: c.verdict?.debate?.winner, confidence: c.verdict?.debate?.confidence };
+        world.debates.push(d);
+        if (d.winner === "challenger") world.highlight({ agent: agent.account, kind: "debate", text: `won a debate against @${them?.handle ?? "unknown"}` });
+        if (d.winner === "original") world.highlight({ agent: original.agent, kind: "debate", text: `held its ground in a debate with @${agent.handle}` });
+        const verdict = d.winner === "challenger" ? "Jev judged the reply stronger" : d.winner === "original" ? "Jev judged the original stronger" : d.winner === "even" ? "Jev called it even" : "not judged";
+        return { action, ok: true, detail: `${stance === "agree" ? "agreed with" : "disagreed with"} @${them?.handle}: ${verdict}` };
       }
       case "like": {
         const p = world.posts.find((x) => x.id === action.postId);
@@ -68,9 +187,14 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const symbol = action.symbol.toUpperCase();
         const t = tickerAllowed(symbol, [...world.coins.values()].map((c) => c.symbol));
         if (!t.ok) return { action, ok: false, detail: t.reason! };
+        const pitch = action.pitch.slice(0, 500);
+        const c = await screened(world, agent, "launch", `${action.name} ($${symbol}): ${pitch}`, screen ? () => screen.launch(action.name, symbol, pitch, agent.handle) : null, tracer);
+        if (c.block) return { action, ok: false, detail: c.block };
         const { txHash, token } = await chain.launch(agent.account, action.name.slice(0, 32), symbol);
+        if (world.coins.has(token)) throw new Error(`launch returned an existing coin id ${token}`);
         world.coins.set(token, { token, symbol, name: action.name, launcher: agent.account, launcherOwner: agent.owner, opened: false, ethReserveWei: 0n, launchedAt: Date.now() });
-        world.addPost({ agent: agent.account, body: action.pitch.slice(0, 500) || `Launched $${symbol}.`, token });
+        world.addPost({ agent: agent.account, body: pitch || `Launched $${symbol}.`, token });
+        c.queue(token);
         return { action, ok: true, detail: token, txHash };
       }
       case "buy":
@@ -88,9 +212,18 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
       }
     }
   };
-  if (!tracer) return run();
-  return tracer.withSpan(`${action.type}`, action.type === "buy" || action.type === "sell" || action.type === "launch" ? "tx" : "tool_call", async (s) => {
+  // Progression counts what actually happened: only actions that went through earn XP.
+  const counted = async () => {
     const r = await run();
+    world.count(agent.account, r.ok ? "executed" : "blocked");
+    if (r.ok && (action.type === "buy" || action.type === "sell" || action.type === "launch" || action.type === "post" || action.type === "debate")) {
+      world.count(agent.account, action.type === "buy" ? "buys" : action.type === "sell" ? "sells" : action.type === "launch" ? "launches" : "posts");
+    }
+    return r;
+  };
+  if (!tracer) return counted();
+  return tracer.withSpan(`${action.type}`, action.type === "buy" || action.type === "sell" || action.type === "launch" ? "tx" : "tool_call", async (s) => {
+    const r = await counted();
     s.setAttrs({ ok: r.ok, txHash: r.txHash }).setOutput(r.detail);
     return r;
   }, { input: action });

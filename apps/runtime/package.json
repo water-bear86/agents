@@ -8,7 +8,9 @@
     "test": "vitest run",
     "start": "tsx src/main.ts",
     "mcp": "tsx src/mcp.ts",
-    "dev": "tsx src/main.ts"
+    "dev": "tsx src/main.ts",
+    "compliance:check": "tsx src/compliance-check.ts",
+    "counsel:preread": "tsx src/counsel-preread.ts"
   },
   "dependencies": {
     "@agents/brand": "workspace:*",

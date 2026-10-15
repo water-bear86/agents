@@ -3,11 +3,12 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { PRESETS, realizedPnl, type Style } from "@agents/core";
+import { PRESETS, closedTrades, emptyCounters, progress, realizedPnl, type Progress, type Style } from "@agents/core";
 import { LlmClient } from "@agents/llm";
 import { Tracer, buildTree, type SpanRecord, type SpanSink } from "@agents/trace";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { applyAction, type Action, type Quoter } from "./actions.js";
+import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
+import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { tick } from "./tick.js";
@@ -21,10 +22,18 @@ const E = 10n ** 18n;
 
 class Live implements SpanSink {
   spans = new Map<string, SpanRecord>();
+  byTrace = new Map<string, Map<string, SpanRecord>>();
   subs = new Set<(s: SpanRecord) => void>();
   onStart(s: Readonly<SpanRecord>) { this.put(s); }
   onEnd(s: Readonly<SpanRecord>) { this.put(s); }
-  put(s: Readonly<SpanRecord>) { const c = { ...s }; this.spans.set(s.id, c); for (const f of this.subs) f(c); }
+  put(s: Readonly<SpanRecord>) {
+    const c = { ...s };
+    this.spans.set(s.id, c);
+    let t = this.byTrace.get(s.traceId);
+    if (!t) this.byTrace.set(s.traceId, (t = new Map()));
+    t.set(s.id, c);
+    for (const f of this.subs) f(c);
+  }
 }
 
 const live = new Live();
@@ -48,6 +57,10 @@ if (onchain) {
 }
 const apiKeys = new Map<string, string>(); // sha256(key) -> agent account
 
+// Compliance screen (TypeSafe Jev). Off without TYPESAFE_API_KEY, or with COMPLIANCE=off.
+const jev = env.COMPLIANCE === "off" ? null : jevClient(env.TYPESAFE_API_KEY);
+const screen = jev ? new ComplianceScreen(jev) : null;
+
 // ---------------------------------------------------------------- demo LLM
 const demoFetch = (() => {
   const lines = [
@@ -65,8 +78,25 @@ const demoFetch = (() => {
     const me = /@(\w+)/.exec(req.messages[0].content)?.[1] ?? "x";
     const pick = tokens[(i + me.length) % Math.max(1, tokens.length)];
     const actions: Action[] = [];
-    if (!tokens.length || i % 7 === 0) actions.push({ type: "launch", name: `${me} ${i}`, symbol: `${me.slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: `Launching ${me}'s coin #${i}: fees fund my next experiment.` });
+    // Holdings, so demo agents also sell: without sells every agent hits its supply cap and the market freezes.
+    const held = [...ctx.matchAll(/^(\w+): (\d+) tokens/gm)].map((m) => ({ sym: m[1]!, amount: BigInt(m[2]!) })).filter((h) => h.amount > 0n);
+    const bySym = new Map(tokens.map((t) => [t[1]!, t[2]!]));
+    const sell = held.length && i % 3 === 0 ? held[(i + me.length) % held.length] : undefined;
+    if (sell && bySym.has(sell.sym)) actions.push({ type: "sell", token: bySym.get(sell.sym)!, tokensIn: (sell.amount / 2n).toString(), reason: "taking some off the table" });
+    else if (!tokens.length || i % 7 === 0) actions.push({ type: "launch", name: `${me} ${i}`, symbol: `${me.slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: `Launching ${me}'s coin #${i}: fees fund my next experiment.` });
     else if (pick && i % 2 === 0) actions.push({ type: "buy", token: pick[2]!, ethIn: (E / 50n).toString(), reason: "small starter position" });
+    const others = [...ctx.matchAll(/^\[(\w{8})\] @(\w+): (.*)$/gm)].filter((m) => m[2] !== me);
+    const target = others[(i * 3 + me.length) % Math.max(1, others.length)];
+    if (pick && i % 3 === 1) {
+      const up = (i + me.length) % 2 === 0;
+      actions.push({ type: "predict", token: pick[2]!, direction: up ? "up" : "down", minutes: 1 + (i % 3), reason: up ? `More distinct owners are buying $${pick[1]} than selling.` : `$${pick[1]} rose on fleet buys only; I expect it to give some back.` });
+    } else if (target && i % 4 === 2) {
+      const agree = (i + me.length) % 3 === 0;
+      const sym = pick ? `$${pick[1]}` : "this coin";
+      actions.push({ type: "debate", postId: target[1]!, stance: agree ? "agree" : "disagree", body: agree
+        ? `Agree with @${target[2]}. ${sym} showed the same pattern before it opened, turn ${i}.`
+        : `I'd push back on @${target[2]}: reserve growth alone proves nothing until owners outside one fleet buy ${sym} (turn ${i}).` });
+    }
     actions.push({ type: "post", body: lines[i % lines.length]!.replace("{T}", pick ? `$${pick[1]}` : "the pad") + ` (${me}, turn ${i})` });
     i++;
     return new Response(JSON.stringify({ model: req.model, choices: [{ message: { role: "assistant", content: JSON.stringify({ thought: `turn ${i}`, actions }) } }], usage: { prompt_tokens: 900, completion_tokens: 80, cost: 0.0004 } }));
@@ -114,8 +144,15 @@ async function pass() {
   }
   for (const a of world.agents.values()) {
     if (!a.awake || a.external) continue;
-    await tick(world, a, { llm, tracer, chain, quoter }).catch((e) => console.error(`[tick] @${a.handle}`, e));
+    await tick(world, a, { llm, tracer, chain, quoter, screen }).catch((e) => console.error(`[tick] @${a.handle}`, e));
   }
+  for (const { p, move } of resolvePredictions(world, quoter)) {
+    // Only calls with a real move are news; small right calls still count toward XP and badges.
+    if (p.outcome === "right" && Math.abs(move) >= 0.01) {
+      world.highlight({ agent: p.agent, kind: "call", text: `called $${world.coins.get(p.token)?.symbol ?? "?"} ${p.direction} and was right (${move > 0 ? "+" : ""}${(move * 100).toFixed(1)}% in ${p.minutes} min)` });
+    }
+  }
+  updateGame(scoring());
   persist();
 }
 
@@ -135,13 +172,137 @@ const send = (res: ServerResponse, status: number, body: unknown) => {
 const readJson = (req: IncomingMessage) =>
   new Promise<any>((ok, bad) => { let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => { try { ok(d ? JSON.parse(d) : {}); } catch (e) { bad(e); } }); });
 
-const publicAgent = (a: Agent) => {
-  const pnl = realizedPnl(world.fills).get(a.account);
+// A decision as the website shows it: the model's thought plus each proposed action and whether it went through.
+// Traces live in memory, so decisions restored from a snapshot come back without actions.
+const decisionView = (d: (typeof world.decisions)[number]) => {
+  const spans = [...(live.byTrace.get(d.traceId)?.values() ?? [])];
+  const root = spans.find((s) => s.parentId === null);
+  const actions = spans
+    .filter((s) => s.parentId === root?.id && (s.kind === "tx" || s.kind === "tool_call"))
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map((s) => {
+      const input = (s.input ?? {}) as Record<string, unknown>;
+      return { ...input, type: String(input.type ?? s.name), ok: s.status === "ok" && s.attrs.ok !== false, detail: s.error ?? (typeof s.output === "string" ? s.output : undefined) };
+    });
+  return {
+    handle: world.agents.get(d.agent)?.handle, traceId: d.traceId, at: d.at,
+    thought: String(root?.attrs.thought ?? d.summary ?? ""), model: root?.attrs.servedModel ?? root?.attrs.requestedModel,
+    costUsd: root?.totalCostUsd ?? 0, traced: !!root, actions,
+  };
+};
+
+// ---------------------------------------------------------------- scoring & progression
+/** Everything derived from fills, computed once per request or pass rather than per agent. */
+const scoring = () => {
+  const pnl = realizedPnl(world.fills);
+  const closes = closedTrades(world.fills);
+  const followers = new Map<string, number>();
+  for (const f of world.follows) { const to = f.split("->")[1]!; followers.set(to, (followers.get(to) ?? 0) + 1); }
+  const likes = new Map<string, number>();
+  const picks = new Map<string, number>();
+  for (const p of world.posts) {
+    if (p.likes) likes.set(p.agent, (likes.get(p.agent) ?? 0) + p.likes);
+    if (p.jev?.pick) picks.set(p.agent, (picks.get(p.agent) ?? 0) + 1);
+  }
+  const opened = new Map<string, number>();
+  const launched = new Map<string, number>();
+  for (const c of world.coins.values()) {
+    launched.set(c.launcher, (launched.get(c.launcher) ?? 0) + 1);
+    if (c.opened) opened.set(c.launcher, (opened.get(c.launcher) ?? 0) + 1);
+  }
+  const trades = new Map<string, number>();
+  for (const f of world.fills) trades.set(f.agent, (trades.get(f.agent) ?? 0) + 1);
+  const calls = new Map<string, { made: number; open: number; right: number; wrong: number; flat: number }>();
+  for (const p of world.predictions) {
+    const c = calls.get(p.agent) ?? { made: 0, open: 0, right: 0, wrong: 0, flat: 0 };
+    c.made++;
+    c[p.outcome ?? "open"]++;
+    calls.set(p.agent, c);
+  }
+  const debates = new Map<string, { had: number; won: number; lost: number; even: number }>();
+  const tally = (who: string, r?: "won" | "lost" | "even") => {
+    const d = debates.get(who) ?? { had: 0, won: 0, lost: 0, even: 0 };
+    d.had++;
+    if (r) d[r]++;
+    debates.set(who, d);
+  };
+  for (const d of world.debates) {
+    tally(d.agent, d.winner === "challenger" ? "won" : d.winner === "original" ? "lost" : d.winner === "even" ? "even" : undefined);
+    tally(d.against, d.winner === "original" ? "won" : d.winner === "challenger" ? "lost" : d.winner === "even" ? "even" : undefined);
+  }
+  const progressOf = (a: Agent): Progress => progress({
+    counters: world.counters.get(a.account) ?? emptyCounters(),
+    closes: closes.get(a.account) ?? [],
+    realizedWei: pnl.get(a.account)?.realizedWei ?? 0n,
+    volumeWei: pnl.get(a.account)?.volumeWei ?? 0n,
+    trades: trades.get(a.account) ?? 0,
+    coinsLaunched: launched.get(a.account) ?? 0,
+    coinsOpened: opened.get(a.account) ?? 0,
+    jevPicks: picks.get(a.account) ?? 0,
+    callsRight: calls.get(a.account)?.right ?? 0,
+    debatesWon: debates.get(a.account)?.won ?? 0,
+    likesReceived: likes.get(a.account) ?? 0,
+    followers: followers.get(a.account) ?? 0,
+  });
+  const ranked = [...world.agents.values()].sort((x, y) => {
+    const d = (pnl.get(y.account)?.realizedWei ?? 0n) - (pnl.get(x.account)?.realizedWei ?? 0n);
+    return d > 0n ? 1 : d < 0n ? -1 : 0;
+  });
+  const rank = new Map(ranked.map((a, i) => [a.account, i + 1]));
+  return { pnl, closes, followers, progressOf, ranked, rank, calls, debates };
+};
+type Scoring = ReturnType<typeof scoring>;
+
+// Rank movement: compare today's rank to the oldest snapshot inside the window.
+const RANK_WINDOW_MS = Number(env.RANK_WINDOW_MS ?? (demo ? 5 * 60_000 : 60 * 60_000));
+const rankSnapshots: { at: number; rank: Map<string, number> }[] = [];
+
+// Highlights: diff each agent's progression against the previous pass.
+let seen: Map<string, { level: number; badges: Set<string>; closes: number; streak: number }> | null = null;
+const seenOpened = new Set<string>();
+const MILLI_ETH = 10n ** 15n;
+
+function updateGame(sc: Scoring) {
+  const now = Date.now();
+  rankSnapshots.push({ at: now, rank: sc.rank });
+  while (rankSnapshots.length > 1 && now - rankSnapshots[1]!.at > RANK_WINDOW_MS) rankSnapshots.shift();
+
+  const first = seen === null;
+  const next = new Map<string, { level: number; badges: Set<string>; closes: number; streak: number }>();
+  for (const a of world.agents.values()) {
+    const p = sc.progressOf(a);
+    const closes = sc.closes.get(a.account) ?? [];
+    const cur = { level: p.level, badges: new Set(p.badges.filter((b) => b.earned).map((b) => b.id)), closes: closes.length, streak: p.streak };
+    next.set(a.account, cur);
+    const was = seen?.get(a.account);
+    if (first || !was) continue; // never replay history as news after a restart or for a brand-new agent
+    let celebrated = false;
+    for (const b of p.badges) if (b.earned && !was.badges.has(b.id)) { world.highlight({ agent: a.account, kind: "badge", text: `earned ${b.name}: ${b.how.toLowerCase()}` }); celebrated = true; }
+    if (p.level > was.level) world.highlight({ agent: a.account, kind: "level", text: `reached level ${p.level}, ${p.title}` });
+    for (const c of closes.slice(was.closes)) if (c >= 10n * MILLI_ETH) world.highlight({ agent: a.account, kind: "big_win", text: `closed a trade for +${(Number(c) / 1e18).toFixed(4)} ETH` });
+    if (!celebrated && p.streak >= 3 && p.streak > was.streak) world.highlight({ agent: a.account, kind: "streak", text: `is on a ${p.streak}-trade winning streak` });
+  }
+  for (const c of world.coins.values()) {
+    if (!c.opened || seenOpened.has(c.token)) continue;
+    seenOpened.add(c.token);
+    if (!first) world.highlight({ agent: c.launcher, kind: "opened", text: `launched $${c.symbol}, now open to everyone` });
+  }
+  seen = next;
+}
+
+const publicAgent = (a: Agent, sc: Scoring = scoring()) => {
+  const pnl = sc.pnl.get(a.account);
+  const rank = sc.rank.get(a.account) ?? 0;
+  const before = rankSnapshots[0]?.rank.get(a.account);
   return {
     account: a.account, handle: a.handle, name: a.name, persona: a.persona, modelId: a.modelId, style: a.plan.style, external: a.external,
     balanceWei: world.balances.get(a.account) ?? 0n, positions: world.positions.get(a.account) ?? [],
-    realizedPnlWei: pnl?.realizedWei ?? 0n, excludedWashWei: pnl?.excludedWei ?? 0n,
-    followers: [...world.follows].filter((f) => f.endsWith(`->${a.account}`)).length,
+    realizedPnlWei: pnl?.realizedWei ?? 0n, excludedWashWei: pnl?.excludedWei ?? 0n, volumeWei: pnl?.volumeWei ?? 0n,
+    followers: sc.followers.get(a.account) ?? 0,
+    rank, rankChange: before ? before - rank : 0,
+    calls: sc.calls.get(a.account) ?? { made: 0, open: 0, right: 0, wrong: 0, flat: 0 },
+    debates: sc.debates.get(a.account) ?? { had: 0, won: 0, lost: 0, even: 0 },
+    progress: sc.progressOf(a),
   };
 };
 
@@ -154,11 +315,51 @@ createServer(async (req, res) => {
 
     if (resource === "feed") return send(res, 200, { posts: world.feed(Number(url.searchParams.get("limit") ?? 50)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
     if (resource === "coins") return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ ...c, launcherHandle: world.agents.get(c.launcher)?.handle, price: Number(E) / Number(quoter.quoteBuy(c.token, E / 1000n) * 1000n || 1n) })) });
-    if (resource === "leaderboard") {
-      const rows = [...world.agents.values()].map(publicAgent).sort((a, b) => (b.realizedPnlWei > a.realizedPnlWei ? 1 : -1));
-      return send(res, 200, { agents: rows });
+    if (resource === "decisions") {
+      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 40));
+      return send(res, 200, { decisions: world.decisions.slice(-limit).reverse().map(decisionView) });
     }
-    if (resource === "agents" && !id && req.method === "GET") return send(res, 200, { agents: [...world.agents.values()].map(publicAgent) });
+    if (resource === "leaderboard") {
+      const sc = scoring();
+      return send(res, 200, { agents: sc.ranked.map((a) => publicAgent(a, sc)), rankWindowMs: RANK_WINDOW_MS });
+    }
+    if (resource === "agents" && !id && req.method === "GET") { const sc = scoring(); return send(res, 200, { agents: [...world.agents.values()].map((a) => publicAgent(a, sc)) }); }
+    if (resource === "compliance") {
+      const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 100));
+      return send(res, 200, {
+        enabled: !!screen, model: screen ? JEV_MODEL : null, policy: STRICT, stats: world.compliance,
+        reviews: world.reviews.slice(-limit).reverse().map((r) => ({ ...r, handle: world.agents.get(r.agent)?.handle })),
+      });
+    }
+    if (resource === "predictions") {
+      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 30));
+      const who = url.searchParams.get("agent");
+      const acct = who ? world.agentByHandle(who)?.account : undefined;
+      const rows = world.predictions.filter((p) => !who || p.agent === acct).slice(-limit).reverse();
+      return send(res, 200, {
+        predictions: rows.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle, symbol: world.coins.get(p.token)?.symbol, priceNow: p.outcome ? undefined : priceOf(quoter, p.token) })),
+      });
+    }
+    if (resource === "debates") {
+      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 20));
+      const who = url.searchParams.get("agent");
+      const acct = who ? world.agentByHandle(who)?.account : undefined;
+      const rows = world.debates.filter((d) => !who || d.agent === acct || d.against === acct).slice(-limit).reverse();
+      const body = (id: string) => world.posts.find((p) => p.id === id)?.body;
+      return send(res, 200, {
+        debates: rows.map((d) => ({ ...d, handle: world.agents.get(d.agent)?.handle, againstHandle: world.agents.get(d.against)?.handle, original: body(d.postId), reply: body(d.replyId) })),
+      });
+    }
+    if (resource === "picks") {
+      // Jev's picks: the sharpest recent posts that read like their author.
+      const limit = Math.min(50, Number(url.searchParams.get("limit") ?? 5));
+      const picked = world.posts.filter((p) => p.jev?.pick).slice(-200).sort((a, b) => b.jev!.insight - a.jev!.insight || b.at - a.at).slice(0, limit);
+      return send(res, 200, { enabled: !!screen, posts: picked.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
+    }
+    if (resource === "highlights") {
+      const limit = Math.min(100, Number(url.searchParams.get("limit") ?? 20));
+      return send(res, 200, { highlights: world.highlights.slice(-limit).reverse().map((h) => ({ ...h, handle: world.agents.get(h.agent)?.handle })) });
+    }
 
     // External agent registration (prod: tied to an on-chain AgentRegistry.create by the owner).
     if (resource === "agents" && !id && req.method === "POST") {
@@ -199,17 +400,18 @@ createServer(async (req, res) => {
         const results = await tracer.withSpan(`external @${a.handle}`, "run", async (s) => {
           s.setAttrs({ agent: a.account, handle: a.handle, external: true });
           const out = [];
-          for (const act of actions) out.push(await applyAction(world, chain, quoter, a, act, tracer).catch((e) => ({ action: act, ok: false, detail: String(e) })));
+          for (const act of actions) out.push(await applyAction(world, chain, quoter, a, act, tracer, screen).catch((e) => ({ action: act, ok: false, detail: String(e) })));
+          world.count(a.account, "turns");
           world.decisions.push({ agent: a.account, traceId: s.record.traceId, at: Date.now(), summary: String(b.thought ?? "") });
           return out;
         });
         return send(res, 200, { results });
       }
-      const decisions = world.decisions.filter((d) => d.agent === a.account).slice(-30).reverse();
+      const decisions = world.decisions.filter((d) => d.agent === a.account).slice(-30).reverse().map(decisionView);
       return send(res, 200, { agent: publicAgent(a), posts: world.feed(30, a.account), decisions });
     }
 
-    if (resource === "traces" && id) return send(res, 200, { tree: buildTree([...live.spans.values()].filter((s) => s.traceId === id)) });
+    if (resource === "traces" && id) return send(res, 200, { tree: buildTree([...(live.byTrace.get(id)?.values() ?? [])]) });
 
     if (resource === "stream") {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "access-control-allow-origin": "*" });
@@ -224,6 +426,6 @@ createServer(async (req, res) => {
   }
 }).listen(PORT);
 
-console.log(`[runtime] API on :${PORT}${demo ? " (demo LLM)" : ""}${onchain ? " on-chain" : " SimChain"}`);
+console.log(`[runtime] API on :${PORT}${demo ? " (demo LLM)" : ""}${onchain ? " on-chain" : " SimChain"}${screen ? `, compliance screen ${JEV_MODEL}` : ", compliance screen off"}`);
 await pass();
 setInterval(() => void pass(), Number(env.TICK_MS ?? (demo ? 10_000 : 60_000)));
