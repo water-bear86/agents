@@ -27,6 +27,8 @@ export interface PlatformOptions {
   buyback: PublicKey;
   platformMint?: PublicKey;
   holdPerSlot?: bigint;
+  /** Receives curve leftovers (none with our config); defaults to the admin. */
+  leftoverReceiver?: PublicKey;
 }
 
 /**
@@ -37,7 +39,7 @@ export interface PlatformOptions {
 export async function setupPlatform(conn: Connection, program: AgentsProgram, admin: Keypair, o: PlatformOptions) {
   if (o.openThresholdLamports >= BigInt(Math.floor(o.migrationThresholdSol * 1e9))) throw new Error("open threshold must be below the graduation threshold");
   const { tx, config } = await buildCreateConfig(conn, {
-    payer: admin.publicKey, feeClaimer: pdas.fees(), leftoverReceiver: admin.publicKey,
+    payer: admin.publicKey, feeClaimer: pdas.fees(), leftoverReceiver: o.leftoverReceiver ?? admin.publicKey,
     params: agentsCurve({ migrationQuoteThresholdSol: o.migrationThresholdSol, token2022: true }), transferHookProgram: HOOK_PROGRAM_ID,
   });
   const configSig = await sendAndConfirmTransaction(conn, tx, [admin, config], { commitment: "confirmed" });

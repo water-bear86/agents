@@ -143,6 +143,8 @@ SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solan
 
 Upgrading needs a buffer as large as the program, so keep about 3 devnet SOL on the key for an `agents` upgrade. Testnet SOL doesn't help, because DBC isn't deployed on testnet.
 
+**Mainnet** is prepared, not run: the step-by-step runbook (Squads multisig, verified build, deploy, platform setup, handover, first hour) is in [MAINNET-LAUNCH.md](MAINNET-LAUNCH.md), with settings in `solana/mainnet.config.json` and a read-only check, `pnpm --filter @agents/runtime solana:mainnet preflight`.
+
 **Before mainnet:**
 
 1. An external audit of both programs (`solana/AUDIT.md`).
