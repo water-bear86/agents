@@ -10,9 +10,9 @@ export const iso = (x: number, y: number, z = 0) => ({ x: ((x - y) * TILE_W) / 2
 
 const pts = (...p: { x: number; y: number }[]) => p.map((q) => `${q.x},${q.y}`).join(" ");
 
-/** The three visible faces of a box standing on the grid. */
-export function box(x: number, y: number, sx: number, sy: number, h: number) {
-  const n = iso(x, y), e = iso(x + sx, y), s = iso(x + sx, y + sy), w = iso(x, y + sy);
+/** The three visible faces of a box standing on the grid (or raised to `z0`). */
+export function box(x: number, y: number, sx: number, sy: number, h: number, z0 = 0) {
+  const n = iso(x, y, z0), e = iso(x + sx, y, z0), s = iso(x + sx, y + sy, z0), w = iso(x, y + sy, z0);
   const up = (p: { x: number; y: number }) => ({ x: p.x, y: p.y - h });
   return {
     top: pts(up(n), up(e), up(s), up(w)),
@@ -110,3 +110,50 @@ export function whereabouts(d: Decision | undefined, symbols: Map<string, string
   }
   return { place: "home", doing: "Home, sitting this turn out" };
 }
+
+// ---------------------------------------------------------------- illustration helpers
+// The sun is up and to the left: left (south-west) faces are lit, right (south-east) faces
+// are in shade, and shadows fall along +x, toward the lower right of the screen.
+
+/** A rectangle on a box's left face (the y = y + sy wall), from grid x0..x1 and height z0..z1. */
+export const quadL = (y: number, x0: number, x1: number, z0: number, z1: number) => pts(iso(x0, y, z0), iso(x1, y, z0), iso(x1, y, z1), iso(x0, y, z1));
+/** A rectangle on a box's right face (the x = x + sx wall), from grid y0..y1 and height z0..z1. */
+export const quadR = (x: number, y0: number, y1: number, z0: number, z1: number) => pts(iso(x, y0, z0), iso(x, y1, z0), iso(x, y1, z1), iso(x, y0, z1));
+
+/** Shadow a box of height `h` casts on the ground. */
+export function shadowOf(x: number, y: number, sx: number, sy: number, h: number) {
+  const d = h / 46;
+  return pts(iso(x, y), iso(x + sx + d, y), iso(x + sx + d, y + sy), iso(x + d * 0.4, y + sy + d * 0.25), iso(x, y + sy));
+}
+
+/** Window rows on both visible walls of a box: one quad per bay and storey. */
+export function windows(x: number, y: number, sx: number, sy: number, storeys: number[], bay = 0.42, pane = 0.24, tall = 7) {
+  const left: string[] = [];
+  const right: string[] = [];
+  for (const z of storeys) {
+    for (let a = x + (bay - pane) / 2 + 0.06; a + pane <= x + sx - 0.04; a += bay) left.push(quadL(y + sy, a, a + pane, z, z + tall));
+    for (let b = y + (bay - pane) / 2 + 0.06; b + pane <= y + sy - 0.04; b += bay) right.push(quadR(x + sx, b, b + pane, z, z + tall));
+  }
+  return { left, right };
+}
+
+/** A vertical cylinder in screen terms: base centre, radius and height (px). */
+export function cylinder(gx: number, gy: number, r: number, h: number, z0 = 0) {
+  const base = iso(gx, gy, z0);
+  const top = { x: base.x, y: base.y - h };
+  const side = `M${base.x - r},${top.y} L${base.x - r},${base.y} A${r},${r / 2} 0 0 0 ${base.x + r},${base.y} L${base.x + r},${top.y} Z`;
+  return { base, top, rx: r, ry: r / 2, side };
+}
+
+/** How tall each place's illustration stands, so its label clears the roof. */
+export const ART_TOP: Record<Exclude<PlaceId, "home">, number> = { launchpad: 122, exchange: 128, plaza: 58, observatory: 92, debate: 70 };
+
+/** Trees and street lamps, placed off every footprint and road on the base 12×12 board. */
+export const TREES: { x: number; y: number; s: number }[] = [
+  { x: 0.1, y: 0.2, s: 1 }, { x: 4.4, y: 0.25, s: 0.85 }, { x: 7.35, y: 0.25, s: 1.05 }, { x: 11.65, y: 0.4, s: 0.9 },
+  { x: 11.7, y: 4.55, s: 1 }, { x: 4.55, y: 4.55, s: 0.8 }, { x: 0.25, y: 7.4, s: 0.95 }, { x: 4.4, y: 7.6, s: 1.1 },
+  { x: 4.5, y: 11.55, s: 0.9 }, { x: 0.2, y: 11.6, s: 1 }, { x: 3.6, y: 3.9, s: 0.7 }, { x: 7.6, y: 4.5, s: 0.8 },
+];
+export const LAMPS: { x: number; y: number }[] = [
+  { x: 4.75, y: 3.1 }, { x: 4.75, y: 7.3 }, { x: 4.75, y: 10.6 }, { x: 7.6, y: 4.75 }, { x: 10.4, y: 4.75 }, { x: 6.65, y: 8.6 },
+];

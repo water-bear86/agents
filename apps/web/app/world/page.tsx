@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../lib/api";
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
-import { HOMES, HOUSE, PLACES, box, diamond, doorstep, gridFor, house, housePlot, iso, placeById, placeName, spots, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
+import { ART_TOP, HOMES, HOUSE, LAMPS, PLACES, TREES, diamond, doorstep, gridFor, housePlot, iso, placeById, placeName, spots, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
+import { Board, Defs, HouseArt, Lamp, PlaceArt, Robot, Tree } from "./scene";
 
 const W = 860;
 const H = 540;
@@ -10,35 +11,18 @@ const FRESH_MS = 6000;
 
 type Sel = { kind: "agent"; handle: string } | { kind: "place"; id: Exclude<PlaceId, "home"> } | { kind: "home"; handle: string } | { kind: "homes" } | null;
 interface Placed { agent: Agent; where: Whereabouts; at: { x: number; y: number }; last?: Decision; home: number }
-type Drawable = { depth: number; place?: Place; pawn?: Placed; house?: { agent: Agent; i: number } };
+type Drawable = { depth: number; place?: Place; pawn?: Placed; house?: { agent: Agent; i: number }; tree?: { x: number; y: number; s: number }; lamp?: { x: number; y: number } };
 
 const tint = (handle: string) => ({ ["--h" as string]: hue(handle) }) as CSSProperties;
-const shade = (tone: string, pct: number) => `color-mix(in oklab, ${tone} ${pct}%, var(--surface))`;
 
 function Building({ p, count, selected, onSelect }: { p: Place; count: number; selected: boolean; onSelect: () => void }) {
-  const label = iso(p.x + p.sx / 2, p.y + p.sy / 2, p.h + 18);
-  const faces = p.h > 0 ? box(p.x, p.y, p.sx, p.sy, p.h) : null;
+  const label = iso(p.x + p.sx / 2, p.y + p.sy / 2, ART_TOP[p.id as Exclude<PlaceId, "home">] + 10);
   const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } };
   return (
-    <g className={`place ${selected ? "sel" : ""}`} role="button" tabIndex={0} aria-label={`${p.name}, ${count} ${count === 1 ? "agent" : "agents"} here`} onClick={onSelect} onKeyDown={key}>
-      <polygon points={diamond(p.x - 0.35, p.y - 0.35, p.sx + 0.7, p.sy + 0.7)} style={{ fill: shade(p.tone, 9) }} className="plot" />
-      {faces && (
-        <>
-          <polygon points={faces.left} style={{ fill: shade(p.tone, 34) }} />
-          <polygon points={faces.right} style={{ fill: shade(p.tone, 52) }} />
-          <polygon points={faces.top} style={{ fill: shade(p.tone, 16) }} />
-        </>
-      )}
-      {p.id === "launchpad" && (() => { const t = box(p.x + 1.15, p.y + 1.15, 0.7, 0.7, p.h + 46); return <><polygon points={t.left} style={{ fill: shade(p.tone, 60) }} /><polygon points={t.right} style={{ fill: shade(p.tone, 80) }} /><polygon points={t.top} style={{ fill: shade(p.tone, 35) }} /></>; })()}
-      {p.id === "plaza" && (() => { const b = box(p.x + 0.3, p.y + 0.2, 2.4, 0.18, p.h + 40); return <><polygon points={b.left} style={{ fill: shade("var(--muted)", 45) }} /><polygon points={b.right} style={{ fill: shade("var(--muted)", 70) }} /><polygon points={b.top} style={{ fill: shade("var(--muted)", 30) }} /></>; })()}
-      {p.id === "exchange" && [0.4, 1.2, 2.0].map((dx, i) => { const c = box(p.x + dx, p.y + 0.35, 0.5, 0.5, p.h + 10 + i * 9); return <g key={dx}><polygon points={c.left} style={{ fill: shade(p.tone, 55) }} /><polygon points={c.right} style={{ fill: shade(p.tone, 75) }} /><polygon points={c.top} style={{ fill: shade(p.tone, 30) }} /></g>; })}
-      {p.id === "observatory" && (() => {
-        const t = box(p.x + 0.45, p.y + 0.45, 0.7, 0.7, p.h + 30);
-        const top = iso(p.x + 0.8, p.y + 0.8, p.h + 30);
-        return <><polygon points={t.left} style={{ fill: shade(p.tone, 45) }} /><polygon points={t.right} style={{ fill: shade(p.tone, 65) }} /><polygon points={t.top} style={{ fill: shade(p.tone, 30) }} /><ellipse cx={top.x} cy={top.y - 4} rx={13} ry={9} style={{ fill: shade(p.tone, 55) }} className="dome" /></>;
-      })()}
-      {p.id === "debate" && [0.35, 1.35].map((dx) => { const c = box(p.x + dx, p.y + 0.8, 0.5, 0.5, p.h + 10); return <g key={dx}><polygon points={c.left} style={{ fill: shade(p.tone, 50) }} /><polygon points={c.right} style={{ fill: shade(p.tone, 70) }} /><polygon points={c.top} style={{ fill: shade(p.tone, 28) }} /></g>; })}
-      <text x={label.x} y={label.y - (p.id === "launchpad" ? 50 : p.id === "plaza" ? 56 : p.id === "exchange" ? 24 : p.id === "observatory" ? 44 : p.id === "debate" ? 12 : 0)} className="place-label" textAnchor="middle">
+    <g className={`place ${selected ? "sel" : ""}`} style={{ ["--tone" as string]: p.tone } as CSSProperties} role="button" tabIndex={0} aria-label={`${p.name}, ${count} ${count === 1 ? "agent" : "agents"} here`} onClick={onSelect} onKeyDown={key}>
+      <polygon points={diamond(p.x - 0.35, p.y - 0.35, p.sx + 0.7, p.sy + 0.7)} className="plot" />
+      <PlaceArt p={p} />
+      <text x={label.x} y={label.y} className="place-label" textAnchor="middle">
         {p.name}{count > 0 ? ` (${count})` : ""}
       </text>
     </g>
@@ -47,39 +31,47 @@ function Building({ p, count, selected, onSelect }: { p: Place; count: number; s
 
 function House({ agent, i, home, selected, onSelect }: { agent: Agent; i: number; home: boolean; selected: boolean; onSelect: () => void }) {
   const { x, y } = housePlot(i);
-  const h = house(x, y);
+  const apex = iso(x + HOUSE.size / 2, y + HOUSE.size / 2, HOUSE.wall + HOUSE.roof);
   const lvl = agent.progress?.level;
   const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } };
   return (
     <g className={`house ${selected ? "sel" : ""} ${home ? "lit" : ""}`} style={tint(agent.handle)} role="button" tabIndex={0}
       aria-label={`Home of @${agent.handle}${lvl ? `, level ${lvl}` : ""}${home ? ", at home" : ", out"}`} onClick={onSelect} onKeyDown={key}>
       <polygon points={diamond(x - 0.25, y - 0.25, HOUSE.size + 0.5, HOUSE.size + 0.9)} className="yard" />
-      <polygon points={h.left} className="wall-l" />
-      <polygon points={h.right} className="wall-r" />
-      <polygon points={h.door} className="door" />
-      <polygon points={h.window} className="window" />
-      <polygon points={h.roofLeft} className="roof-l" />
-      <polygon points={h.roofRight} className="roof-r" />
-      <text x={h.apex.x} y={h.apex.y - 8} className="house-label" textAnchor="middle">@{agent.handle}{lvl ? ` Lv ${lvl}` : ""}</text>
+      <HouseArt x={x} y={y} />
+      <text x={apex.x} y={apex.y - 12} className="house-label" textAnchor="middle">@{agent.handle}{lvl ? ` Lv ${lvl}` : ""}</text>
     </g>
   );
 }
 
+/** How long the walk between two places takes (matches the .pawn transform transition). */
+const WALK_MS = 1100;
+
 function Pawn({ p, selected, fresh, speaking, onSelect }: { p: Placed; selected: boolean; fresh: boolean; speaking: boolean; onSelect: () => void }) {
   const s = iso(p.at.x, p.at.y);
+  // Walk (legs swinging, facing the direction of travel) only while moving between places.
+  const prev = useRef(s);
+  const [walking, setWalking] = useState(false);
+  const [facing, setFacing] = useState<1 | -1>(1);
+  useEffect(() => {
+    const dx = s.x - prev.current.x, dy = s.y - prev.current.y;
+    prev.current = s;
+    if (Math.abs(dx) + Math.abs(dy) < 1) return;
+    if (Math.abs(dx) > 1) setFacing(dx < 0 ? -1 : 1);
+    setWalking(true);
+    const t = setTimeout(() => setWalking(false), WALK_MS);
+    return () => clearTimeout(t);
+  }, [s.x, s.y]); // eslint-disable-line react-hooks/exhaustive-deps
   const text = p.where.doing.length > 30 ? `${p.where.doing.slice(0, 29)}…` : p.where.doing;
   const bw = (text.length + p.agent.handle.length + 2) * 6.1 + 18;
   const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } };
   return (
     <g className={`pawn ${selected ? "sel" : ""} ${speaking ? "speaking" : ""}`} style={{ ...tint(p.agent.handle), transform: `translate(${s.x}px, ${s.y}px)` }}
       role="button" tabIndex={0} aria-label={`@${p.agent.handle} at ${placeName(p.where.place)}: ${p.where.doing}`} onClick={(e) => { e.stopPropagation(); onSelect(); }} onKeyDown={key}>
-      <g transform="scale(1.4)">
-        <ellipse className="pawn-shadow" rx={12} ry={6} />
+      <g transform="scale(1.3)">
         {fresh && <ellipse key={p.last?.traceId} className="pawn-pulse" rx={14} ry={7} />}
         {selected && <ellipse className="pawn-ring" rx={16} ry={8} />}
-        <rect className="pawn-body" x={-8.5} y={-27} width={17} height={24} rx={8} />
-        <circle className="pawn-body" cy={-32} r={7.5} />
-        <text className="pawn-letter" y={-11} textAnchor="middle">{p.agent.handle[0]?.toUpperCase()}</text>
+        <Robot letter={p.agent.handle[0]?.toUpperCase() ?? "?"} walking={walking} facing={facing} />
       </g>
       <g className="bubble" transform="translate(0,-66)" aria-hidden>
         <rect x={-bw / 2} y={-17} width={bw} height={21} rx={6} />
@@ -183,6 +175,8 @@ export default function World() {
     ...PLACES.map((p): Drawable => ({ depth: p.x + p.sx + p.y + p.sy - 0.1, place: p })),
     ...roster.map((a, i): Drawable => { const h = housePlot(i); return { depth: h.x + h.y + HOUSE.size, house: { agent: a, i } }; }),
     ...placed.map((p): Drawable => ({ depth: p.at.x + p.at.y, pawn: p })),
+    ...TREES.map((t): Drawable => ({ depth: t.x + t.y, tree: t })),
+    ...LAMPS.map((l): Drawable => ({ depth: l.x + l.y, lamp: l })),
   ].sort((a, b) => a.depth - b.depth), [placed, roster]);
 
   // ---------------------------------------------------------------- viewport
@@ -265,11 +259,11 @@ export default function World() {
           </div>
           {offline ? <Offline /> : (
             <svg ref={svg} className="world-svg" viewBox={vb} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} role="group" aria-label="Isometric map of the agents' world">
-              <polygon points={diamond(-0.5, -0.5, grid + 1, grid + 1)} className="ground" />
-              {Array.from({ length: grid * grid }, (_, i) => <polygon key={i} points={diamond(i % grid, Math.floor(i / grid))} className="tile" />)}
-              <polygon points={diamond(3.3, 5, grid - 3.3, 1.4)} className="road" />
-              <polygon points={diamond(5, 2.6, 1.4, grid - 2.6)} className="road" />
-              {drawables.map(({ place, pawn, house: h }) => place
+              <Defs />
+              <Board grid={grid} />
+              {drawables.map(({ place, pawn, house: h, tree, lamp }) => tree ? <Tree key={`t${tree.x},${tree.y}`} {...tree} />
+                : lamp ? <Lamp key={`l${lamp.x},${lamp.y}`} {...lamp} />
+                : place
                 ? <Building key={place.id} p={place} count={counts.get(place.id) ?? 0} selected={sel?.kind === "place" && sel.id === place.id} onSelect={() => setSel({ kind: "place", id: place.id as Exclude<PlaceId, "home"> })} />
                 : h ? <House key={`h-${h.agent.handle}`} agent={h.agent} i={h.i} home={placed.some((p) => p.agent.handle === h.agent.handle && p.where.place === "home")} selected={sel?.kind === "home" && sel.handle === h.agent.handle} onSelect={() => setSel({ kind: "home", handle: h.agent.handle })} />
                 : pawn && <Pawn key={pawn.agent.handle} p={pawn} selected={sel?.kind === "agent" && sel.handle === pawn.agent.handle} fresh={!!pawn.last && now - pawn.last.at < FRESH_MS && pawn.last.actions.some((a) => a.ok)} speaking={!sel && speaker === pawn} onSelect={() => setSel({ kind: "agent", handle: pawn.agent.handle })} />)}
