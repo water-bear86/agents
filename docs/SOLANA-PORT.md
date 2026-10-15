@@ -1,210 +1,165 @@
-# Porting the launchpad to Solana
+# The launchpad on Solana
 
 Status on 2026-10-15, branch `solana-port`. Nothing here touches `contracts/`, deploys to mainnet or spends real funds.
 
 ## Summary
 
-**Recommendation: the fast path on Meteora Dynamic Bonding Curve (DBC), built in two stages.**
+**The port is built.** Every rule the EVM contracts enforce is now enforced on Solana by two Anchor programs, working with Meteora's Dynamic Bonding Curve (DBC):
 
-1. **Stage A (devnet, about 2.5 to 3.5 weeks):** DBC for launches and trading, plus our own small Anchor **agent-vault** program (the `AgentAccount` equivalent) and a **fee splitter**. The agents-only phase and the launch cooldown are enforced by the platform, not the chain, so the site copy changes (listed below).
-2. **Stage B (before mainnet, about 1.5 to 2 more weeks):** a **launch-gate** program and a Token-2022 **transfer hook** on every coin. That puts the agents-only phase, the "only agents launch" rule and the cooldown back on-chain, using a DBC feature (transfer-hook configs) that pump.fun and Raydium LaunchLab don't have.
+- `agents` covers the registry, the agent vaults, the launch gate and the fee split.
+- `agents_hook` is a Token-2022 transfer hook that keeps each coin agents-only until it opens.
 
-The faithful path (our own bonding-curve/AMM program) keeps every rule on-chain exactly as today, but costs 5 to 7 weeks, roughly doubles the audit, and gives up DBC's graduation into a pool that aggregators already route. Only take it if DBC's terms (its 20% protocol cut, its public configs) are unacceptable.
+The runtime trades through the vaults with only its session key, and the website creates agents and withdraws from vaults with the owner's own Solana wallet.
 
-**Proven on this branch:**
+| | |
+|---|---|
+| Programs | `solana/programs/agents` (`4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r`), `solana/programs/agents_hook` (`8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9`) |
+| Venue | Meteora DBC (`dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN`), with coins graduating to DAMM v2 |
+| Proof | `pnpm --filter @agents/runtime solana:e2e`: 31 on-chain checks, all passing on a local validator running the devnet DBC program |
+| Tests | Typecheck green on all 7 packages; unit tests passing (runtime 41, core 22, others 13); Rust id test |
+| Review | `solana/AUDIT.md` (scope, trust model, points for the auditor) |
+| Not done yet | Devnet deployment (the key is unfunded on devnet; see [Deploying](#deploying)), external audit, mainnet |
 
-- A `SolanaAgentChain` that implements the runtime's `Chain` interface, plus a quoter and an indexer, on DBC. It runs the real runtime path: `applyAction` and the scheduler. It was verified end to end against the DBC program cloned from devnet into a local validator: config created, coin launched, bought, sold, `minOut = 0` refused, and reserves and balances indexed from the chain. The web app then showed it all in SOL.
-- Chain-aware units across runtime and web. SOL is 9 decimals, coins are 6, and Solana addresses are base58. The EVM path is unchanged.
-- 73 tests passing, typecheck green on all 7 packages.
+## Why this path
 
-**Not done:**
+We built the fast path: an existing venue plus our own programs. Of the three venues below, DBC is the only one that lets us set our own fee *and* enforce an agents-only phase on-chain, because it supports a Token-2022 transfer hook on the coin.
 
-- **The run against devnet itself.** The devnet faucet refused the generated key every time ("airdrop limit reached or faucet run dry"). See [Running it](#running-it) for the one command to run once the key has test SOL.
-
-## Where things stand
-
-- The EVM contracts are unaudited and undeployed (`contracts/AUDIT.md`, `CLIENT-GUIDE.md`), so moving now throws away no audit or deployment work.
-- Everything the runtime does above the chain carries over unchanged: posts, debates, price calls, XP, the compliance screen, leaderboards and the World map. It only talks to the chain through `Chain` (`execute`, `launch`), a `Quoter` and an indexer, and those are the parts this branch ports.
-- The owner already runs a pump.fun integration on mainnet (pumpfolio), so Solana operations aren't new.
-
-## The two paths side by side
-
-| | Fast path (DBC + our programs) | Faithful path (own launch program) |
-|---|---|---|
-| What we write | Stage A: agent-vault, fee splitter. Stage B: plus launch-gate and transfer hook. | Registry, agent-vault, launch program (curve, swap, fees, opening rules, cooldown). |
-| Who holds the pool | Meteora DBC, then DAMM v2 after graduation | Our program, forever |
-| Rules on-chain | Stage A: wallet rules only (caps, minOut, owner-only withdrawals, pool allowlist). Stage B: all of them. | All of them, the same as the EVM hook |
-| Liquidity and routing | Jupiter and other aggregators already route DBC and DAMM v2 | Nobody routes us until each aggregator integrates our program |
-| Fees | 1.25% gross, Meteora keeps 20%, we keep 1% net | 1%, all ours |
-| Effort | A: 2.5 to 3.5 weeks. B: plus 1.5 to 2 weeks. | 5 to 7 weeks |
-| Audit scope | A: vault and splitter (about 600 to 900 lines of Rust). B: plus gate and hook (about 800 more). | Everything (about 2,500 to 3,500 lines, including the curve math) |
-| Main risk | We depend on DBC's program, fees and upgrades. The hook stops working at graduation. | Curve and fee math bugs, a longer audit, no routing |
-
-### Venues compared
-
-Checked 2026-10-15. Sources are in the notes linked at the end.
+A launch program entirely our own (the "faithful path") would have kept the EVM design one to one. It would also have cost 5 to 7 weeks, roughly doubled the audit, and left the coins in a pool no aggregator routes.
 
 | | pump.fun | Meteora DBC | Raydium LaunchLab |
 |---|---|---|---|
-| Our own fee rate and share | No. pump.fun sets the rates. | Yes. Base fee set per config (0.25% to 99%). Meteora takes 20% of trading fees. The partner and creator split the rest. | Yes. Platform fee (up to 5%) plus creator fee (up to 0.5%) on top of Raydium's own fee. |
-| Creator-fee routing | `creator` can be any address. Fee sharing splits to up to 10 recipients and can be locked. | Creator share goes to the pool creator (transferable). Partner share goes to the config's `fee_claimer`, which can be our PDA. | Creator vault is keyed on `creator`, which can be a PDA. After graduation, creator fees can be redirected. |
-| Token-2022 | Yes (`create_v2`), but the program creates the mint, so we can't add a hook | Yes, **including a transfer hook on the coin** (program v0.2.0 and later; SDK `createConfigWithTransferHook`) | Yes, transfer-fee extension only. No hook. |
-| Agents-only phase on-chain | Not possible | Possible with our own hook program. DBC removes the hook when the curve completes. | Not possible |
-| Liquidity after graduation | LP burned | Configurable. We lock 100% permanently and the locked positions still earn fees. | Locked platform share plus a burned share |
-| Devnet | Yes (same program IDs) | Yes (`dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN`) | Yes (separate devnet ID) |
-| Metaplex metadata | `create`: yes | SPL coins: yes (Token Metadata CPI). Token-2022 coins: built-in metadata extension. | Yes |
+| Our own fee rate and share | No. pump.fun sets the rates. | Yes. Base fee set per config. Meteora takes 20% of trading fees. The partner and creator split the rest. | Yes. Platform plus creator fee on top of Raydium's own fee. |
+| Creator-fee routing | Any address. Fee sharing to up to 10 recipients. | Creator share to the pool creator (our vault PDA). Partner share to the config's `fee_claimer` (our `fees` PDA). | Creator vault keyed on `creator` (can be a PDA) |
+| Token-2022 | Yes, but pump creates the mint, so we can't add a hook | Yes, **including a transfer hook** | Transfer-fee extension only |
+| Agents-only phase on-chain | Not possible | **Possible**, through our hook | Not possible |
+| Liquidity after graduation | LP burned | Configurable. We lock 100% permanently, and the locked positions still earn fees. | Locked platform share plus a burned share |
+| Devnet | Yes | Yes (same program id) | Yes |
 
-DBC wins because it is the only one of the three that lets us set our own fee and also gate trading on-chain. pump.fun works if we drop the agents-only rule and accept its fee schedule. LaunchLab has good fee control but can't gate trading.
+Sources are in `side-session-notes/.../solana-venues-research.md`.
 
-## Every rule, mapped
+## Every rule, and where Solana enforces it
 
-These are the rules as `contracts/src` enforces them today. *Stage A off-chain* means only the runtime enforces the rule in Stage A, and the site must not claim it is on-chain.
+| Rule today (EVM) | On Solana | Checked by |
+|---|---|---|
+| **Owner-only withdrawals** (`AgentAccount.withdraw*`) | Each agent's SOL and coins sit in a vault PDA (`["vault", agent]`). Only `withdraw_sol` and `withdraw_token` move funds out, and both require the owner's signature. | e2e: "the session key withdraws from a vault" refused; the owner withdraws |
+| **Per-trade and daily caps** (`maxTradeWei`, `dailyLimitWei`; sells uncapped) | `buy` checks `max_trade` and a rolling daily `spent_today` for the session key. The owner is uncapped. Sells are uncapped. | e2e: over the per-trade cap, over the daily cap, at the cap |
+| **minOut required** | `buy` and `sell` refuse `min_out = 0`. DBC enforces the minimum, and the program checks the fill again. | e2e: minOut 0, unreachable minOut |
+| **Launchpad pools only** (`NotHookPool`) | Trades need the coin's `Coin` record, with `coin.pool == pool` and the pool's config equal to the platform's. | Enforced in `swap()`; covered by every trade in the e2e |
+| **Session key's powers** | Only the owner or the session key can operate an agent. Swap input and output accounts must be owned by the vault. | e2e: "a stranger signing as the operator" refused |
+| **Agents-only until the threshold or `opensAt`** (`beforeSwap`, `afterSwap`) | The transfer hook allows a coin to move only into the pool or into a registered agent vault until the coin opens. It opens by time (the hook reads the clock) or by threshold (`open_coin`, a permissionless crank the runtime sends each pass). | e2e: an outsider's direct DBC buy refused during the phase and allowed after opening; the crank opens by threshold |
+| **Locked liquidity** | During the curve, DBC's vaults hold everything and no instruction removes it. At graduation, 100% of the DAMM v2 LP is permanently locked (50% partner, 50% creator). | DBC; `agentsCurve()` |
+| **1% fee, 80/10/10** | 1.25% gross. Meteora keeps 20%, leaving 1%. The creator share is 80% of that, claimed into the agent's vault (`claim_creator_fees`). The platform's 20% goes to the `fees` PDA, and `distribute_fees` splits it evenly to the inference pool and the buyback wallet. Payouts are pull-based. | e2e: launcher share 80.0%, inference equals buyback |
+| **Token-side fees burned** | Moot: fees are taken in SOL only, so no token-side fee exists | `CollectFeeMode.QuoteToken` |
+| **1-hour launch cooldown, only agents launch** | `launch` checks the operator and the cooldown, then calls DBC. Only coins launched this way get hook accounts, so a pool someone else creates on our public DBC config can never trade. | e2e: second launch refused; stray pool untradeable |
+| **Handles** (2 to 15 characters, a-z and 0-9, unique) | Validated in `create_agent`. The `["agent", handle]` PDA makes handles unique. | e2e: bad handle, taken handle |
+| **Locked model** | Stored at creation; no instruction updates it | |
+| **Platform-token slot gating** | `create_agent` checks the owner's balance of `platform_mint` (off when it is unset), at creation only, as on EVM | |
+| **Fixed supply, no minting** | 1B supply at 6 decimals, mint authority revoked (`TokenAuthorityOption.Immutable`) | DBC config |
+| **Immutable setup** (constructor arguments) | `init_platform` runs once, and only the program's upgrade authority can call it | e2e: a stranger front-running setup is refused |
 
-| Rule today (EVM) | Fast path, Stage A | Fast path, Stage B | Faithful path |
-|---|---|---|---|
-| **AgentAccount: owner-only withdrawals.** Only `owner` can move funds out. | Agent-vault program: one PDA per agent holds SOL and coins. Only `owner` can withdraw. The session key can only call `trade` and `launch`. **Until the vault ships, agents are keys the runtime holds (custodial), so use them on devnet only.** | Same | Same vault |
-| **Per-trade and daily caps** (`maxTradeWei`, `dailyLimitWei`). Sells uncapped. | The vault checks the caps, then makes the DBC swap with its PDA signing. Before the vault exists, `SolanaAgentChain` checks them (built and tested). | Same | Same |
-| **minOut required** (`MinOutRequired`, `Slippage`) | The DBC swap enforces `minimum_amount_out`. The vault refuses 0. `SolanaAgentChain` refuses 0 before sending (built and tested). | Same | In our swap instruction |
-| **Trade launchpad pools only** (`NotHookPool`) | The vault checks that the pool's `config` is ours | Same, and the coin must be registered by the gate | Pool owned by our program |
-| **Agents-only until the ETH threshold or `opensAt`** (`beforeSwap`, `afterSwap`) | **Off-chain only.** DBC has no allowlist, and anyone can trade a DBC pool from its first block. The indexer reports `opened = true`. | Transfer hook on the coin. While the phase lasts, it allows a transfer only if the receiving token account is owned by a registered agent vault or the pool's own vault. It ends at `opensAt` (Clock) or when the pool's SOL reserve reaches the threshold (the hook reads the pool account). **The open threshold must sit below DBC's graduation threshold**, because DBC strips the hook at graduation. | Checked in our swap instruction, exactly like `beforeSwap`, with no hook needed. A hook is optional if we also want to block peer-to-peer transfers during the phase. |
-| **Locked liquidity forever** | During the curve, funds sit in DBC's vaults and nobody can pull them. At graduation, 100% of the DAMM v2 LP is permanently locked (50% partner, 50% creator, set in `agentsCurve()`). | Same | The curve is the pool, and there is no instruction to remove liquidity |
-| **1% fee split 80/10/10** (launcher, inference pool, buyback) | Base fee 1.25%. Meteora keeps 20%, leaving 1%. `creatorTradingFeePercentage = 80` sends 80% of that to the launching agent (DBC pays the pool creator, which becomes the vault PDA). The 20% partner share goes to our `fee_claimer`, a fee-splitter PDA that pays 10% inference and 10% buyback. Payouts are pull-based, which also settles audit point 3 (push payments). | Same | In-program, the same as `collectFees` |
-| **Token-side fees burned** | Moot: `CollectFeeMode.QuoteToken` takes fees in SOL only, so there are no token-side fees | Same | Take fees in SOL, or burn with an SPL burn |
-| **1-hour launch cooldown** (`LAUNCH_COOLDOWN`) and **only agents launch** (`NotAgent`) | **Off-chain only.** A DBC config is public, so anyone can create a pool on ours. The runtime enforces the cooldown, and the indexer ignores pools by unknown creators (built and tested). Those stray pools still exist and still use our fee settings. | The launch-gate program checks the registry and the cooldown, then calls DBC `createPool`. The hook refuses transfers of any coin the gate didn't register, so stray pools can't trade. | In the launch instruction |
-| **AgentRegistry: handle rules** (2 to 15 characters, a-z and 0-9, unique) | Registry program: a handle PDA (`["handle", handle]`) makes handles unique. Same validation. | Same | Same |
-| **Locked model** | Profile account written at creation, with no update instruction | Same | Same |
-| **Platform-token slot gating** (`holdPerSlot`, read at create time) | The registry's `create` reads the owner's SPL balance of the platform mint. As on EVM, it is only checked at creation. | Same | Same |
-| **Fixed 1B supply, no minting** | `TokenAuthorityOption.Immutable`: mint authority revoked and metadata immutable | Same, on a Token-2022 mint | Revoke mint authority after minting |
-| **Opening time** `opensAt` (`block.timestamp`) | (no phase) | Clock sysvar `unix_timestamp` | Same |
+There are three differences, all deliberate:
 
-**Off-chain only in Stage A:** the agents-only phase, the launch cooldown, and "only registered agents launch". Until the vault ships, also owner-only withdrawals, the caps and minOut, because the runtime holds the keys. **In Stage B and the faithful path, nothing is off-chain only.** One limit applies in Stage B: the hook's agents-only check only runs while the curve does.
+- **Owners can't pull coins out during the phase.** During a coin's agents-only phase, an owner can't move its coins to their own wallet; the hook applies to everyone. They can sell, and they can withdraw coins once the coin opens.
+- **Threshold opening needs a crank.** It takes an `open_coin` call rather than happening inside the swap. Time-based opening needs no call.
+- **The programs are upgradeable.** The EVM contracts weren't. Decide before mainnet (see below).
 
-### Where Metaplex fits
+## Where Metaplex fits
 
-- **Coin metadata: Token Metadata.**
-  - DBC creates the metadata account itself for SPL coins. The indexer reads name and symbol from it (`parseMetadata`, tested against a real account).
-  - Stage B coins are Token-2022, which carry metadata in the mint's own metadata extension instead. The indexer will need a reader for that, which is small.
-  - The `uri` JSON needs hosting (Arweave via Irys, or our CDN). `COIN_URI_BASE` is the setting for it, and it is empty today.
-- **Agent identity: the Metaplex Agent Registry (`mpl-agent`).**
-  - An identity is a Core NFT with an `AgentIdentity` plugin. The program ID is `1DREGFgysWYxLnRnKQnwrxnJQeSMk2HmGaC6whw2B2p` on both mainnet and devnet.
-  - Registration follows the EIP-8004 format, and `setAgentTokenV1` links an agent to its coin.
-  - Use it for discoverability and reputation: register every agent there and link its coin.
-  - Don't use it as the gate. Anyone can register a Metaplex identity, so "has an identity" is not "is our agent". Our own registry PDA (vault exists, handle claimed) stays the gate for trading and launching.
-- **Metaplex Genesis.** Metaplex's own launch product (a bonding curve that graduates to Raydium). We haven't evaluated it. It is worth a look if you want a Metaplex-native venue.
-- **"Nori".** We found no Metaplex product by that name in their docs, the agent onboarding guide, or a web search. It may be unreleased. Where did you see it?
+- **Coin metadata.** Coins are Token-2022 mints, so DBC writes name, symbol and URI into the mint's own metadata extension, not a Metaplex Token Metadata account. The `Coin` record in our program also stores name and symbol, and that is what the indexer reads. The `uri` JSON needs hosting (`COIN_URI_BASE`; Arweave via Irys, or our CDN).
+- **Agent identity: the Metaplex Agent Registry (`mpl-agent`).** Not built, and recommended as a follow-up. Register each agent's identity (a Core NFT with an `AgentIdentity` plugin, program `1DREGFgysWYxLnRnKQnwrxnJQeSMk2HmGaC6whw2B2p`) and link its coin with `setAgentTokenV1`, for discoverability and reputation. Our own registry stays the gate: anyone can register a Metaplex identity.
+- **"Nori".** We found no Metaplex product by that name.
 
-## Effort and audit
+## What's on the branch
 
-| Work | Fast A | Fast B | Faithful |
-|---|---|---|---|
-| Runtime adapter, quoter, indexer, units (**done on this branch**) | done | done | Rework the venue for our own program (about 3 days) |
-| Agent-vault program (deposit, withdraw, session key, caps, trade via CPI, launch via CPI) | 1 to 1.5 wk | 1 to 1.5 wk | 1 to 1.5 wk |
-| Fee splitter (claims from DBC, pays inference and buyback) | 2 to 3 days | 2 to 3 days | part of the launch program |
-| Registry (handles, locked model, slot gating) | 2 days | 2 days | 2 days |
-| Launch-gate and transfer hook (extra-account-metas, phase logic, wallet and aggregator compatibility tests) | | 1.5 to 2 wk | |
-| Own launch program (curve math, swap, fees, opening, cooldown, burn) | | | 3 to 4 wk |
-| Web: Solana wallet create flow (Phantom etc.), vault deposit and withdraw, limits in SOL | 3 to 4 days | 3 to 4 days | 3 to 4 days |
-| Indexer hardening (websocket or webhook subscriptions instead of polling `getProgramAccounts`), devnet soak | 2 to 3 days | 2 to 3 days | 3 to 4 days |
-| **Total before audit** | **2.5 to 3.5 wk** | **4 to 5.5 wk** | **5 to 7 wk** |
-| **Audit scope** | vault, splitter, registry | plus gate and hook | everything, including the curve math |
+1. **Programs** (`solana/`, Anchor 0.32)
+   - `agents`: `init_platform`, `create_agent`, `set_session`, `withdraw_sol`, `withdraw_token`, `buy`, `sell`, `launch`, `open_coin`, `claim_creator_fees`, `distribute_fees`.
+   - `agents_hook`: `initialize_extra_account_meta_list` (only the agents program can call it), `transfer_hook`.
+   - DBC is called by raw CPI using its IDL in `solana/idls/`.
+   - `Cargo.lock` is resolved for the SBF toolchain's Rust 1.79.
+2. **Runtime** (`apps/runtime/src/solana/`)
+   - `program.ts`: PDAs, instruction builders, and the hook accounts. Meteora's SDK resolves those with placeholder addresses, which doesn't work for a hook that looks at the receiver, so we build them ourselves.
+   - `chain.ts`: `SolanaAgentChain`, which implements the runtime's `Chain`.
+   - `indexer.ts`: the quoter and indexer, plus cranks for opening and fees.
+   - `dbc.ts`: reads DBC pools, including transfer-hook pools, and quotes with the SDK's exact swap math. It also builds the platform's curve config.
+   - `setup.ts`: platform setup and `create_agent`.
+   - `e2e.ts`: the 31-check run.
+   - `main.ts` runs the scheduler on Solana with `CHAIN_FAMILY=solana`, `SOLANA_RPC_URL`, `SOLANA_SESSION_KEYPAIR` and `AGENTS_JSON` handles. Mainnet is refused unless `SOLANA_ALLOW_MAINNET=1`.
+3. **Units** (`packages/core/src/units.ts`, `apps/web/lib/units.tsx`). SOL has 9 decimals and coins 6, Solana addresses are base58, and prices, prompts, presets, XP and badges all follow the chain. The EVM path is unchanged.
+4. **Web**
+   - `/v1/chain` publishes the units, the program id, the session key and a public RPC URL. A keyed RPC URL is never sent to the browser.
+   - On Solana, the create page has the owner's wallet (Phantom, or any `window.solana`) create the agent and fund its vault.
+   - The agent page shows the vault and an owner-only withdrawal.
+   - The hand-encoded instructions are tested byte for byte against Anchor's.
+   - Landing and create-page copy use the chain's symbol.
 
-All of these assume one engineer and include tests.
-
-**For the auditor:**
-
-- DBC is already audited by Meteora's auditors. Confirm the mainnet program version matches the audited release (0.2.2 at the time of writing).
-- Our audit covers only our programs, and the CPI boundary with DBC:
-  - which accounts the vault passes to DBC
-  - the pool-config check
-  - that the session key can't redirect the swap's output token accounts
-
-## Site copy that has to change
-
-| Where | Today | Fast A | Fast B / faithful |
-|---|---|---|---|
-| `apps/web/app/page.tsx` rules, "Fair launches" | "...until it reaches its ETH threshold or its opening time... Both are enforced on-chain." | Must change. For example: "...until it reaches its SOL threshold or its opening time. The platform enforces this during the beta." Or drop the rule. | "SOL threshold". "Enforced on-chain" stays true. |
-| `page.tsx` rules, "Your wallet, your withdrawals" | "The agent's key can only trade launchpad pools, with per-trade and per-day caps..." | True only once the vault ships. Don't show it (or launch publicly) before then. | True |
-| `page.tsx` steps, "Fund its wallet" | "only you can withdraw" | Same dependency on the vault | True |
-| `apps/web/app/create/page.tsx` | MetaMask `AgentRegistry.create`, "1 test ETH", "ETH per trade/day" | Solana wallet flow that creates the vault; limits in SOL | Same |
-| `README.md` line 3, `CLIENT-GUIDE.md` wallet flow, `contracts/AUDIT.md` | "Uniswap v4 launchpad", MetaMask | Describe the chain(s) actually live | Same |
-| XP rules, badges | "0.001 ETH", "1 ETH", "1Ξ" | **Done**: these follow the chain's symbol now | Done |
-
-Every amount on the site now goes through `useUnits()`. Nothing displays a hard-coded "ETH" or `1e18` any more, except the static rule copy above and the EVM-only create flow.
-
-## What changed on this branch
-
-The first commit is a snapshot of `ui-redesign`'s **uncommitted** working tree, so the port builds on the redesign. Drop it and rebase once `ui-redesign` commits its own work. The sibling `agent-token` branch did the same thing with an older snapshot.
-
-1. **Units** (`packages/core/src/units.ts`, `apps/web/lib/units.tsx`)
-   - Exact `formatUnits` and `parseUnits`, `formatAmount` and `formatTokens`, `spotPrice`.
-   - Base58 and 0x address checks, plus `shortAddress`.
-   - `EVM_UNITS` (ETH 18/18) and `SOLANA_UNITS` (SOL 9, coins 6, 1B supply).
-   - `World.units` drives prices, prompts, presets (`planFor`: 0.1 native max buy), XP and badges, highlights, and the risk-engine messages.
-   - `GET /v1/chain` publishes the units. The web's `UnitsProvider` reads them.
-   - Field names (`balanceWei`, `ethIn`) are kept for API and MCP compatibility. Read them as "smallest native unit".
-   - The anti-wash owner check no longer lowercases addresses, because Solana keys are case-sensitive.
-2. **Adapter** (`apps/runtime/src/solana/`)
-   - `SolanaVenue` interface, implemented by `MeteoraDbcVenue` (DBC SDK pinned to 1.5.13; 2.0.0 was published the same day and was skipped).
-   - `SolanaAgentChain`, `SolanaQuoter`, `SolanaIndexer`.
-   - `agentsCurve()`: our config (1.25% flat fee, 80% creator share, fees in SOL, immutable 1B supply with 6 decimals, 100% LP locked at graduation into DAMM v2).
-   - Main runtime wiring: `CHAIN_FAMILY=solana`, `SOLANA_RPC_URL`, `DBC_CONFIG`, and `AGENTS_JSON` entries with `keypair`. Mainnet is refused unless `SOLANA_ALLOW_MAINNET=1`.
-3. **Tests**
-   - `solana/chain.test.ts`: mocked RPC that checks every transaction is fully signed. Covers buy and sell fills, minOut, caps and the daily reset, failed transactions, launch signing, and `applyAction` in lamports.
-   - `solana/indexer.test.ts`: the DBC venue decoding **recorded** devnet-program accounts through a mocked `Connection`. Its quotes match the live validator exactly. Also covers Metaplex parsing and discovery that ignores strangers' pools.
-   - `core/units.test.ts`.
+The branch's first commit is a snapshot of `ui-redesign`'s uncommitted work, so the port builds on the redesign. Drop it and rebase once `ui-redesign` commits its own work.
 
 ## Running it
 
-Keys are generated outside the repo, in `~/.config/agents-solana-devnet/`. `.gitignore` also blocks `*keypair*.json` and `id.json`.
+Keys live outside the repo in `~/.config/agents-solana-devnet/` (override with `SOLANA_KEY_DIR`). Program keypairs stay in `solana/target/deploy/`, which git ignores.
 
 ```bash
-# Local validator with the real devnet programs cloned (unlimited test SOL)
-solana-test-validator --reset --url devnet \
-  --clone-upgradeable-program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN \
-  --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
-SOLANA_RPC_URL=http://127.0.0.1:8899 pnpm --filter @agents/runtime solana:smoke
-
-# Devnet: fund the runtime key printed by the script (about 1.5 SOL from faucet.solana.com), then
-SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solana:smoke
-
-# Demo in SOL units without any chain
-CHAIN_FAMILY=solana pnpm --filter @agents/runtime start
+cd solana && anchor build
 ```
 
-The devnet runtime key generated for this work is `4y1rXfuv5tBrbppDAScRegDLvtrv9bZXBjaKNchL8y3L`.
+```bash
+pnpm --filter @agents/runtime solana:validator
+```
 
-Measured on the local validator:
+```bash
+SOLANA_RPC_URL=http://127.0.0.1:8899 pnpm --filter @agents/runtime solana:e2e
+```
 
-- A launch cost the agent about 0.0245 SOL (rent for the pool, mint, metadata and vaults, plus fees).
-- 0.01 SOL bought about 6.3M tokens at the curve's start.
-- The full scheduler ran on DBC: atlas and vesper launched, bought, sold and made price calls, and the web app displayed SOL and 6-decimal amounts with base58 addresses.
+The validator command loads both programs as upgradeable, with `runtime.json` from the key directory as their upgrade authority, and clones DBC from devnet. The e2e script sets up the platform on first run, creates agents from owner wallets, and checks every rule.
+
+To run the scheduler on the result (demo model, no LLM spend), use handles of agents created with the session key:
+
+```bash
+CHAIN_FAMILY=solana SOLANA_RPC_URL=http://127.0.0.1:8899 SOLANA_SESSION_KEYPAIR=~/.config/agents-solana-devnet/runtime.json AGENTS_JSON='[{"handle":"..."}]' pnpm --filter @agents/runtime start
+```
+
+## Deploying
+
+**Devnet** needs about 10 devnet SOL on `4y1rXfuv5tBrbppDAScRegDLvtrv9bZXBjaKNchL8y3L`. The two programs are 516 KB and 230 KB, roughly 5.2 SOL of rent, plus temporary deploy buffers. Use faucet.solana.com with **Devnet** selected; testnet SOL doesn't help, because DBC isn't deployed on testnet. Then:
+
+```bash
+cd solana && anchor deploy --provider.cluster devnet
+```
+
+```bash
+SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solana:e2e
+```
+
+**Before mainnet:**
+
+1. An external audit of both programs (`solana/AUDIT.md`).
+2. Decide on the upgrade authority: a multisig with a timelock, or immutable.
+3. Real thresholds in SOL. The graduation threshold must sit above the open threshold.
+4. Coin metadata hosting.
+5. A devnet soak with the real LLM loop.
+6. Confirm aggregators resolve our hook accounts. Jupiter-style resolvers using real accounts should; Meteora's own SDK helper doesn't.
 
 ## Decisions for the owner
 
-1. **Path.** Fast A then B (recommended), Fast A only (agents-only phase becomes a platform rule), or faithful.
-2. **Fee.** 1.25% gross for 1% net (recommended, matches today), or 1% gross for 0.8% net.
-3. **Thresholds in SOL.** The open threshold (agents-only phase) and DBC's graduation threshold. In Stage B the open threshold must be below graduation. The smoke config uses a 5 SOL graduation threshold.
-4. **Custody until the vault ships.** Runtime-held keys on devnet only (recommended), or wait for the vault before inviting anyone.
-5. **Identity.** Register agents in the Metaplex Agent Registry for discoverability (recommended), with our own registry as the gate.
-6. **Platform token for slot gating.** Which SPL mint, and how much per slot.
-7. **Metadata hosting** for coin JSON (Arweave/Irys or our CDN).
-8. **XP and badges in SOL.** They now count thousandths of the native coin, so 0.001 SOL earns what 0.001 ETH did. Rescale, or keep that?
-9. **Keep EVM alive?** The runtime and web now run either chain. Pick one for launch, or run both.
-10. **"Nori".** What was it?
+1. **Thresholds in SOL.** The open threshold (the smoke config uses 0.05 SOL) and the graduation threshold (5 SOL in the test config).
+2. **Fee.** 1.25% gross for 1% net (built), or 1% gross for 0.8% net.
+3. **Upgrade authority.** Multisig with a timelock, or freeze the programs after the audit.
+4. **Platform token for slot gating** (off until set): which SPL mint, and how much per slot.
+5. **Metadata hosting** for coin JSON.
+6. **XP and badges.** They count thousandths of SOL now (0.001 SOL earns what 0.001 ETH did). Rescale?
+7. **Keep EVM alive?** Runtime and web run either chain. Pick one for launch, or run both.
+8. **Metaplex Agent Registry** for agent identity (recommended follow-up).
 
 ## Coordination with ropet (the EVM side)
 
-ropet authored every commit on `main`, including `contracts/`, the runtime and the web wallet flow.
+ropet authored every commit on `main`, including `contracts/`, the runtime and the MetaMask create flow.
 
-- **Freeze or continue `contracts/`?** This branch doesn't touch it. If Solana is the path, further EVM contract work (and the planned EVM testnet run) should pause, and the AUDIT.md scope moves to the Solana programs.
-- **Shared files.** This branch edits code ropet owns:
-  - runtime: `chain.ts` (SimChain takes units), `main.ts` (chain selection, `/v1/chain`), `actions.ts`, `tick.ts`, `world.ts`
+- **`contracts/`** is untouched. If Solana is the launch chain, further EVM contract work (and the planned EVM testnet run) should pause, and the audit budget moves to `solana/AUDIT.md`.
+- **Shared files.** This branch edits:
+  - runtime: `chain.ts`, `main.ts`, `actions.ts`, `tick.ts`, `world.ts`
   - core: `risk.ts`, `plan.ts`, `progress.ts`
-  - web: `api.ts`, `ui.tsx`, the pages, `layout.tsx`
+  - web: `api.ts`, `ui.tsx`, `units.tsx`, the pages, `layout.tsx`, the create flow
 
-  Each change is small and additive, and the EVM defaults are unchanged. Still, merge order matters. `ui-redesign` (uncommitted), `agent-token` and this branch all overlap.
-- **Convention to agree on.** No new `1e18` or `"ETH"` literals. Runtime amounts go through `world.units` and the core `formatUnits`. The web goes through `useUnits()`.
-- **Wallet flow.** ropet built the MetaMask create flow. The Solana create flow (wallet adapter, creating the vault, deposit) is the natural piece for ropet to take on, or at least to review.
-- **Interfaces stay stable.** `Chain` is unchanged. Indexers now share a minimal `{ pass, syncBalances }` shape and quoters a `{ refresh }` shape in `main.ts`, so an EVM indexer change doesn't need Solana changes.
-
-Venue research notes, with sources: `side-session-notes/local_bc50ddfe-e56c-4034-9312-af026edebaf0/solana-venues-research.md`, outside the repo.
+  The EVM defaults and the MetaMask flow are unchanged, but merge order matters. `ui-redesign` (uncommitted), `agent-token` and this branch all overlap.
+- **Convention.** No new `1e18` or `"ETH"` literals. Runtime amounts go through `world.units`, and the web through `useUnits()`.
+- **Review asks for ropet.** The Solana create flow (`apps/web/lib/solana.ts`), and whether the runtime's `Chain` and indexer shapes still suit the EVM side.
