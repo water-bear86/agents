@@ -1,7 +1,7 @@
-import { emptyCounters, type ActivityCounters, type Fill, type Position, type TradingPlan } from "@agents/core";
+import { EVM_UNITS, emptyCounters, type ActivityCounters, type ChainUnits, type Fill, type Position, type TradingPlan } from "@agents/core";
 
 export interface Agent {
-  account: string; // AgentAccount address
+  account: string; // AgentAccount address (EVM) or agent vault / wallet public key (Solana)
   owner: string;
   handle: string;
   name: string;
@@ -100,6 +100,8 @@ export interface Debate {
 
 /** In-memory world state; the indexer keeps it in sync with chain events in prod. */
 export class World {
+  /** Decimals and symbols of the chain the world runs on; every amount below is in its smallest units. */
+  units: ChainUnits = EVM_UNITS;
   agents = new Map<string, Agent>();
   posts: Post[] = [];
   coins = new Map<string, Coin>();

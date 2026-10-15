@@ -3,7 +3,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { PRESETS, closedTrades, emptyCounters, progress, realizedPnl, type Progress, type Style } from "@agents/core";
+import { PRESETS, closedTrades, emptyCounters, milliNative, oneNative, planFor, progress, realizedPnl, formatUnits, unitsFor, unitsToJson, type Progress, type Style } from "@agents/core";
 import { LlmClient } from "@agents/llm";
 import { Tracer, buildTree, type SpanRecord, type SpanSink } from "@agents/trace";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
@@ -18,7 +18,6 @@ import { World, type Agent } from "./world.js";
 const env = process.env;
 const PORT = Number(env.PORT ?? 4100);
 const demo = !env.OPENROUTER_API_KEY;
-const E = 10n ** 18n;
 
 class Live implements SpanSink {
   spans = new Map<string, SpanRecord>();
@@ -39,6 +38,9 @@ class Live implements SpanSink {
 const live = new Live();
 const tracer = new Tracer([live]);
 const world = new World();
+// CHAIN_FAMILY=solana switches amounts to lamports and 6-decimal SPL coins (SimChain in demo, SolanaAgentChain on-chain).
+world.units = unitsFor(env.CHAIN_FAMILY === "solana" ? "solana" : "evm");
+const E = oneNative(world.units);
 const onchain = !!(env.RPC_URL && env.SESSION_KEY && env.POOL_MANAGER && env.REGISTRY && env.HOOK);
 let chain: Chain;
 let quoter: Quoter;
@@ -51,7 +53,7 @@ if (onchain) {
   quoter = poolQuoter = new PoolQuoter(pub, env.POOL_MANAGER as Address, env.HOOK as Address);
   indexer = new Indexer(pub, env.REGISTRY as Address, env.HOOK as Address, world, BigInt(env.START_BLOCK ?? 0));
 } else {
-  const sim = new SimChain();
+  const sim = new SimChain(world.units);
   chain = sim;
   quoter = sim;
 }
@@ -74,7 +76,7 @@ const demoFetch = (() => {
   return (async (_u: string, init: RequestInit) => {
     const req = JSON.parse(String(init.body));
     const ctx: string = req.messages[1].content;
-    const tokens = [...ctx.matchAll(/^(\w+) (0x\w+) launcher=(\w+) [^\n]*$/gm)].filter((m) => !m[0].includes("your fleet"));
+    const tokens = [...ctx.matchAll(/^(\w+) (\S+) launcher=(\w+) [^\n]*$/gm)].filter((m) => !m[0].includes("your fleet"));
     const me = /@(\w+)/.exec(req.messages[0].content)?.[1] ?? "x";
     const pick = tokens[(i + me.length) % Math.max(1, tokens.length)];
     const actions: Action[] = [];
@@ -106,7 +108,7 @@ const demoFetch = (() => {
 const llm = new LlmClient({ apiKey: env.OPENROUTER_API_KEY ?? "demo", fetch: demo ? demoFetch : undefined, tracer });
 
 function addAgent(handle: string, owner: string, style: Style, persona: string, modelId = demo ? "demo/model" : "deepseek/deepseek-v4.1-flash", external = false, account?: string): Agent {
-  const a: Agent = { account: account ?? `0x${createHash("sha256").update(handle).digest("hex").slice(0, 40)}`, owner, handle, name: handle, persona, modelId, plan: { ...PRESETS[style] }, awake: true, external, createdAt: Date.now() };
+  const a: Agent = { account: account ?? `0x${createHash("sha256").update(handle).digest("hex").slice(0, 40)}`, owner, handle, name: handle, persona, modelId, plan: planFor(style, world.units), awake: true, external, createdAt: Date.now() };
   world.agents.set(a.account, a);
   if (!onchain) world.balances.set(a.account, 1n * E); // on-chain balances come from the indexer
   return a;
@@ -131,7 +133,7 @@ if (demo && !onchain && !restored) {
 // AGENTS_JSON='[{"account":"0x..","owner":"0x..","handle":"atlas","persona":"..","style":"momentum","modelId":"deepseek/deepseek-v4.1-flash"}]'
 if (onchain) {
   for (const a of JSON.parse(env.AGENTS_JSON ?? "[]") as { account: string; owner: string; handle: string; persona: string; style: Style; modelId: string }[]) {
-    world.agents.set(a.account, { account: a.account, owner: a.owner, handle: a.handle, name: a.handle, persona: a.persona, modelId: a.modelId, plan: { ...PRESETS[a.style] }, awake: true, external: false, createdAt: Date.now() });
+    world.agents.set(a.account, { account: a.account, owner: a.owner, handle: a.handle, name: a.handle, persona: a.persona, modelId: a.modelId, plan: planFor(a.style, world.units), awake: true, external: false, createdAt: Date.now() });
   }
 }
 
@@ -243,7 +245,7 @@ const scoring = () => {
     debatesWon: debates.get(a.account)?.won ?? 0,
     likesReceived: likes.get(a.account) ?? 0,
     followers: followers.get(a.account) ?? 0,
-  });
+  }, world.units);
   const ranked = [...world.agents.values()].sort((x, y) => {
     const d = (pnl.get(y.account)?.realizedWei ?? 0n) - (pnl.get(x.account)?.realizedWei ?? 0n);
     return d > 0n ? 1 : d < 0n ? -1 : 0;
@@ -260,7 +262,7 @@ const rankSnapshots: { at: number; rank: Map<string, number> }[] = [];
 // Highlights: diff each agent's progression against the previous pass.
 let seen: Map<string, { level: number; badges: Set<string>; closes: number; streak: number }> | null = null;
 const seenOpened = new Set<string>();
-const MILLI_ETH = 10n ** 15n;
+const MILLI_ETH = milliNative(world.units);
 
 function updateGame(sc: Scoring) {
   const now = Date.now();
@@ -279,7 +281,7 @@ function updateGame(sc: Scoring) {
     let celebrated = false;
     for (const b of p.badges) if (b.earned && !was.badges.has(b.id)) { world.highlight({ agent: a.account, kind: "badge", text: `earned ${b.name}: ${b.how.toLowerCase()}` }); celebrated = true; }
     if (p.level > was.level) world.highlight({ agent: a.account, kind: "level", text: `reached level ${p.level}, ${p.title}` });
-    for (const c of closes.slice(was.closes)) if (c >= 10n * MILLI_ETH) world.highlight({ agent: a.account, kind: "big_win", text: `closed a trade for +${(Number(c) / 1e18).toFixed(4)} ETH` });
+    for (const c of closes.slice(was.closes)) if (c >= 10n * MILLI_ETH) world.highlight({ agent: a.account, kind: "big_win", text: `closed a trade for +${Number(formatUnits(c, world.units.nativeDecimals)).toFixed(4)} ${world.units.nativeSymbol}` });
     if (!celebrated && p.streak >= 3 && p.streak > was.streak) world.highlight({ agent: a.account, kind: "streak", text: `is on a ${p.streak}-trade winning streak` });
   }
   for (const c of world.coins.values()) {
@@ -313,8 +315,9 @@ createServer(async (req, res) => {
   try {
     if (v1 !== "v1") return send(res, 404, { error: "not found" });
 
+    if (resource === "chain") return send(res, 200, { units: unitsToJson(world.units), mode: onchain ? "onchain" : "sim" });
     if (resource === "feed") return send(res, 200, { posts: world.feed(Number(url.searchParams.get("limit") ?? 50)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
-    if (resource === "coins") return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ ...c, launcherHandle: world.agents.get(c.launcher)?.handle, price: Number(E) / Number(quoter.quoteBuy(c.token, E / 1000n) * 1000n || 1n) })) });
+    if (resource === "coins") return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ ...c, launcherHandle: world.agents.get(c.launcher)?.handle, price: priceOf(quoter, c.token, world.units) })) });
     if (resource === "decisions") {
       const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 40));
       return send(res, 200, { decisions: world.decisions.slice(-limit).reverse().map(decisionView) });
@@ -337,7 +340,7 @@ createServer(async (req, res) => {
       const acct = who ? world.agentByHandle(who)?.account : undefined;
       const rows = world.predictions.filter((p) => !who || p.agent === acct).slice(-limit).reverse();
       return send(res, 200, {
-        predictions: rows.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle, symbol: world.coins.get(p.token)?.symbol, priceNow: p.outcome ? undefined : priceOf(quoter, p.token) })),
+        predictions: rows.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle, symbol: world.coins.get(p.token)?.symbol, priceNow: p.outcome ? undefined : priceOf(quoter, p.token, world.units) })),
       });
     }
     if (resource === "debates") {

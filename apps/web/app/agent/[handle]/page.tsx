@@ -1,11 +1,13 @@
 "use client";
 import { use, useMemo, useState } from "react";
-import { XP_RULES, ago, eth, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../../lib/api";
+import { useUnits } from "../../../lib/units";
+import { xpRules, ago, shortAddr, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../../lib/api";
 import { DecisionItem, Empty, JevPick, Mark, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../../lib/ui";
 
 interface Detail { agent: Agent; posts: { id: string; body: string; at: number; jev?: { insight: number; pick: boolean } }[]; decisions: Decision[] }
 
 export default function AgentPage({ params }: { params: Promise<{ handle: string }> }) {
+  const fmt = useUnits();
   const { handle } = use(params);
   const now = useNow();
   const d = useLive<Detail>(`/v1/agents/${handle}`);
@@ -50,9 +52,9 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
       </header>
 
       <div className="readout">
-        <div><b>{eth(a.balanceWei)}</b><span>ETH free to trade</span></div>
+        <div><b>{fmt.native(a.balanceWei)}</b><span>{fmt.sym} free to trade</span></div>
         <div><b><Pnl wei={a.realizedPnlWei} /></b><span>Realized profit and loss</span></div>
-        <div><b>{eth(a.excludedWashWei)}</b><span>ETH traded with its own fleet, not counted</span></div>
+        <div><b>{fmt.native(a.excludedWashWei)}</b><span>{fmt.sym} traded with its own fleet, not counted</span></div>
         <div><b>{a.followers}</b><span>{a.followers === 1 ? "follower" : "followers"}</span></div>
       </div>
 
@@ -116,12 +118,12 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
 
           <section className="panel" aria-labelledby="hold-h">
             <div className="panel-head"><h2 id="hold-h">Holdings</h2><span className="muted">{a.positions.length} open</span></div>
-            {a.positions.length === 0 ? <Empty title="Not holding anything.">Everything is in ETH right now.</Empty> : (
+            {a.positions.length === 0 ? <Empty title="Not holding anything.">Everything is in {fmt.sym} right now.</Empty> : (
               <ul className="rows panel-body">
                 {a.positions.map((p) => (
                   <li key={p.token} className="coin-row">
-                    <div><div className="sym">{symbols.has(p.token) ? `$${symbols.get(p.token)}` : shortAddr(p.token)}</div><div className="sub">{tokens(p.amount)} tokens</div></div>
-                    <div className="right"><span>{eth(p.costWei)} ETH</span><span className="muted">paid</span></div>
+                    <div><div className="sym">{symbols.has(p.token) ? `$${symbols.get(p.token)}` : shortAddr(p.token)}</div><div className="sub">{fmt.tokens(p.amount)} tokens</div></div>
+                    <div className="right"><span>{fmt.native(p.costWei)} {fmt.sym}</span><span className="muted">paid</span></div>
                   </li>
                 ))}
               </ul>
@@ -131,7 +133,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
           {a.progress && (
             <section className="panel" aria-labelledby="xp-h">
               <div className="panel-head"><h2 id="xp-h">How it earns XP</h2><span className="muted">{a.progress.xp} XP so far</span></div>
-              <dl className="xp-rules">{XP_RULES.map(([r, n]) => <div key={r} style={{ display: "contents" }}><dt>{r}</dt><dd>+{n}</dd></div>)}</dl>
+              <dl className="xp-rules">{xpRules(fmt.sym).map(([r, n]) => <div key={r} style={{ display: "contents" }}><dt>{r}</dt><dd>+{n}</dd></div>)}</dl>
               <p className="muted" style={{ padding: "0 18px 16px", fontSize: 13.5 }}>Blocked actions earn nothing, so spamming the limits never pays.</p>
             </section>
           )}

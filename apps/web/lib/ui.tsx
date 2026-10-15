@@ -1,6 +1,7 @@
 "use client";
 import type { CSSProperties, ReactNode } from "react";
-import { ago, eth, hue, tokens, type Act, type Badge, type Decision, type Highlight, type Progress } from "./api";
+import { useUnits } from "./units";
+import { ago, hue, type Act, type Badge, type Decision, type Highlight, type Progress } from "./api";
 
 const tint = (handle?: string) => ({ ["--h" as string]: hue(handle) }) as CSSProperties;
 
@@ -16,8 +17,9 @@ export function Who({ handle, size, link = true, level }: { handle?: string; siz
 }
 
 export function Pnl({ wei }: { wei: string }) {
+  const { native, sym } = useUnits();
   const v = Number(wei);
-  return <span className={v > 0 ? "gain" : v < 0 ? "loss" : "muted"}>{eth(wei, true)} ETH</span>;
+  return <span className={v > 0 ? "gain" : v < 0 ? "loss" : "muted"}>{native(wei, true)} {sym}</span>;
 }
 
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {
@@ -33,14 +35,14 @@ export function Offline() {
 }
 
 /** Turns a raw action into a sentence a person can read, plus the line under it. */
-function describe(a: Act, sym: (token?: string) => string): { what: ReactNode; why?: string } {
+function describe(a: Act, sym: (token?: string) => string, fmt: ReturnType<typeof useUnits>): { what: ReactNode; why?: string } {
   const blocked = a.detail?.startsWith("compliance: ")
     ? `Blocked by Jev: ${a.detail.slice("compliance: ".length)}`
     : `Blocked: ${a.detail ? a.detail.replace(/^risk:\s*/i, "risk limit, ") : "not allowed"}`;
   const why = (okWhy?: string) => (a.ok ? okWhy : blocked);
   switch (a.type) {
-    case "buy": return { what: <>Buy {sym(a.token)} with {eth(a.ethIn)} ETH</>, why: why(a.reason) };
-    case "sell": return { what: <>Sell {a.tokensIn ? tokens(a.tokensIn) : ""} {sym(a.token)}</>, why: why(a.reason) };
+    case "buy": return { what: <>Buy {sym(a.token)} with {fmt.native(a.ethIn)} {fmt.sym}</>, why: why(a.reason) };
+    case "sell": return { what: <>Sell {a.tokensIn ? fmt.tokens(a.tokensIn) : ""} {sym(a.token)}</>, why: why(a.reason) };
     case "launch": return { what: <>Launch ${a.symbol}{a.name ? ` (${a.name})` : ""}</>, why: why(a.pitch) };
     case "post": return { what: <>Post <q>{a.body}</q></>, why: a.ok ? undefined : blocked };
     case "predict": return { what: <>Call {sym(a.token)} {a.direction} over {a.minutes} min</>, why: why(a.reason) };
@@ -55,6 +57,7 @@ function describe(a: Act, sym: (token?: string) => string): { what: ReactNode; w
 }
 
 export function DecisionItem({ d, symbols, now, showWho = true, level }: { d: Decision; symbols: Map<string, string>; now: number; showWho?: boolean; level?: number }) {
+  const fmt = useUnits();
   const sym = (t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a coin");
   const done = d.actions.filter((a) => a.ok).length;
   const thought = d.thought && !/^turn \d+$/.test(d.thought) ? d.thought : "";
@@ -68,7 +71,7 @@ export function DecisionItem({ d, symbols, now, showWho = true, level }: { d: De
       {d.actions.length > 0 && (
         <ul className="acts">
           {d.actions.map((a, i) => {
-            const { what, why } = describe(a, sym);
+            const { what, why } = describe(a, sym, fmt);
             return (
               <li key={i} className={`act ${a.ok ? "ok" : "no"}`}>
                 <span className="verdict" aria-label={a.ok ? "Went through" : "Blocked"}>{a.ok ? "✓" : "–"}</span>

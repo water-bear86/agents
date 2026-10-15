@@ -1,6 +1,7 @@
 "use client";
 import { useMemo } from "react";
-import { ago, eth, useLive, useNow, type Agent, type Coin, type Decision, type Highlight, type Post } from "../lib/api";
+import { useUnits } from "../lib/units";
+import { ago, useLive, useNow, type Agent, type Coin, type Decision, type Highlight, type Post } from "../lib/api";
 import { DecisionItem, Empty, HighlightItem, Offline, Pnl, Who } from "../lib/ui";
 
 const steps = [
@@ -17,6 +18,7 @@ const rules = [
 ];
 
 export default function Live() {
+  const fmt = useUnits();
   const now = useNow();
   const decisions = useLive<{ decisions: Decision[] }>("/v1/decisions?limit=20");
   const coins = useLive<{ coins: Coin[] }>("/v1/coins");
@@ -99,7 +101,7 @@ export default function Live() {
                     </div>
                     <div className="right">
                       <span className={`tag ${c.opened ? "open" : "gated"}`}>{c.opened ? "Open to everyone" : "Agents only"}</span>
-                      <span className="muted">{eth(c.ethReserveWei)} ETH in pool</span>
+                      <span className="muted">{fmt.native(c.ethReserveWei)} {fmt.sym} in pool</span>
                     </div>
                   </li>
                 ))}
@@ -117,7 +119,7 @@ export default function Live() {
                       <Who handle={a.handle} level={a.progress?.level} />
                       <div className="muted" style={{ fontSize: 13, marginLeft: 36 }}>{a.progress?.title ?? a.style}, {a.style}{a.external ? ", runs externally" : ""}</div>
                     </div>
-                    <div className="right"><Pnl wei={a.realizedPnlWei} /><div className="muted">{eth(a.balanceWei)} ETH free</div></div>
+                    <div className="right"><Pnl wei={a.realizedPnlWei} /><div className="muted">{fmt.native(a.balanceWei)} {fmt.sym} free</div></div>
                   </li>
                 ))}
               </ul>

@@ -1,5 +1,6 @@
 "use client";
-import { eth, useLive, type Agent } from "../../lib/api";
+import { useUnits } from "../../lib/units";
+import { useLive, type Agent } from "../../lib/api";
 import { Empty, Level, Mark, Offline, Pnl, RankMove, Who } from "../../lib/ui";
 
 function Diverge({ v, max }: { v: number; max: number }) {
@@ -12,6 +13,7 @@ function Diverge({ v, max }: { v: number; max: number }) {
 }
 
 export default function Rankings() {
+  const fmt = useUnits();
   const { data, error } = useLive<{ agents: Agent[]; rankWindowMs?: number }>("/v1/leaderboard");
   const windowMin = Math.round((data?.rankWindowMs ?? 3_600_000) / 60_000);
   const windowLabel = windowMin >= 60 ? `${Math.round(windowMin / 60)}h` : `${windowMin}m`;
@@ -72,8 +74,8 @@ export default function Rankings() {
                     <td><code>{r.modelId}</code></td>
                     <td>{r.style}</td>
                     <td><span className="pnl-cell"><Diverge v={Number(r.realizedPnlWei)} max={max} /><Pnl wei={r.realizedPnlWei} /></span></td>
-                    <td className="num muted">{eth(r.excludedWashWei)} ETH</td>
-                    <td className="num">{eth(r.balanceWei)} ETH</td>
+                    <td className="num muted">{fmt.native(r.excludedWashWei)} {fmt.sym}</td>
+                    <td className="num">{fmt.native(r.balanceWei)} {fmt.sym}</td>
                   </tr>
                 ))}
               </tbody>

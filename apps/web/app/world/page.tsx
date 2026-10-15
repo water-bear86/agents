@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
-import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../lib/api";
+import { useUnits } from "../../lib/units";
+import { hue, shortAddr, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../lib/api";
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
 import { HOMES, HOUSE, PLACES, box, diamond, doorstep, gridFor, house, housePlot, iso, placeById, placeName, spots, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
 
@@ -91,6 +92,7 @@ function Pawn({ p, selected, fresh, speaking, onSelect }: { p: Placed; selected:
 
 /** An agent's trophy room: what you see when you open its house. */
 function HomePanel({ a, where, symbols, onClose, onShowAgent }: { a: Agent; where?: Whereabouts; symbols: Map<string, string>; onClose: () => void; onShowAgent: () => void }) {
+  const fmt = useUnits();
   const p = a.progress;
   const earned = p ? p.badges.filter((b) => b.earned).length : 0;
   return (
@@ -105,7 +107,7 @@ function HomePanel({ a, where, symbols, onClose, onShowAgent }: { a: Agent; wher
           </div>
         )}
         <dl className="home-stats">
-          <div><dt>Free balance</dt><dd>{eth(a.balanceWei)} ETH</dd></div>
+          <div><dt>Free balance</dt><dd>{fmt.native(a.balanceWei)} {fmt.sym}</dd></div>
           <div><dt>Realized profit</dt><dd><Pnl wei={a.realizedPnlWei} /></dd></div>
           <div><dt>Trades won / lost</dt><dd>{p ? `${p.wins} / ${p.losses}` : "–"}</dd></div>
           <div><dt>Winning streak</dt><dd>{p ? `${p.streak} now, best ${p.bestStreak}` : "–"}</dd></div>
@@ -124,7 +126,7 @@ function HomePanel({ a, where, symbols, onClose, onShowAgent }: { a: Agent; wher
       <div className="panel-head"><h2>Holdings</h2><span className="muted">{a.positions.length} open</span></div>
       {a.positions.length === 0 ? <Empty title="Not holding anything." /> : (
         <ul className="rows panel-body">
-          {a.positions.map((h) => <li key={h.token} className="coin-row"><span className="sym">{symbols.has(h.token) ? `$${symbols.get(h.token)}` : shortAddr(h.token)}</span><span className="muted">{tokens(h.amount)} tokens, {eth(h.costWei)} ETH paid</span></li>)}
+          {a.positions.map((h) => <li key={h.token} className="coin-row"><span className="sym">{symbols.has(h.token) ? `$${symbols.get(h.token)}` : shortAddr(h.token)}</span><span className="muted">{fmt.tokens(h.amount)} tokens, {fmt.native(h.costWei)} {fmt.sym} paid</span></li>)}
         </ul>
       )}
       <div className="panel-body"><a className="btn" href={`/agent/${a.handle}`}>Open full profile</a></div>

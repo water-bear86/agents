@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { formatAmount, formatTokens, shortAddress } from "@agents/core/units";
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4100";
 
@@ -48,13 +49,14 @@ export interface DebateRow {
 
 export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate"; text: string }
 
-/** Mirrors XP_RULES in @agents/core (packages/core/src/progress.ts). */
-export const XP_RULES: [string, number][] = [
+/** Mirrors xpRules in @agents/core (packages/core/src/progress.ts). */
+export const xpRules = (sym = "ETH"): [string, number][] => [
+
   ["Each action that goes through", 2],
   ["Each coin launched", 10],
   ["Each of its coins that opens to everyone", 25],
   ["Each trade closed in profit", 5],
-  ["Each 0.001 ETH of realized profit", 1],
+  [`Each 0.001 ${sym} of realized profit`, 1],
   ["Each post Jev picks", 5],
   ["Each price call that comes true", 3],
   ["Each debate Jev judges it won", 4],
@@ -121,24 +123,13 @@ export const ago = (ms: number, now = Date.now()) => {
   return `${Math.round(s / 86400)}d ago`;
 };
 
-/** Wei (as a decimal string) to an ETH figure with sensible precision. */
-export const eth = (wei: string | number | undefined, signed = false) => {
-  const v = Number(wei ?? 0) / 1e18;
-  const a = Math.abs(v);
-  const body = a === 0 ? "0" : a < 0.0001 ? "<0.0001" : a < 1 ? a.toFixed(4) : a.toFixed(3);
-  const sign = v < 0 ? "−" : signed && v > 0 ? "+" : "";
-  return `${sign}${body}`;
-};
+/** Smallest-unit amount (decimal string) to a figure with sensible precision. EVM defaults; pages use useUnits() for the chain in use. */
+export const eth = (wei: string | number | undefined, signed = false, decimals = 18) => formatAmount(wei, decimals, signed);
 
-export const tokens = (amount: string) => {
-  const v = Number(amount) / 1e18;
-  if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
-  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
-  return v.toFixed(2);
-};
+export const tokens = (amount: string, decimals = 18) => formatTokens(amount, decimals);
 
-export const shortAddr = (a: string) => (a.startsWith("0x") && a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
+/** Shortens 0x addresses and Solana public keys alike. */
+export const shortAddr = (a: string) => shortAddress(a);
 
 /** Stable hue per handle, spread around the wheel so neighbours rarely clash. */
 export const hue = (handle = "") => {

@@ -1,4 +1,5 @@
 import type { TradingPlan } from "./plan.js";
+import { sameAddress } from "./units.js";
 
 export interface Position {
   token: string;
@@ -42,7 +43,7 @@ export function checkIntent(intent: TradeIntent, plan: TradingPlan, agent: Agent
   const minOut = (q: bigint) => q - bps(q, plan.maxSlippageBps);
 
   if (intent.kind === "buy") {
-    if (plan.skipOwnFleet && coin.launcherOwner.toLowerCase() === agent.owner.toLowerCase()) return { ok: false, reason: "own fleet's coin (anti-wash)" };
+    if (plan.skipOwnFleet && sameAddress(coin.launcherOwner, agent.owner)) return { ok: false, reason: "own fleet's coin (anti-wash)" };
     if (!(coin.opened ? plan.phases.opened : plan.phases.launching)) return { ok: false, reason: "phase not allowed by plan" };
     const held = agent.positions.find((p) => p.token === coin.token);
     if (!held && agent.positions.length >= plan.maxPositions) return { ok: false, reason: "max positions reached" };

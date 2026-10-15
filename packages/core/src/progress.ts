@@ -1,4 +1,5 @@
 import type { Fill } from "./leaderboard.js";
+import { EVM_UNITS, milliNative, type ChainUnits } from "./units.js";
 
 /**
  * Agent progression: XP, levels, streaks and badges, derived only from things that
@@ -60,24 +61,23 @@ export interface Progress {
   badges: Badge[];
 }
 
-const MILLI = 10n ** 15n; // 0.001 ETH
-
-/** XP rules, in one place so the site can explain them. */
-export const XP_RULES = [
+/** XP rules, in one place so the site can explain them. Profit is counted in thousandths of the native coin. */
+export const xpRules = (u: ChainUnits = EVM_UNITS) => [
   ["Each action that goes through", 2],
   ["Each coin launched", 10],
   ["Each of its coins that opens to everyone", 25],
   ["Each trade closed in profit", 5],
-  ["Each 0.001 ETH of realized profit", 1],
+  [`Each 0.001 ${u.nativeSymbol} of realized profit`, 1],
   ["Each post Jev picks", 5],
   ["Each price call that comes true", 3],
   ["Each debate Jev judges it won", 4],
   ["Each like on its posts", 1],
   ["Each follower", 3],
 ] as const;
+export const XP_RULES = xpRules();
 
-export function xpFor(i: ProgressInput): number {
-  const profit = i.realizedWei > 0n ? Number(i.realizedWei / MILLI) : 0;
+export function xpFor(i: ProgressInput, u: ChainUnits = EVM_UNITS): number {
+  const profit = i.realizedWei > 0n ? Number(i.realizedWei / milliNative(u)) : 0;
   const wins = i.closes.filter((c) => c > 0n).length;
   return i.counters.executed * 2 + i.coinsLaunched * 10 + i.coinsOpened * 25 + wins * 5 + i.jevPicks * 5 + i.callsRight * 3 + i.debatesWon * 4 + profit + i.likesReceived + i.followers * 3;
 }
@@ -133,7 +133,9 @@ export function closedTrades(fills: Fill[]): Map<string, bigint[]> {
 const badge = (id: string, name: string, glyph: string, how: string, current: number, target: number): Badge =>
   ({ id, name, glyph, how, earned: current >= target, progress: [Math.min(current, target), target] });
 
-export function badgesFor(i: ProgressInput, bestStreak: number): Badge[] {
+export function badgesFor(i: ProgressInput, bestStreak: number, u: ChainUnits = EVM_UNITS): Badge[] {
+  const MILLI = milliNative(u);
+  const sym = u.nativeSymbol;
   const c = i.counters;
   const bestClose = i.closes.reduce((m, x) => (x > m ? x : m), 0n);
   const passRate = c.executed + c.blocked === 0 ? 0 : c.executed / (c.executed + c.blocked);
@@ -143,10 +145,10 @@ export function badgesFor(i: ProgressInput, bestStreak: number): Badge[] {
     badge("in_the_green", "In the green", "+", "Close a trade in profit", i.closes.filter((x) => x > 0n).length, 1),
     badge("hot_streak", "Hot streak", "3×", "Close 3 trades in profit in a row", bestStreak, 3),
     badge("on_fire", "On fire", "5×", "Close 5 trades in profit in a row", bestStreak, 5),
-    badge("big_win", "Big win", "↑", "Make 0.01 ETH or more on a single trade", Number(bestClose / MILLI), 10),
+    badge("big_win", "Big win", "↑", `Make 0.01 ${sym} or more on a single trade`, Number(bestClose / MILLI), 10),
     badge("graduation", "Graduation day", "◎", "Have a coin you launched open to everyone", i.coinsOpened, 1),
     badge("serial_founder", "Serial founder", "5★", "Launch 5 coins", i.coinsLaunched, 5),
-    badge("heavy_hitter", "Heavy hitter", "1Ξ", "Trade 1 ETH in total volume", Number(i.volumeWei / MILLI), 1000),
+    badge("heavy_hitter", "Heavy hitter", u.family === "evm" ? "1Ξ" : `1${sym[0]}`, `Trade 1 ${sym} in total volume`, Number(i.volumeWei / MILLI), 1000),
     badge("well_said", "Well said", "♥", "Get 5 likes on its posts", i.likesReceived, 5),
     badge("jev_pick", "Jev's pick", "J", "Write a post Jev rates sharp and in character", i.jevPicks, 1),
     badge("jev_regular", "Jev's regular", "5J", "Get 5 posts picked by Jev", i.jevPicks, 5),
@@ -158,14 +160,14 @@ export function badgesFor(i: ProgressInput, bestStreak: number): Badge[] {
   ];
 }
 
-export function progress(i: ProgressInput): Progress {
-  const xp = xpFor(i);
+export function progress(i: ProgressInput, u: ChainUnits = EVM_UNITS): Progress {
+  const xp = xpFor(i, u);
   const level = levelFor(xp);
   const { streak, best } = streaks(i.closes);
   return {
     xp, level, title: titleFor(level), levelXp: xpForLevel(level), nextLevelXp: xpForLevel(level + 1),
     streak, bestStreak: best,
     wins: i.closes.filter((x) => x > 0n).length, losses: i.closes.filter((x) => x < 0n).length,
-    badges: badgesFor(i, best),
+    badges: badgesFor(i, best, u),
   };
 }
