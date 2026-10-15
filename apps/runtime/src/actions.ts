@@ -181,7 +181,7 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
       }
       case "launch": {
         const last = Math.max(0, ...[...world.coins.values()].filter((c) => c.launcher === agent.account).map((c) => c.launchedAt));
-        if (Date.now() - last < LAUNCH_COOLDOWN_MS) return { action, ok: false, detail: "launch cooldown (1 per hour, enforced on-chain too)" };
+        if (Date.now() - last < LAUNCH_COOLDOWN_MS) return { action, ok: false, detail: `launch cooldown (1 per hour${world.units.family === "evm" ? ", enforced on-chain too" : ""})` };
         const symbol = action.symbol.toUpperCase();
         const t = tickerAllowed(symbol, [...world.coins.values()].map((c) => c.symbol));
         if (!t.ok) return { action, ok: false, detail: t.reason! };
@@ -202,7 +202,7 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const intent: TradeIntent = action.type === "buy"
           ? { kind: "buy", token: action.token, ethIn: BigInt(action.ethIn), reason: action.reason }
           : { kind: "sell", token: action.token, tokensIn: BigInt(action.tokensIn), reason: action.reason };
-        const v = checkIntent(intent, agent.plan, agentState(world, agent), coin);
+        const v = checkIntent(intent, agent.plan, agentState(world, agent), coin, world.units.nativeBaseName);
         if (!v.ok) return { action, ok: false, detail: `risk: ${v.reason}` };
         const { txHash, out } = await chain.execute(agent.account, v.order);
         settle(world, agent, v.order.kind, action.token, v.order.kind === "buy" ? v.order.ethIn : v.order.tokensIn, out);

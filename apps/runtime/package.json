@@ -10,7 +10,8 @@
     "mcp": "tsx src/mcp.ts",
     "dev": "tsx src/main.ts",
     "compliance:check": "tsx src/compliance-check.ts",
-    "counsel:preread": "tsx src/counsel-preread.ts"
+    "counsel:preread": "tsx src/counsel-preread.ts",
+    "solana:smoke": "tsx src/solana/smoke.ts"
   },
   "dependencies": {
     "@agents/brand": "workspace:*",
@@ -18,8 +19,15 @@
     "@agents/ledger": "workspace:*",
     "@agents/llm": "workspace:*",
     "@agents/trace": "workspace:*",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.13",
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "@solana/spl-token": "0.4.13",
+    "@solana/web3.js": "1.98.4",
+    "bn.js": "5.2.1",
     "viem": "^2.22.0",
     "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bn.js": "5.1.6"
   }
 }

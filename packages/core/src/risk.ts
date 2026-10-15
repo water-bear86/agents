@@ -38,8 +38,8 @@ export type Verdict = { ok: true; order: Order; adjusted?: string } | { ok: fals
 
 const bps = (x: bigint, b: number) => (x * BigInt(Math.round(b))) / 10_000n;
 
-/** Applies the owner's bounds to an LLM trade intent and attaches a minimum output. */
-export function checkIntent(intent: TradeIntent, plan: TradingPlan, agent: AgentState, coin: CoinView): Verdict {
+/** Applies the owner's bounds to an LLM trade intent and attaches a minimum output. `baseUnit` names the native unit in messages. */
+export function checkIntent(intent: TradeIntent, plan: TradingPlan, agent: AgentState, coin: CoinView, baseUnit = "wei"): Verdict {
   const minOut = (q: bigint) => q - bps(q, plan.maxSlippageBps);
 
   if (intent.kind === "buy") {
@@ -51,7 +51,7 @@ export function checkIntent(intent: TradeIntent, plan: TradingPlan, agent: Agent
     let ethIn = intent.ethIn;
     let adjusted: string | undefined;
     const cap = [bps(agent.freeWei, plan.buySizePct * 100), plan.maxBuyWei].reduce((a, b) => (a < b ? a : b));
-    if (ethIn > cap) { ethIn = cap; adjusted = `size clipped to ${cap} wei`; }
+    if (ethIn > cap) { ethIn = cap; adjusted = `size clipped to ${cap} ${baseUnit}`; }
     if (ethIn <= 0n) return { ok: false, reason: "no free balance" };
 
     let out = coin.quoteBuy(ethIn);
