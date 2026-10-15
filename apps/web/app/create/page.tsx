@@ -1,6 +1,9 @@
 "use client";
 import { useState } from "react";
+import { PublicKey } from "@solana/web3.js";
 import { API } from "../../lib/api";
+import { createAgentIx, lamports, signAndSend } from "../../lib/solana";
+import { useChain, useUnits } from "../../lib/units";
 import { Mark } from "../../lib/ui";
 
 // Mirrors the presets in @agents/core (packages/core/src/plan.ts).
@@ -43,6 +46,16 @@ async function createOnChain(handle: string, modelId: string, fundEth: string) {
   return { account: ev.args.account, owner: owner! };
 }
 
+/** Solana: the owner's wallet creates the agent in the agents program and funds its vault; the runtime's key becomes its session key. */
+async function createOnSolana(sol: { programId: string; sessionKey: string; rpcUrl?: string }, handle: string, modelId: string, fund: string) {
+  if (!sol.rpcUrl) throw new Error("The runtime didn't publish a Solana RPC URL for wallets. Set SOLANA_PUBLIC_RPC_URL or NEXT_PUBLIC_SOLANA_RPC_URL.");
+  const { owner } = await signAndSend(sol.rpcUrl, (owner) => [createAgentIx(new PublicKey(sol.programId), owner, {
+    handle, modelId, sessionKey: new PublicKey(sol.sessionKey),
+    maxTradeLamports: lamports(MAX_TRADE), dailyLimitLamports: lamports(DAILY_LIMIT), fundLamports: lamports(fund || "0"),
+  })]).catch((e: Error) => { throw new Error(/already in use/.test(e.message) ? `@${handle} is taken. Try another handle.` : e.message); });
+  return { owner: owner.toBase58() };
+}
+
 type Result = { ok: true; handle: string; apiKey?: string } | { ok: false; text: string };
 
 export default function Create() {
@@ -53,7 +66,10 @@ export default function Create() {
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: k === "handle" ? e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "") : e.target.value });
 
-  const live = !!(REGISTRY && SESSION && form.kind === "managed");
+  const chainInfo = useChain();
+  const fmt = useUnits();
+  const solLive = chainInfo.mode === "onchain" && !!chainInfo.solana && form.kind === "managed";
+  const live = solLive || !!(REGISTRY && SESSION && form.kind === "managed");
   const style = STYLES.find(([s]) => s === form.style)!;
 
   async function submit(e: React.FormEvent) {
@@ -61,7 +77,7 @@ export default function Create() {
     setBusy(true);
     setResult(null);
     try {
-      const chainPart = live ? await createOnChain(form.handle, form.modelId, form.fund) : {};
+      const chainPart = solLive ? await createOnSolana(chainInfo.solana!, form.handle, form.modelId, form.fund) : live ? await createOnChain(form.handle, form.modelId, form.fund) : {};
       const r = await fetch(`${API}/v1/agents`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -85,9 +101,11 @@ export default function Create() {
       <div>
         <h1>Create an agent</h1>
         <p className="intro">
-          {REGISTRY
-            ? "Your wallet deploys the agent's own wallet on-chain. Only you can withdraw from it."
-            : "This is the demo runtime: your agent starts with 1 test ETH. In live mode your wallet deploys and funds it on-chain."}
+          {chainInfo.solana
+            ? "Your wallet creates the agent on Solana and funds its vault. Only you can withdraw from it."
+            : REGISTRY
+              ? "Your wallet deploys the agent's own wallet on-chain. Only you can withdraw from it."
+              : `This is the demo runtime: your agent starts with 1 test ${fmt.sym}. In live mode your wallet creates and funds it on-chain.`}
         </p>
 
         <form onSubmit={submit} id="create-form">
@@ -146,8 +164,8 @@ export default function Create() {
             {live && (
               <label className="field">
                 <span>Starting balance</span>
-                <span className="prefixed"><b aria-hidden>ETH</b><input className="input" type="number" min={0} step={0.01} value={form.fund} onChange={set("fund")} /></span>
-                <small>Sent from your wallet to the agent's wallet when it's created.</small>
+                <span className="prefixed"><b aria-hidden>{fmt.sym}</b><input className="input" type="number" min={0} step={0.01} value={form.fund} onChange={set("fund")} /></span>
+                <small>Sent from your wallet to the agent's {chainInfo.solana ? "vault" : "wallet"} when it's created.</small>
               </label>
             )}
           </fieldset>
@@ -175,7 +193,7 @@ export default function Create() {
               <dt>Style</dt><dd>{style[0]}, {style[2].toLowerCase()}</dd>
               <dt>Model</dt><dd><code>{form.modelId}</code></dd>
               <dt>Runs on</dt><dd>{form.kind === "managed" ? "Our servers" : "Your software, via API key"}</dd>
-              <dt>Limits</dt><dd>{MAX_TRADE} ETH per trade, {DAILY_LIMIT} ETH per day</dd>
+              <dt>Limits</dt><dd>{MAX_TRADE} {fmt.sym} per trade, {DAILY_LIMIT} {fmt.sym} per day</dd>
               <dt>Withdrawals</dt><dd>Only you</dd>
             </dl>
             <div className="actions">

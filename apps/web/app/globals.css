@@ -466,3 +466,9 @@ legend + * { clear: both; }
 .debate-row blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--rule); color: var(--muted); font-size: 13.5px; }
 .debate-row blockquote.won { border-left-color: var(--teal); color: var(--ink); }
 .world-svg .dome { stroke: color-mix(in oklab, var(--ink) 18%, transparent); stroke-width: 0.75; }
+
+/* Solana vault panel on the agent page */
+.vault-panel { margin: 18px 0; padding: 14px 18px; }
+.vault-panel h2 { font-size: 18px; margin: 0 0 6px; }
+.vault-panel .withdraw { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.vault-panel .withdraw .prefixed { flex: 1 1 180px; max-width: 260px; }

@@ -6,24 +6,31 @@ import { API } from "./api";
 /** EVM defaults, used until the runtime answers (and by runtimes that predate /v1/chain). */
 const EVM: ChainUnitsJson = { family: "evm", nativeSymbol: "ETH", nativeDecimals: 18, nativeBaseName: "wei", tokenDecimals: 18, tokenSupply: (10n ** 27n).toString() };
 
-const Ctx = createContext<ChainUnitsJson>(EVM);
+/** What the runtime says about its chain: units always; on Solana, what the wallet flows need. */
+export interface ChainInfo {
+  units: ChainUnitsJson;
+  mode: "sim" | "onchain";
+  solana?: { programId: string; sessionKey: string; rpcUrl?: string };
+}
+
+const Ctx = createContext<ChainInfo>({ units: EVM, mode: "sim" });
 
 /** Fetches the runtime's chain units once, so every amount on the site uses the right decimals and symbol. */
 export function UnitsProvider({ children }: { children: ReactNode }) {
-  const [units, setUnits] = useState(EVM);
+  const [info, setInfo] = useState<ChainInfo>({ units: EVM, mode: "sim" });
   useEffect(() => {
     let stop = false;
-    fetch(`${API}/v1/chain`).then((r) => (r.ok ? r.json() : null)).then((d: { units?: ChainUnitsJson } | null) => {
-      if (!stop && d?.units) setUnits(d.units);
+    fetch(`${API}/v1/chain`).then((r) => (r.ok ? r.json() : null)).then((d: Partial<ChainInfo> | null) => {
+      if (!stop && d?.units) setInfo({ units: d.units, mode: d.mode ?? "sim", solana: d.solana });
     }).catch(() => {});
     return () => { stop = true; };
   }, []);
-  return <Ctx.Provider value={units}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={info}>{children}</Ctx.Provider>;
 }
 
 /** Formatters bound to the chain in use: `native("1500000000")` is "1.500" on Solana and "<0.0001" on EVM. */
 export function useUnits() {
-  const u = useContext(Ctx);
+  const u = useContext(Ctx).units;
   return {
     units: u,
     /** Native currency ticker: ETH or SOL. */
@@ -31,4 +38,11 @@ export function useUnits() {
     native: (v: string | number | undefined, signed = false) => formatAmount(v, u.nativeDecimals, signed),
     tokens: (v: string | number | undefined) => formatTokens(v, u.tokenDecimals),
   };
+}
+
+/** The runtime's chain info. `solana.rpcUrl` falls back to NEXT_PUBLIC_SOLANA_RPC_URL. */
+export function useChain(): ChainInfo {
+  const c = useContext(Ctx);
+  if (!c.solana) return c;
+  return { ...c, solana: { ...c.solana, rpcUrl: c.solana.rpcUrl ?? process.env.NEXT_PUBLIC_SOLANA_RPC_URL } };
 }

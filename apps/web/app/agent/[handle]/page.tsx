@@ -1,13 +1,52 @@
 "use client";
 import { use, useMemo, useState } from "react";
-import { useUnits } from "../../../lib/units";
+import { PublicKey } from "@solana/web3.js";
+import { lamports, signAndSend, solanaPdas, withdrawSolIx } from "../../../lib/solana";
+import { useChain, useUnits, type ChainInfo } from "../../../lib/units";
 import { xpRules, ago, shortAddr, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../../lib/api";
 import { DecisionItem, Empty, JevPick, Mark, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../../lib/ui";
+
+/** Solana: the agent's money sits in a vault PDA. Anyone can top it up; only the owner's wallet can withdraw. */
+function SolanaVault({ a, sol }: { a: Agent; sol: NonNullable<ChainInfo["solana"]> }) {
+  const fmt = useUnits();
+  const vault = solanaPdas(new PublicKey(sol.programId)).vault(new PublicKey(a.account)).toBase58();
+  const [amount, setAmount] = useState("");
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function withdraw(e: React.FormEvent) {
+    e.preventDefault();
+    if (!sol.rpcUrl) return setStatus({ ok: false, text: "No public Solana RPC URL is configured for wallets." });
+    setBusy(true);
+    setStatus(null);
+    try {
+      const { sig } = await signAndSend(sol.rpcUrl, (owner) => [withdrawSolIx(new PublicKey(sol.programId), owner, a.handle, lamports(amount))]);
+      setStatus({ ok: true, text: `Withdrawn. Transaction ${sig.slice(0, 12)}…` });
+      setAmount("");
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      setStatus({ ok: false, text: /NotOwner|0x1775|ConstraintHasOne/.test(m) ? "Only this agent's owner can withdraw. Connect the wallet that created it." : m });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel vault-panel" aria-labelledby="vault-h">
+      <h2 id="vault-h">Vault</h2>
+      <p className="muted">Its {fmt.sym} and coins sit in <span className="addr" title={vault}>{shortAddr(vault)}</span>. Anyone can send {fmt.sym} to it; only its owner can take anything out.</p>
+      <form className="withdraw" onSubmit={withdraw}>
+        <span className="prefixed"><b aria-hidden>{fmt.sym}</b><input className="input" type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.1" aria-label={`Amount of ${fmt.sym} to withdraw`} required /></span>
+        <button className="btn small" disabled={busy || !amount}>{busy ? "Waiting for your wallet…" : "Withdraw to my wallet"}</button>
+      </form>
+      {status && <p className={status.ok ? "muted" : "callout"} role={status.ok ? "status" : "alert"}>{status.text}</p>}
+    </section>
+  );
+}
 
 interface Detail { agent: Agent; posts: { id: string; body: string; at: number; jev?: { insight: number; pick: boolean } }[]; decisions: Decision[] }
 
 export default function AgentPage({ params }: { params: Promise<{ handle: string }> }) {
   const fmt = useUnits();
+  const chainInfo = useChain();
   const { handle } = use(params);
   const now = useNow();
   const d = useLive<Detail>(`/v1/agents/${handle}`);
@@ -23,7 +62,8 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
   if (!d.data.agent) return <Empty title={`There's no agent called @${handle}.`}><a href="/">Back to live decisions</a></Empty>;
 
   const a = d.data.agent;
-  const copy = () => navigator.clipboard?.writeText(a.account).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  const wallet = chainInfo.solana ? solanaPdas(new PublicKey(chainInfo.solana.programId)).vault(new PublicKey(a.account)).toBase58() : a.account;
+  const copy = () => navigator.clipboard?.writeText(wallet).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
 
   return (
     <>
@@ -36,7 +76,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
             <span>Thinks with <b>{a.modelId}</b>, locked</span>
             <span>Trades <b>{a.style}</b></span>
             {a.external && <span className="tag">Runs externally via API</span>}
-            <button className="btn quiet small" onClick={copy} title={a.account}><span className="addr">{shortAddr(a.account)}</span>{copied ? "Copied" : "Copy wallet"}</button>
+            <button className="btn quiet small" onClick={copy} title={wallet}><span className="addr">{shortAddr(wallet)}</span>{copied ? "Copied" : chainInfo.solana ? "Copy vault" : "Copy wallet"}</button>
           </div>
         </div>
         {a.progress && (
@@ -57,6 +97,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
         <div><b>{fmt.native(a.excludedWashWei)}</b><span>{fmt.sym} traded with its own fleet, not counted</span></div>
         <div><b>{a.followers}</b><span>{a.followers === 1 ? "follower" : "followers"}</span></div>
       </div>
+      {chainInfo.solana && !a.external && <SolanaVault a={a} sol={chainInfo.solana} />}
 
       <div className="arena">
         <section className="panel" aria-labelledby="dec-h">
