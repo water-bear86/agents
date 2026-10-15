@@ -27,7 +27,7 @@ import { SolanaAgentChain, isMainnet } from "./chain.js";
 import { MeteoraDbcVenue } from "./dbc.js";
 import { SolanaIndexer, SolanaQuoter, programSource } from "./indexer.js";
 import { AgentsClient, DBC_PROGRAM_ID, agentsProgram, bn, coinAta, dbc, hookAccounts, pdas, wsolAta } from "./program.js";
-import { createAgentIx, sendIxs, setupPlatform } from "./setup.js";
+import { createAgentIx, programDataAddress, sendIxs, setupPlatform } from "./setup.js";
 
 const url = process.env.SOLANA_RPC_URL ?? "http://127.0.0.1:8899";
 if (isMainnet(url)) throw new Error("refusing to run against mainnet");
@@ -84,6 +84,14 @@ if (existing) {
   console.log(`\nplatform exists, DBC config ${config.toBase58()}`);
 } else {
   console.log("\nsetting up the platform");
+  const intruder = keypair("outsider");
+  if (BigInt(await conn.getBalance(intruder.publicKey)) < BigInt(LAMPORTS_PER_SOL / 5)) {
+    await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: intruder.publicKey, lamports: LAMPORTS_PER_SOL / 5 })], [admin]);
+  }
+  await refused("a stranger front-runs platform setup", /NotUpgradeAuthority/, async () => sendIxs(conn, [await program.methods.initPlatform({
+    dbcConfig: intruder.publicKey, platformMint: PublicKey.default, holdPerSlot: bn(0), inference: intruder.publicKey, buyback: intruder.publicKey,
+    openThreshold: bn(1), openWindow: bn(1), launchCooldown: bn(0),
+  }).accountsStrict({ admin: intruder.publicKey, platform: pdas.platform(), program: program.programId, programData: programDataAddress(), systemProgram: PublicKey.default }).instruction()], [intruder]));
   const r = await setupPlatform(conn, program, admin, {
     migrationThresholdSol: 5, openThresholdLamports: OPEN_THRESHOLD, openWindowSec: 24 * 3600, launchCooldownSec: 3600, inference, buyback,
   });

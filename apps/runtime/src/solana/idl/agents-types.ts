@@ -564,6 +564,9 @@ export type Agents = {
       "accounts": [
         {
           "name": "admin",
+          "docs": [
+            "Must be the program's upgrade authority, so nobody can front-run setup with their own fee recipients."
+          ],
           "writable": true,
           "signer": true
         },
@@ -587,6 +590,13 @@ export type Agents = {
               }
             ]
           }
+        },
+        {
+          "name": "program",
+          "address": "4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r"
+        },
+        {
+          "name": "programData"
         },
         {
           "name": "systemProgram",
@@ -1335,6 +1345,11 @@ export type Agents = {
       "code": 6014,
       "name": "notYet",
       "msg": "Coin has neither reached its threshold nor its opening time"
+    },
+    {
+      "code": 6015,
+      "name": "notUpgradeAuthority",
+      "msg": "Only the program's upgrade authority can set up the platform"
     }
   ],
   "types": [

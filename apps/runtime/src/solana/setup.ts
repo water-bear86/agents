@@ -2,7 +2,11 @@ import { NATIVE_MINT, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentIn
 import { Keypair, PublicKey, Transaction, sendAndConfirmTransaction, type Connection, type TransactionInstruction } from "@solana/web3.js";
 import { programError } from "./chain.js";
 import { agentsCurve, buildCreateConfig } from "./dbc.js";
-import { HOOK_PROGRAM_ID, bn, pdas, wsolAta, type AgentsProgram } from "./program.js";
+import { AGENTS_PROGRAM_ID, HOOK_PROGRAM_ID, bn, pdas, wsolAta, type AgentsProgram } from "./program.js";
+
+const UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+/** The agents program's ProgramData account, which records its upgrade authority. */
+export const programDataAddress = () => PublicKey.findProgramAddressSync([AGENTS_PROGRAM_ID.toBuffer()], UPGRADEABLE_LOADER)[0];
 
 export async function sendIxs(conn: Connection, ixs: TransactionInstruction[], signers: Keypair[]) {
   try {
@@ -28,6 +32,7 @@ export interface PlatformOptions {
 /**
  * One-time platform setup: the DBC partner config (Token-2022 coins with our transfer hook, fees
  * claimable by the agents program's `fees` PDA) and the agents program's Platform record.
+ * `admin` must be the agents program's upgrade authority.
  */
 export async function setupPlatform(conn: Connection, program: AgentsProgram, admin: Keypair, o: PlatformOptions) {
   if (o.openThresholdLamports >= BigInt(Math.floor(o.migrationThresholdSol * 1e9))) throw new Error("open threshold must be below the graduation threshold");
@@ -39,7 +44,7 @@ export async function setupPlatform(conn: Connection, program: AgentsProgram, ad
   const init = await program.methods.initPlatform({
     dbcConfig: config.publicKey, platformMint: o.platformMint ?? PublicKey.default, holdPerSlot: bn(o.holdPerSlot ?? 0n),
     inference: o.inference, buyback: o.buyback, openThreshold: bn(o.openThresholdLamports), openWindow: bn(o.openWindowSec), launchCooldown: bn(o.launchCooldownSec),
-  }).accountsStrict({ admin: admin.publicKey, platform: pdas.platform(), systemProgram: PublicKey.default }).instruction();
+  }).accountsStrict({ admin: admin.publicKey, platform: pdas.platform(), program: AGENTS_PROGRAM_ID, programData: programDataAddress(), systemProgram: PublicKey.default }).instruction();
   const platformSig = await sendIxs(conn, [
     init,
     ...[o.inference, o.buyback].map((owner) => createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, wsolAta(owner), owner, NATIVE_MINT, TOKEN_PROGRAM_ID)),

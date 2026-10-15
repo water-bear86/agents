@@ -558,6 +558,9 @@
       "accounts": [
         {
           "name": "admin",
+          "docs": [
+            "Must be the program's upgrade authority, so nobody can front-run setup with their own fee recipients."
+          ],
           "writable": true,
           "signer": true
         },
@@ -581,6 +584,13 @@
               }
             ]
           }
+        },
+        {
+          "name": "program",
+          "address": "4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r"
+        },
+        {
+          "name": "program_data"
         },
         {
           "name": "system_program",
@@ -1329,6 +1339,11 @@
       "code": 6014,
       "name": "NotYet",
       "msg": "Coin has neither reached its threshold nor its opening time"
+    },
+    {
+      "code": 6015,
+      "name": "NotUpgradeAuthority",
+      "msg": "Only the program's upgrade authority can set up the platform"
     }
   ],
   "types": [

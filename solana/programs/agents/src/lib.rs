@@ -569,10 +569,15 @@ pub struct Coin {
 
 #[derive(Accounts)]
 pub struct InitPlatform<'info> {
+    /// Must be the program's upgrade authority, so nobody can front-run setup with their own fee recipients.
     #[account(mut)]
     pub admin: Signer<'info>,
     #[account(init, payer = admin, space = 8 + Platform::INIT_SPACE, seeds = [b"platform"], bump)]
     pub platform: Account<'info, Platform>,
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ AgentsError::NotUpgradeAuthority)]
+    pub program: Program<'info, crate::program::Agents>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(admin.key()) @ AgentsError::NotUpgradeAuthority)]
+    pub program_data: Account<'info, ProgramData>,
     pub system_program: Program<'info, System>,
 }
 
@@ -874,4 +879,6 @@ pub enum AgentsError {
     AlreadyOpen,
     #[msg("Coin has neither reached its threshold nor its opening time")]
     NotYet,
+    #[msg("Only the program's upgrade authority can set up the platform")]
+    NotUpgradeAuthority,
 }
