@@ -160,17 +160,26 @@ pub mod agents {
     pub fn withdraw_token<'info>(ctx: Context<'_, '_, '_, 'info, WithdrawToken<'info>>, amount: u64) -> Result<()> {
         let agent = ctx.accounts.agent.key();
         let seeds: &[&[u8]] = &[b"vault", agent.as_ref(), &[ctx.accounts.agent.vault_bump]];
-        spl_token_2022::onchain::invoke_transfer_checked(
+        // transfer_checked, with any transfer-hook accounts the caller passed appended (Token-2022 matches them by key).
+        let mut ix = spl_token_2022::instruction::transfer_checked(
             ctx.accounts.token_program.key,
+            &ctx.accounts.from.key(),
+            &ctx.accounts.mint.key(),
+            &ctx.accounts.to.key(),
+            &ctx.accounts.vault.key(),
+            &[],
+            amount,
+            ctx.accounts.mint.decimals,
+        )?;
+        ix.accounts.extend(ctx.remaining_accounts.iter().map(|a| AccountMeta::new_readonly(a.key(), false)));
+        let mut infos = vec![
             ctx.accounts.from.to_account_info(),
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.to.to_account_info(),
             ctx.accounts.vault.to_account_info(),
-            ctx.remaining_accounts,
-            amount,
-            ctx.accounts.mint.decimals,
-            &[seeds],
-        )?;
+        ];
+        infos.extend(ctx.remaining_accounts.iter().cloned());
+        invoke_signed(&ix, &infos, &[seeds])?;
         emit!(Withdrawn { agent, asset: ctx.accounts.mint.key(), to: ctx.accounts.to.key(), amount });
         Ok(())
     }

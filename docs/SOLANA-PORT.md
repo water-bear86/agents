@@ -120,7 +120,7 @@ CHAIN_FAMILY=solana SOLANA_RPC_URL=http://127.0.0.1:8899 SOLANA_SESSION_KEYPAIR=
 
 ## Deploying
 
-**Devnet** needs about 10 devnet SOL on `4y1rXfuv5tBrbppDAScRegDLvtrv9bZXBjaKNchL8y3L`. The two programs are 516 KB and 230 KB, roughly 5.2 SOL of rent, plus temporary deploy buffers. Use faucet.solana.com with **Devnet** selected; testnet SOL doesn't help, because DBC isn't deployed on testnet. Then:
+**Devnet** needs about 10 devnet SOL on `4y1rXfuv5tBrbppDAScRegDLvtrv9bZXBjaKNchL8y3L`. The two programs are 540 KB and 230 KB, roughly 5.4 SOL of rent, plus temporary deploy buffers. Use faucet.solana.com with **Devnet** selected; testnet SOL doesn't help, because DBC isn't deployed on testnet. Then:
 
 ```bash
 cd solana && anchor deploy --provider.cluster devnet
