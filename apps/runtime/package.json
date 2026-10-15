@@ -11,7 +11,8 @@
     "dev": "tsx src/main.ts",
     "compliance:check": "tsx src/compliance-check.ts",
     "counsel:preread": "tsx src/counsel-preread.ts",
-    "solana:smoke": "tsx src/solana/smoke.ts"
+    "solana:e2e": "tsx src/solana/e2e.ts",
+    "solana:validator": "solana-test-validator --reset --ledger ../../solana/.ledger --url devnet --clone-upgradeable-program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s --bpf-program 4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r ../../solana/target/deploy/agents.so --bpf-program 8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9 ../../solana/target/deploy/agents_hook.so"
   },
   "dependencies": {
     "@agents/brand": "workspace:*",
@@ -19,6 +20,7 @@
     "@agents/ledger": "workspace:*",
     "@agents/llm": "workspace:*",
     "@agents/trace": "workspace:*",
+    "@coral-xyz/anchor": "0.31.1",
     "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.13",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@solana/spl-token": "0.4.13",

@@ -16,3 +16,7 @@ agents-data.json*
 *keypair*.json
 id.json
 .solana/
+
+# Anchor build output (program keypairs live in solana/target/deploy and must stay private)
+solana/target/
+solana/.ledger/

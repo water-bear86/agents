@@ -15,7 +15,8 @@ import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { SolanaAgentChain, isMainnet } from "./solana/chain.js";
 import { MeteoraDbcVenue } from "./solana/dbc.js";
-import { SolanaIndexer, SolanaQuoter } from "./solana/indexer.js";
+import { SolanaIndexer, SolanaQuoter, programSource } from "./solana/indexer.js";
+import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
 import { tick } from "./tick.js";
 import { loadWorld, saveWorld } from "./persist.js";
 import { World, type Agent } from "./world.js";
@@ -47,33 +48,34 @@ const world = new World();
 world.units = unitsFor(env.CHAIN_FAMILY === "solana" ? "solana" : "evm");
 const E = oneNative(world.units);
 const evmOnchain = world.units.family === "evm" && !!(env.RPC_URL && env.SESSION_KEY && env.POOL_MANAGER && env.REGISTRY && env.HOOK);
-// Solana fast path (Meteora DBC). Agent wallets are keypairs this runtime holds until the agent-vault program exists.
-const solanaOnchain = world.units.family === "solana" && !!(env.SOLANA_RPC_URL && env.DBC_CONFIG);
+// Solana: agents live in the agents program (vault PDAs only their owners can withdraw from);
+// this runtime signs as their session key. SOLANA_SESSION_KEYPAIR is that key's keypair file.
+const solanaOnchain = world.units.family === "solana" && !!(env.SOLANA_RPC_URL && env.SOLANA_SESSION_KEYPAIR);
 const onchain = evmOnchain || solanaOnchain;
 let chain: Chain;
 let quoter: Quoter;
 let indexer: { pass(): Promise<unknown>; syncBalances(): Promise<void> } | null = null;
 let poolQuoter: Pick<PoolQuoter, "refresh"> | null = null;
-/** Solana agents to drive: AGENTS_JSON entries carry a `keypair` file path instead of an `account`. */
-const solanaSigners = new Map<string, Keypair>();
-const solanaKeyFiles = new Map<string, string>(); // keypair path -> public key
+let solana: { client: AgentsClient; chain: SolanaAgentChain; publicRpc?: string } | null = null;
 if (solanaOnchain) {
-  if (isMainnet(env.SOLANA_RPC_URL!) && env.SOLANA_ALLOW_MAINNET !== "1") throw new Error("Solana mainnet needs SOLANA_ALLOW_MAINNET=1 (and an audited vault program; runtime-held keys are for devnet)");
-  for (const a of JSON.parse(env.AGENTS_JSON ?? "[]") as { keypair?: string }[]) {
-    if (!a.keypair) continue;
-    const kp = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(a.keypair, "utf8")) as number[]));
-    solanaSigners.set(kp.publicKey.toBase58(), kp);
-    solanaKeyFiles.set(a.keypair, kp.publicKey.toBase58());
-  }
+  if (isMainnet(env.SOLANA_RPC_URL!) && env.SOLANA_ALLOW_MAINNET !== "1") throw new Error("Solana mainnet needs SOLANA_ALLOW_MAINNET=1 (and audited programs)");
   const conn = new Connection(env.SOLANA_RPC_URL!, "confirmed");
-  const venue = new MeteoraDbcVenue(conn, new PublicKey(env.DBC_CONFIG!));
-  const sq = new SolanaQuoter(venue);
-  chain = new SolanaAgentChain(conn, venue, solanaSigners, {
-    limits: { maxTradeLamports: BigInt(env.MAX_TRADE_LAMPORTS ?? 100_000_000), dailyLimitLamports: BigInt(env.DAILY_LIMIT_LAMPORTS ?? 1_000_000_000) },
-    coinUri: env.COIN_URI_BASE ? (sym) => `${env.COIN_URI_BASE}${sym}.json` : undefined,
-  });
-  quoter = poolQuoter = sq;
-  indexer = new SolanaIndexer(conn, venue, world);
+  const session = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(env.SOLANA_SESSION_KEYPAIR!, "utf8")) as number[]));
+  const program = agentsProgram(conn);
+  const platform = await program.account.platform.fetch(pdas.platform());
+  const client = new AgentsClient(program, platform.dbcConfig);
+  const venue = new MeteoraDbcVenue(conn, platform.dbcConfig);
+  const sc = new SolanaAgentChain(conn, client, session, { coinUri: env.COIN_URI_BASE ? (sym) => `${env.COIN_URI_BASE}${sym}.json` : undefined });
+  const si = new SolanaIndexer(conn, programSource(client), venue, world);
+  venue.opensOf = (m) => { const r = si.records.get(m); return r ? r.opened || Date.now() >= r.opensAt : undefined; };
+  chain = sc;
+  quoter = poolQuoter = new SolanaQuoter(venue);
+  indexer = {
+    pass: async () => { await si.pass(); for (const line of await si.crank(sc, client)) console.log(`[crank] ${line}`); },
+    syncBalances: () => si.syncBalances(),
+  };
+  // Never hand the browser an RPC URL that may carry an API key: only an explicit public one, or a local validator.
+  solana = { client, chain: sc, publicRpc: env.SOLANA_PUBLIC_RPC_URL ?? (/127\.0\.0\.1|localhost/.test(env.SOLANA_RPC_URL!) ? env.SOLANA_RPC_URL : undefined) };
 } else if (evmOnchain) {
   const net = defineChain({ id: Number(env.CHAIN_ID ?? 4663), name: env.CHAIN_NAME ?? "robinhood", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [env.RPC_URL!] } } });
   const pub = createPublicClient({ chain: net, transport: http(env.RPC_URL) });
@@ -157,12 +159,26 @@ if (demo && !onchain && !restored) {
   addAgent("moss", "0xowner1", "conviction", "Few coins, held long.");
 }
 
-// On-chain: agents this runtime drives (EVM: created via AgentRegistry with our session key;
-// Solana: {"keypair":"/path/agent.json",...} instead of "account").
-// AGENTS_JSON='[{"account":"0x..","owner":"0x..","handle":"atlas","persona":"..","style":"momentum","modelId":"deepseek/deepseek-v4.1-flash"}]'
-if (onchain) {
-  for (const a of JSON.parse(env.AGENTS_JSON ?? "[]") as { account: string; keypair?: string; owner: string; handle: string; persona: string; style: Style; modelId: string }[]) {
-    if (a.keypair) a.account = solanaKeyFiles.get(a.keypair) ?? a.account;
+/** A Solana agent this runtime may drive: registered in the agents program with our session key. */
+async function solanaAgent(handle: string) {
+  if (!solana) return null;
+  const account = pdas.agent(handle);
+  const a = await solana.client.program.account.agent.fetchNullable(account);
+  if (!a || !a.sessionKey.equals(solana.chain.sessionKey)) return null;
+  return { account: account.toBase58(), owner: a.owner.toBase58(), modelId: a.modelId };
+}
+
+// On-chain: agents this runtime drives (created by their owners with our session key).
+// EVM: AGENTS_JSON='[{"account":"0x..","owner":"0x..","handle":"atlas","persona":"..","style":"momentum","modelId":"deepseek/deepseek-v4.1-flash"}]'
+// Solana: the handle is enough ('[{"handle":"atlas","persona":"..","style":"momentum"}]'); account, owner and model come from the chain.
+if (solanaOnchain) {
+  for (const a of JSON.parse(env.AGENTS_JSON ?? "[]") as { handle: string; persona?: string; style?: Style }[]) {
+    const onChain = await solanaAgent(a.handle);
+    if (!onChain) { console.warn(`[runtime] @${a.handle} is not registered with this runtime's session key; skipping`); continue; }
+    world.agents.set(onChain.account, { account: onChain.account, owner: onChain.owner, handle: a.handle, name: a.handle, persona: a.persona ?? "", modelId: onChain.modelId, plan: planFor(a.style ?? "momentum", world.units), awake: true, external: false, createdAt: Date.now() });
+  }
+} else if (onchain) {
+  for (const a of JSON.parse(env.AGENTS_JSON ?? "[]") as { account: string; owner: string; handle: string; persona: string; style: Style; modelId: string }[]) {
     world.agents.set(a.account, { account: a.account, owner: a.owner, handle: a.handle, name: a.handle, persona: a.persona, modelId: a.modelId, plan: planFor(a.style, world.units), awake: true, external: false, createdAt: Date.now() });
   }
 }
@@ -345,7 +361,12 @@ createServer(async (req, res) => {
   try {
     if (v1 !== "v1") return send(res, 404, { error: "not found" });
 
-    if (resource === "chain") return send(res, 200, { units: unitsToJson(world.units), mode: onchain ? "onchain" : "sim" });
+    if (resource === "chain") {
+      return send(res, 200, {
+        units: unitsToJson(world.units), mode: onchain ? "onchain" : "sim",
+        solana: solana ? { programId: AGENTS_PROGRAM_ID.toBase58(), sessionKey: solana.chain.sessionKey.toBase58(), rpcUrl: solana.publicRpc } : undefined,
+      });
+    }
     if (resource === "feed") return send(res, 200, { posts: world.feed(Number(url.searchParams.get("limit") ?? 50)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
     if (resource === "coins") return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ ...c, launcherHandle: world.agents.get(c.launcher)?.handle, price: priceOf(quoter, c.token, world.units) })) });
     if (resource === "decisions") {
@@ -401,7 +422,13 @@ createServer(async (req, res) => {
       const style: Style = (b.style in PRESETS ? b.style : "momentum") as Style;
       if (b.managed) {
         // Platform-run agent: our LLM loop drives it (demo: scripted model).
-        if (solanaOnchain) return send(res, 501, { error: "creating managed agents on Solana needs the agent-vault program (see docs/SOLANA-PORT.md)" });
+        if (solanaOnchain) {
+          // The owner already called create_agent from their wallet with our session key; verify before driving it.
+          const onChain = await solanaAgent(b.handle);
+          if (!onChain) return send(res, 400, { error: "no agent with this handle uses this runtime's session key" });
+          const a = addAgent(b.handle, onChain.owner, style, String(b.persona ?? "").slice(0, 400), onChain.modelId, false, onChain.account);
+          return send(res, 201, { agent: publicAgent(a) });
+        }
         if (onchain) {
           // The owner already called AgentRegistry.create from their wallet; verify before driving it.
           const { createPublicClient, http: h, parseAbi } = await import("viem");

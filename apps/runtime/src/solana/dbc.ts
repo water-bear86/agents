@@ -1,16 +1,20 @@
 import {
-  ActivationType, BaseFeeMode, CollectFeeMode, DynamicBondingCurveClient, MigrationFeeOption, MigrationOption, TokenAuthorityOption,
+  ActivationType, BaseFeeMode, DYNAMIC_BONDING_CURVE_PROGRAM_ID, CollectFeeMode, DynamicBondingCurveClient, MigrationFeeOption, MigrationOption, TokenAuthorityOption,
   TokenDecimal, TokenType, buildCurve, deriveDbcPoolAddress, getCurrentPoint, swapQuote, type ConfigParameters, type PoolConfig,
   type VirtualPool,
 } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import { NATIVE_MINT } from "@solana/spl-token";
 import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
 import BN from "bn.js";
-import type { PoolSnapshot, SolanaVenue } from "./venue.js";
+import type { PoolReader, PoolSnapshot } from "./venue.js";
+
+const VIRTUAL_POOL_DISC = [213, 224, 5, 209, 98, 69, 119, 92];
+const TRANSFER_HOOK_POOL_DISC = [237, 219, 184, 23, 42, 189, 169, 35];
 
 /**
- * Fast-path venue: Meteora Dynamic Bonding Curve. We are the "partner": one config account
- * fixes the curve, fees and migration for every coin; each agent is the pool creator of its coins.
+ * Meteora Dynamic Bonding Curve, read side. We are the "partner": one config account fixes the
+ * curve, fees and migration for every coin; each agent's vault is the pool creator of its coins.
+ * Launches and swaps go through the agents program (see program.ts), which CPIs into DBC.
  *
  * Mapping of the EVM rules (see docs/SOLANA-PORT.md for the full table):
  * - 1B fixed supply, mint authority dropped (TokenAuthorityOption.Immutable)
@@ -19,9 +23,11 @@ import type { PoolSnapshot, SolanaVenue } from "./venue.js";
  * - quote reserve threshold = the EVM open threshold, but here it is the graduation point
  * - LP after graduation: 100% permanently locked, split partner/creator
  */
-export class MeteoraDbcVenue implements SolanaVenue {
+export class MeteoraDbcVenue implements PoolReader {
   readonly client: DynamicBondingCurveClient;
   #config: PoolConfig | null = null;
+  /** For coins with the agents-only hook: whether a coin is open, from the agents program's Coin record. */
+  opensOf?: (mint: string) => boolean | undefined;
 
   constructor(private readonly connection: Connection, readonly config: PublicKey) {
     this.client = new DynamicBondingCurveClient(connection, "confirmed");
@@ -29,19 +35,6 @@ export class MeteoraDbcVenue implements SolanaVenue {
 
   poolAddress(mint: string) {
     return deriveDbcPoolAddress(NATIVE_MINT, new PublicKey(mint), this.config);
-  }
-
-  async buildLaunch({ creator, name, symbol, uri }: { creator: PublicKey; name: string; symbol: string; uri: string }) {
-    const mint = Keypair.generate();
-    const tx = await this.client.creator.createPool({ name, symbol, uri, payer: creator, poolCreator: creator, config: this.config, baseMint: mint.publicKey });
-    return { tx, signers: [mint], mint: mint.publicKey.toBase58() };
-  }
-
-  async buildSwap({ owner, mint, side, amountIn, minOut }: { owner: PublicKey; mint: string; side: "buy" | "sell"; amountIn: bigint; minOut: bigint }) {
-    return this.client.pool.swap({
-      owner, pool: this.poolAddress(mint), amountIn: new BN(amountIn.toString()), minimumAmountOut: new BN(minOut.toString()),
-      swapBaseForQuote: side === "sell", referralTokenAccount: null,
-    });
   }
 
   async poolConfig() {
@@ -54,30 +47,36 @@ export class MeteoraDbcVenue implements SolanaVenue {
     const out = new Map<string, PoolSnapshot>();
     if (!mints.length) return out;
     const config = await this.poolConfig();
-    const [pools, point] = await Promise.all([
-      this.client.state.program.account.virtualPool.fetchMultiple(mints.map((m) => this.poolAddress(m))),
+    const addresses = mints.map((m) => this.poolAddress(m));
+    const [infos, point] = await Promise.all([
+      this.connection.getMultipleAccountsInfo(addresses),
       getCurrentPoint(this.connection, config.activationType as ActivationType),
     ]);
-    mints.forEach((m, i) => { const p = pools[i]; if (p) out.set(m, dbcSnapshot(m, p as VirtualPool, config, point)); });
+    const coder = this.client.state.program.coder.accounts;
+    mints.forEach((m, i) => {
+      const info = infos[i];
+      if (!info || !info.owner.equals(DYNAMIC_BONDING_CURVE_PROGRAM_ID)) return;
+      // Token-2022 coins with a transfer hook live in TransferHookPool accounts; both wrap the same pool state.
+      const disc = Buffer.from(info.data.subarray(0, 8));
+      const kind = disc.equals(Buffer.from(TRANSFER_HOOK_POOL_DISC)) ? "transferHookPool" : disc.equals(Buffer.from(VIRTUAL_POOL_DISC)) ? "virtualPool" : null;
+      if (!kind) return;
+      const pool = coder.decode(kind, info.data) as VirtualPool;
+      out.set(m, dbcSnapshot(m, pool, config, point, this.opensOf?.(m)));
+    });
     return out;
-  }
-
-  async listLaunches() {
-    const pools = await this.client.state.getPoolsByConfig(this.config);
-    return pools.map((p) => ({ mint: p.account.poolState.baseMint.toBase58(), creator: p.account.poolState.creator.toBase58() }));
   }
 }
 
 /** Venue-neutral view of a DBC pool, quoting with the SDK's own swap math (exact, fees included). */
-export function dbcSnapshot(mint: string, pool: VirtualPool, config: PoolConfig, currentPoint: BN): PoolSnapshot {
+export function dbcSnapshot(mint: string, pool: VirtualPool, config: PoolConfig, currentPoint: BN, open?: boolean): PoolSnapshot {
   const s = pool.poolState;
   return {
     mint,
     creator: s.creator.toBase58(),
     quoteReserve: BigInt(s.quoteReserve.toString()),
     baseReserve: BigInt(s.baseReserve.toString()),
-    // Plain DBC pools have no agents-only phase: anyone may trade from the first block.
-    open: true,
+    // Plain DBC pools have no agents-only phase; hooked ones are open once the agents program says so.
+    open: open ?? true,
     migrated: s.isMigrated !== 0,
     quote(side, amountIn) {
       if (amountIn <= 0n || s.isMigrated !== 0) return 0n;
@@ -95,10 +94,10 @@ export function dbcSnapshot(mint: string, pool: VirtualPool, config: PoolConfig,
  * Our platform config, as close to the EVM LaunchHook as DBC allows. `migrationQuoteThreshold`
  * is in SOL. On devnet keep it tiny so a smoke test can see a coin graduate.
  */
-export function agentsCurve(opts: { migrationQuoteThresholdSol: number; creatorFeeSharePct?: number }): ConfigParameters {
+export function agentsCurve(opts: { migrationQuoteThresholdSol: number; creatorFeeSharePct?: number; token2022?: boolean }): ConfigParameters {
   return buildCurve({
     token: {
-      tokenType: TokenType.SPLToken, tokenBaseDecimal: TokenDecimal.SIX, tokenQuoteDecimal: 9,
+      tokenType: opts.token2022 ? TokenType.Token2022 : TokenType.SPLToken, tokenBaseDecimal: TokenDecimal.SIX, tokenQuoteDecimal: 9,
       tokenAuthorityOption: TokenAuthorityOption.Immutable, totalTokenSupply: 1_000_000_000, leftover: 0,
     },
     fee: {
@@ -124,9 +123,12 @@ export function agentsCurve(opts: { migrationQuoteThresholdSol: number; creatorF
 }
 
 /** Creates the partner config (once per platform). Returns the unsigned transaction and the new config key. */
-export async function buildCreateConfig(connection: Connection, p: { payer: PublicKey; feeClaimer: PublicKey; leftoverReceiver: PublicKey; params: ConfigParameters }) {
+export async function buildCreateConfig(connection: Connection, p: { payer: PublicKey; feeClaimer: PublicKey; leftoverReceiver: PublicKey; params: ConfigParameters; transferHookProgram?: PublicKey }) {
   const client = new DynamicBondingCurveClient(connection, "confirmed");
   const config = Keypair.generate();
-  const tx = await client.partner.createConfig({ config: config.publicKey, feeClaimer: p.feeClaimer, leftoverReceiver: p.leftoverReceiver, quoteMint: NATIVE_MINT, payer: p.payer, ...p.params });
+  const base = { config: config.publicKey, feeClaimer: p.feeClaimer, leftoverReceiver: p.leftoverReceiver, quoteMint: NATIVE_MINT, payer: p.payer, ...p.params };
+  const tx = p.transferHookProgram
+    ? await client.partner.createConfigWithTransferHook({ ...base, transferHookProgram: p.transferHookProgram })
+    : await client.partner.createConfig(base);
   return { tx, config };
 }
