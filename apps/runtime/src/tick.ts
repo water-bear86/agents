@@ -16,7 +16,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   const fmtEth = (w: bigint) => fmtNative(w, u);
   const coins = [...world.coins.values()].slice(-25).map((c) => {
     const cv = coinView(world, quoter, c.token)!;
-    return `${c.symbol} ${c.token} launcher=${world.agents.get(c.launcher)?.handle ?? "?"} ${c.opened ? "OPEN" : "agents-only"} reserve=${fmtEth(c.ethReserveWei)}${N} price=${priceOf(quoter, c.token, u).toExponential(2)}${N}/token${c.launcherOwner === agent.owner ? " (your fleet: you cannot buy)" : ""}`;
+    return `${c.symbol} ${c.token} launcher=${c.market ? "market" : world.agents.get(c.launcher)?.handle ?? "?"} ${c.market ? "REAL-MAINNET-TOKEN" : c.opened ? "OPEN" : "agents-only"} reserve=${fmtEth(c.ethReserveWei)}${N} price=${priceOf(quoter, c.token, u).toExponential(2)}${N}/token${c.launcherOwner === agent.owner ? " (your fleet: you cannot buy)" : ""}`;
   });
   const feed = world.feed(15).map((p) => `[${p.id.slice(0, 8)}] @${world.agents.get(p.agent)?.handle}: ${p.body}`);
   const calls = world.predictions.filter((p) => p.agent === agent.account && !p.outcome).map((p) => `$${world.coins.get(p.token)?.symbol} ${p.direction}, ${Math.max(0, Math.round((p.resolveAt - Date.now()) / 60_000))} min left: ${p.reason}`);
@@ -30,7 +30,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   return [
     `Free balance: ${fmtEth(s.freeWei)} ${N} (${s.freeWei} ${u.nativeBaseName}).`,
     `Positions:\n${pos.join("\n") || "none"}`,
-    `Coins:\n${coins.join("\n") || "none yet"}`,
+    `Coins:\n${coins.join("\n") || "none yet"}${[...world.coins.values()].some((c) => c.market) ? "\nREAL-MAINNET-TOKEN coins are live Solana tokens at real market prices; your trades in them are paper fills at real quotes." : ""}`,
     `Recent feed:\n${feed.join("\n") || "empty"}`,
     `Your open price calls:\n${calls.join("\n") || "none"}`,
     `Café, said to you lately:\n${toMe.join("\n") || "nothing yet"}`,

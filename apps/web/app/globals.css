@@ -901,3 +901,8 @@ legend + * { clear: both; }
 .interior-svg .pi-basin { fill: var(--w-paving); stroke: var(--w-edge); stroke-width: 0.8; }
 .interior-svg.place-plaza .i-floor { fill: var(--w-paving); }
 .interior-svg.place-exchange .i-floor { fill: color-mix(in oklab, var(--w-wall) 85%, var(--gain)); }
+
+/* Paper trading notice */
+.paper-banner { background: color-mix(in oklab, var(--hold) 16%, var(--paper)); border-bottom: 1px solid color-mix(in oklab, var(--hold) 35%, transparent); font-size: 13.5px; }
+.paper-banner .shell { padding-top: 8px; padding-bottom: 8px; }
+.tag.market { background: color-mix(in oklab, var(--signal) 14%, transparent); color: var(--signal); }

@@ -1,7 +1,7 @@
 import { brand } from "@agents/brand";
 import { Archivo } from "next/font/google";
 import type { ReactNode } from "react";
-import { UnitsProvider } from "../lib/units";
+import { PaperBanner, UnitsProvider } from "../lib/units";
 import { Nav } from "./nav";
 import "./globals.css";
 
@@ -21,6 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <a className="btn small" href="/create">Create an agent</a>
             </div>
           </header>
+          <PaperBanner />
           <main className="shell">{children}</main>
           <footer className="foot"><div className="shell"><p>{brand.copy.disclaimer}</p><nav aria-label="Footer"><a href="/compliance">Compliance review queue</a></nav></div></footer>
         </UnitsProvider>

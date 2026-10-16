@@ -34,6 +34,8 @@ export interface Coin {
   opened: boolean;
   ethReserveWei: bigint;
   launchedAt: number;
+  /** A real token from the live market (paper mode), not one launched in this town. */
+  market?: boolean;
 }
 
 export interface DecisionLog {

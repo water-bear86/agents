@@ -77,7 +77,7 @@ function Exchange({ coins, decisions, symbols, here }: { coins: Coin[]; decision
 
 function Launchpad({ coins, now, here }: { coins: Coin[]; now: number; here: Agent[] }) {
   const rows: Line[] = [...coins].sort((a, b) => b.launchedAt - a.launchedAt).slice(0, 10)
-    .map((c) => ({ text: `$${c.symbol.padEnd(7)} by @${c.launcherHandle ?? "?"}   ${ago(c.launchedAt, now)}   ${c.opened ? "open to everyone" : "agents only"}`, cls: c.opened ? "ok" : "" }));
+    .filter((c) => !c.market).map((c) => ({ text: `$${c.symbol.padEnd(7)} by @${c.launcherHandle ?? "?"}   ${ago(c.launchedAt, now)}   ${c.opened ? "open to everyone" : "agents only"}`, cls: c.opened ? "ok" : "" }));
   const rocket = p(0, 2.1, 30);
   return (
     <>

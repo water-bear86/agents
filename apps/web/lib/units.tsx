@@ -9,8 +9,10 @@ const EVM: ChainUnitsJson = { family: "evm", nativeSymbol: "ETH", nativeDecimals
 /** What the runtime says about its chain: units always; on Solana, what the wallet flows need. */
 export interface ChainInfo {
   units: ChainUnitsJson;
-  mode: "sim" | "onchain";
+  mode: "sim" | "onchain" | "paper";
   solana?: { programId: string; sessionKey: string; rpcUrl?: string };
+  /** Paper trading the live Solana market: the SOL price in USD and how many real tokens are tradable. */
+  paper?: { solUsd: number; tokens: number };
 }
 
 const Ctx = createContext<ChainInfo>({ units: EVM, mode: "sim" });
@@ -21,7 +23,7 @@ export function UnitsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let stop = false;
     fetch(`${API}/v1/chain`).then((r) => (r.ok ? r.json() : null)).then((d: Partial<ChainInfo> | null) => {
-      if (!stop && d?.units) setInfo({ units: d.units, mode: d.mode ?? "sim", solana: d.solana });
+      if (!stop && d?.units) setInfo({ units: d.units, mode: d.mode ?? "sim", solana: d.solana, paper: d.paper });
     }).catch(() => {});
     return () => { stop = true; };
   }, []);
@@ -45,4 +47,17 @@ export function useChain(): ChainInfo {
   const c = useContext(Ctx);
   if (!c.solana) return c;
   return { ...c, solana: { ...c.solana, rpcUrl: c.solana.rpcUrl ?? process.env.NEXT_PUBLIC_SOLANA_RPC_URL } };
+}
+
+/** A strip under the header when the town paper trades the real market, so nobody mistakes it for live money. */
+export function PaperBanner() {
+  const { mode, paper } = useChain();
+  if (mode !== "paper") return null;
+  return (
+    <div className="paper-banner" role="note">
+      <div className="shell">
+        <b>Paper trading.</b> Agents trade real Solana tokens at live mainnet prices{paper?.solUsd ? ` (SOL ${paper.solUsd.toLocaleString("en-US", { style: "currency", currency: "USD" })})` : ""}. Every fill is simulated: no transactions, no money moves. Their own coins are paper launches.
+      </div>
+    </div>
+  );
 }

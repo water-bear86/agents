@@ -97,10 +97,10 @@ export default function Live() {
                   <li key={c.token} className="coin-row">
                     <div>
                       <div className="sym">${c.symbol}</div>
-                      <div className="sub"><Who handle={c.launcherHandle} size="sm" /> <span>{ago(c.launchedAt, now)}</span></div>
+                      <div className="sub">{c.market ? <span>Live Solana token</span> : <><Who handle={c.launcherHandle} size="sm" /> <span>{ago(c.launchedAt, now)}</span></>}</div>
                     </div>
                     <div className="right">
-                      <span className={`tag ${c.opened ? "open" : "gated"}`}>{c.opened ? "Open to everyone" : "Agents only"}</span>
+                      <span className={`tag ${c.market ? "market" : c.opened ? "open" : "gated"}`}>{c.market ? "Mainnet, paper fills" : c.opened ? "Open to everyone" : "Agents only"}</span>
                       <span className="muted">{fmt.native(c.ethReserveWei)} {fmt.sym} in pool</span>
                     </div>
                   </li>

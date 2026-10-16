@@ -77,7 +77,11 @@ export const xpRules = (sym = "ETH"): [string, number][] => [
   ["Each follower", 3],
 ];
 
-export interface Coin { token: string; symbol: string; name: string; launcherHandle: string; opened: boolean; ethReserveWei: string; price: number; launchedAt: number }
+export interface Coin {
+  token: string; symbol: string; name: string; launcherHandle: string; opened: boolean; ethReserveWei: string; price: number; launchedAt: number;
+  /** A real token from the live market (paper mode), not launched in this town. */
+  market?: boolean;
+}
 export interface Post { id: string; handle: string; body: string; at: number; token?: string; likes: number; jev?: { insight: number; inCharacter?: number; pick: boolean } }
 
 export interface Act {

@@ -10,6 +10,7 @@ import { createPublicClient, defineChain, http, type Address, type Hex } from "v
 import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
+import { PaperChain, syncMarket } from "./solana/paper.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
@@ -51,6 +52,10 @@ const evmOnchain = world.units.family === "evm" && !!(env.RPC_URL && env.SESSION
 // Solana: agents live in the agents program (vault PDAs only their owners can withdraw from);
 // this runtime signs as their session key. SOLANA_SESSION_KEYPAIR is that key's keypair file.
 const solanaOnchain = world.units.family === "solana" && !!(env.SOLANA_RPC_URL && env.SOLANA_SESSION_KEYPAIR);
+// PAPER=1 (with CHAIN_FAMILY=solana): trade the live mainnet market on paper. Nothing is signed or sent.
+const paperMode = env.PAPER === "1" && world.units.family === "solana" && !solanaOnchain;
+if (env.PAPER === "1" && !paperMode) throw new Error("PAPER=1 needs CHAIN_FAMILY=solana and no SOLANA_SESSION_KEYPAIR");
+let paper: PaperChain | null = null;
 const onchain = evmOnchain || solanaOnchain;
 let chain: Chain;
 let quoter: Quoter;
@@ -82,11 +87,34 @@ if (solanaOnchain) {
   chain = new ViemAgentChain(env.RPC_URL!, net, env.SESSION_KEY as Hex, env.HOOK as Address);
   quoter = poolQuoter = new PoolQuoter(pub, env.POOL_MANAGER as Address, env.HOOK as Address);
   indexer = new Indexer(pub, env.REGISTRY as Address, env.HOOK as Address, world, BigInt(env.START_BLOCK ?? 0));
+} else if (paperMode) {
+  // Paper trading against the live Solana market: real tokens at mainnet prices, simulated fills.
+  const p = new PaperChain(world.units, {
+    rpcUrl: env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com",
+    maxTokens: Number(env.PAPER_TOKENS ?? 12), minLiquidityUsd: Number(env.PAPER_MIN_LIQUIDITY_USD ?? 50_000),
+  });
+  paper = p;
+  chain = p;
+  quoter = p;
+  let lastDiscover = 0;
+  const DISCOVER_MS = Number(env.PAPER_DISCOVER_MS ?? 15 * 60_000);
+  indexer = {
+    pass: async () => {
+      if (Date.now() - lastDiscover < DISCOVER_MS) return;
+      lastDiscover = Date.now();
+      const found = await p.discover().catch((e) => { console.warn(`[paper] discover failed: ${e instanceof Error ? e.message : e}`); return []; });
+      if (found.length) console.log(`[paper] market: ${found.map((t) => `$${t.symbol}`).join(" ")}`);
+    },
+    syncBalances: async () => {},
+  };
+  poolQuoter = { refresh: async () => { await p.refresh().catch((e) => console.warn(`[paper] prices failed: ${e instanceof Error ? e.message : e}`)); syncMarket(world, p); } };
 } else {
   const sim = new SimChain(world.units);
   chain = sim;
   quoter = sim;
 }
+/** The simulated pools behind demo mode and paper launches, saved with the world. */
+const simPools = () => (chain instanceof SimChain ? chain : paper?.sim)?.pools;
 const apiKeys = new Map<string, string>(); // sha256(key) -> agent account
 
 // Compliance screen (TypeSafe Jev). Off without TYPESAFE_API_KEY, or with COMPLIANCE=off.
@@ -211,7 +239,9 @@ const DATA_FILE = env.DATA_FILE ?? "agents-data.json";
 const restored = loadWorld(world, DATA_FILE);
 if (restored) {
   for (const [h, a] of (restored.apiKeys as [string, string][] | undefined) ?? []) apiKeys.set(h, a);
-  if (chain instanceof SimChain) for (const [t, p] of (restored.pools as [string, { eth: bigint; tokens: bigint }][] | undefined) ?? []) chain.pools.set(t, p);
+  for (const [t, p] of (restored.pools as [string, { eth: bigint; tokens: bigint }][] | undefined) ?? []) simPools()?.set(t, p);
+  // Real tokens agents saw or hold stay tradable after a restart, even once they stop trending.
+  if (paper) for (const c of world.coins.values()) if (c.market) paper.market.set(c.token, { mint: c.token, symbol: c.symbol, name: c.name, decimals: world.units.tokenDecimals, liquidityUsd: 0 });
   console.log(`[runtime] restored ${world.agents.size} agents, ${world.posts.length} posts from ${DATA_FILE}`);
 }
 
@@ -269,7 +299,7 @@ async function pass() {
 
 function persist() {
   try {
-    saveWorld(world, DATA_FILE, { apiKeys: [...apiKeys], pools: chain instanceof SimChain ? [...chain.pools] : [] });
+    saveWorld(world, DATA_FILE, { apiKeys: [...apiKeys], pools: [...(simPools() ?? [])] });
   } catch (e) {
     console.error("[persist] save failed", e);
   }
@@ -438,7 +468,8 @@ createServer(async (req, res) => {
 
     if (resource === "chain") {
       return send(res, 200, {
-        units: unitsToJson(world.units), mode: onchain ? "onchain" : "sim",
+        units: unitsToJson(world.units), mode: onchain ? "onchain" : paper ? "paper" : "sim",
+        paper: paper ? { solUsd: paper.solUsd, tokens: paper.market.size } : undefined,
         solana: solana ? { programId: AGENTS_PROGRAM_ID.toBase58(), sessionKey: solana.chain.sessionKey.toBase58(), rpcUrl: solana.publicRpc } : undefined,
       });
     }
@@ -574,6 +605,6 @@ createServer(async (req, res) => {
   }
 }).listen(PORT);
 
-console.log(`[runtime] API on :${PORT}${demo ? " (demo LLM)" : ""}${onchain ? " on-chain" : " SimChain"}${screen ? `, compliance screen ${JEV_MODEL}` : ", compliance screen off"}`);
+console.log(`[runtime] API on :${PORT}${demo ? " (demo LLM)" : ""}${onchain ? " on-chain" : paper ? " paper trading the live Solana market" : " SimChain"}${screen ? `, compliance screen ${JEV_MODEL}` : ", compliance screen off"}`);
 await pass();
 setInterval(() => void pass(), Number(env.TICK_MS ?? (demo ? 10_000 : 60_000)));
