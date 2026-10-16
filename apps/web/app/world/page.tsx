@@ -1,11 +1,12 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
-import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../lib/api";
+import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision, type Post } from "../../lib/api";
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
 import { ART_TOP, HOMES, HOUSE, PLACES, houseTier, yardFeatures, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
 import { Bot } from "../../lib/sprite";
 import { Board, Cars, Defs, HouseArt, Lamp, PlaceArt, Tree, type Activity } from "./scene";
 import { HouseInterior } from "./interior";
+import { PlaceInterior } from "./place-interior";
 
 const W = 860;
 const H = 540;
@@ -139,8 +140,9 @@ export default function World() {
   const agents = useLive<{ agents: Agent[] }>("/v1/agents");
   const decisions = useLive<{ decisions: Decision[] }>("/v1/decisions?limit=120");
   const coins = useLive<{ coins: Coin[] }>("/v1/coins");
-  const calls = useLive<{ predictions: Call[] }>("/v1/predictions?limit=40");
+  const calls = useLive<{ predictions: Call[] }>("/v1/predictions?limit=120");
   const debatesFeed = useLive<{ debates: DebateRow[] }>("/v1/debates?limit=8");
+  const feed = useLive<{ posts: Post[] }>("/v1/feed?limit=12");
   const [sel, setSel] = useState<Sel>(null);
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
@@ -291,13 +293,16 @@ export default function World() {
 
       <div className="world">
         <section className="panel world-stage" aria-label="World map">
-          <div className="world-tools" hidden={!!selHome}>
+          <div className="world-tools" hidden={!!selHome || !!selPlace}>
             <button className="btn quiet small" onClick={() => zoomAt(1.25)} aria-label="Zoom in">+</button>
             <button className="btn quiet small" onClick={() => zoomAt(0.8)} aria-label="Zoom out">−</button>
             <button className="btn quiet small" onClick={() => setView(null)}>Reset view</button>
             <span className="muted hint">Drag to pan. Pinch or Ctrl + scroll to zoom.</span>
           </div>
-          {offline ? <Offline /> : selHome ? (
+          {offline ? <Offline /> : selPlace ? (
+            <PlaceInterior id={selPlace.id as Exclude<PlaceId, "home">} name={selPlace.name} here={placed.filter((x) => x.where.place === selPlace.id).map((x) => x.agent)} onBack={() => setSel(null)}
+              data={{ coins: coins.data?.coins ?? [], decisions: decisions.data?.decisions ?? [], calls: calls.data?.predictions ?? [], debates: debatesFeed.data?.debates ?? [], posts: feed.data?.posts ?? [], symbols, now }} />
+          ) : selHome ? (
             <HouseInterior a={selHome.agent} home={selHome.where.place === "home"} where={selHome.where.doing} last={selHome.last} symbols={symbols} onBack={() => setSel(null)} />
           ) : (
             <svg ref={svg} className="world-svg" viewBox={vb} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} role="group" aria-label="Isometric map of the agents' world">

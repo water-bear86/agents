@@ -568,8 +568,8 @@ legend + * { clear: both; }
 .world-svg .note.n1 { fill: var(--w-top); }
 .world-svg .note.n2 { fill: color-mix(in oklab, var(--hold) 30%, var(--w-top)); }
 .world-svg .note.n3 { fill: color-mix(in oklab, var(--signal) 25%, var(--w-top)); }
-.world-svg .water { fill: var(--w-water); }
-.world-svg .spray { fill: none; stroke: var(--w-water); stroke-width: 1.6; stroke-linecap: round; opacity: 0.9; }
+.world-svg .water, .interior-svg .water { fill: var(--w-water); }
+.world-svg .spray, .interior-svg .spray { fill: none; stroke: var(--w-water); stroke-width: 1.6; stroke-linecap: round; opacity: 0.9; }
 .world-svg .dome { fill: color-mix(in oklab, var(--tone) 50%, var(--w-wall)); stroke: var(--w-edge); stroke-width: 0.6; }
 .world-svg .dome-shade { fill: color-mix(in oklab, var(--tone) 40%, #000); opacity: 0.25; clip-path: inset(0 0 0 50%); }
 .world-svg .slit { fill: #101826; }
@@ -781,3 +781,41 @@ legend + * { clear: both; }
   @keyframes roll { to { transform: rotate(360deg); } }
   @keyframes float { from { transform: translateY(0); } to { transform: translateY(-2px); } }
 }
+
+/* ---------------------------------------------------------------- inside the town's buildings */
+.interior-svg :is(.pi-screen-block, .pi-console, .pi-podium) { stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .pi-board-frame { fill: color-mix(in oklab, var(--w-steel) 70%, #000); }
+.interior-svg .pi-board { fill: #0d1726; }
+.interior-svg .pi-board-title { font-size: 8.5px; font-weight: 850; fill: #e6edf7; }
+.interior-svg .pi-board-line { font-size: 7px; font-weight: 600; fill: #b8c7de; white-space: pre; }
+.interior-svg .pi-board-line.ok { fill: #42d39c; }
+.interior-svg .pi-board-line.no { fill: #ff8a7b; }
+.interior-svg .pi-board-line.who { fill: #e6edf7; font-weight: 800; }
+.interior-svg .pi-screen-block.l, .interior-svg .pi-screen-block.r { fill: #1b2230; }
+.interior-svg .pi-screen-block.t { fill: #42d39c; opacity: 0.7; }
+.interior-svg .pi-console.t { fill: color-mix(in oklab, var(--signal) 60%, #0d1726); }
+.interior-svg .pi-console.l, .interior-svg .pi-console.r { fill: #1b2230; }
+@media (prefers-color-scheme: dark) { .interior-svg .pi-console.t, .interior-svg .pi-screen-block.t { filter: drop-shadow(0 0 3px var(--signal)); } }
+.interior-svg .pi-rocket rect, .interior-svg .pi-rocket path { fill: var(--w-wall); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .pi-rocket .tone { fill: var(--signal); }
+.interior-svg.place-observatory .i-wall.l, .interior-svg.place-observatory .i-wall.r { fill: color-mix(in oklab, var(--violet) 22%, #141c33); }
+.interior-svg .pi-stars circle { fill: #e8ecff; opacity: 0.7; }
+.interior-svg .pi-tube { stroke: color-mix(in oklab, var(--violet) 55%, var(--w-steel)); stroke-width: 18; stroke-linecap: round; }
+.interior-svg .pi-lens { fill: #7fd4ff; stroke: #2b3442; stroke-width: 2; }
+.interior-svg .pi-slit { fill: #050a14; }
+.interior-svg .pi-podium.l { fill: color-mix(in oklab, var(--teal) 55%, var(--w-wall)); }
+.interior-svg .pi-podium.r { fill: color-mix(in oklab, var(--teal) 70%, var(--w-wall-shade)); }
+.interior-svg .pi-podium.t { fill: color-mix(in oklab, var(--teal) 35%, var(--w-top)); }
+.interior-svg .pi-banner { fill: color-mix(in oklab, var(--teal) 80%, #000); }
+.interior-svg .pi-banner-text { font-size: 8px; font-weight: 800; fill: #fff; }
+.interior-svg .pi-cork { fill: #b98a5e; stroke: color-mix(in oklab, #b98a5e 60%, #000); stroke-width: 1; }
+.interior-svg .pi-note { stroke: rgba(0, 0, 0, 0.18); stroke-width: 0.6; }
+.interior-svg .pi-note.n0 { fill: #fffbe8; }
+.interior-svg .pi-note.n1 { fill: #fde7ef; }
+.interior-svg .pi-note.n2 { fill: #e8f2ff; }
+.interior-svg .pi-note-who { font-size: 6.4px; font-weight: 850; fill: #1d2a3e; }
+.interior-svg .pi-note-text { font-size: 6px; font-weight: 550; fill: #2b3442; }
+.interior-svg .pi-note-when { font-size: 5.4px; fill: #6a7584; }
+.interior-svg .pi-basin { fill: var(--w-paving); stroke: var(--w-edge); stroke-width: 0.8; }
+.interior-svg.place-plaza .i-floor { fill: var(--w-paving); }
+.interior-svg.place-exchange .i-floor { fill: color-mix(in oklab, var(--w-wall) 85%, var(--gain)); }

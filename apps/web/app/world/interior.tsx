@@ -10,21 +10,21 @@ import { hue } from "../../lib/api";
 import { houseTier } from "../../lib/world";
 import { Bot } from "../../lib/sprite";
 
-const W = 860;
+export const W = 860;
 /** Room grid: floor is SIZE × SIZE units; one unit is 34 px wide on screen. */
-const SIZE = 7;
-const U = 34;
-const WALL = 196;
-const O = { x: W / 2, y: 190 };
+export const SIZE = 7;
+export const U = 34;
+export const WALL = 196;
+export const O = { x: W / 2, y: 190 };
 /** Cropped to the room so it fills the stage. */
-const VIEW = "150 -22 560 480";
-const p = (x: number, y: number, z = 0) => ({ x: O.x + (x - y) * U, y: O.y + (x + y) * (U / 2) - z });
-const pts = (...q: { x: number; y: number }[]) => q.map((r) => `${r.x},${r.y}`).join(" ");
+export const VIEW = "150 -22 560 480";
+export const p = (x: number, y: number, z = 0) => ({ x: O.x + (x - y) * U, y: O.y + (x + y) * (U / 2) - z });
+export const pts = (...q: { x: number; y: number }[]) => q.map((r) => `${r.x},${r.y}`).join(" ");
 /** A rectangle on the back-right wall (y = 0) or the back-left wall (x = 0). */
-const onRight = (x0: number, x1: number, z0: number, z1: number, y = 0) => pts(p(x0, y, z0), p(x1, y, z0), p(x1, y, z1), p(x0, y, z1));
-const onLeft = (y0: number, y1: number, z0: number, z1: number, x = 0) => pts(p(x, y0, z0), p(x, y1, z0), p(x, y1, z1), p(x, y0, z1));
+export const onRight = (x0: number, x1: number, z0: number, z1: number, y = 0) => pts(p(x0, y, z0), p(x1, y, z0), p(x1, y, z1), p(x0, y, z1));
+export const onLeft = (y0: number, y1: number, z0: number, z1: number, x = 0) => pts(p(x, y0, z0), p(x, y1, z0), p(x, y1, z1), p(x, y0, z1));
 /** A box on the floor (or raised to z0): left (y-facing) and right (x-facing) sides and top. */
-function Block({ x, y, sx, sy, h, z0 = 0, m }: { x: number; y: number; sx: number; sy: number; h: number; z0?: number; m: string }) {
+export function Block({ x, y, sx, sy, h, z0 = 0, m }: { x: number; y: number; sx: number; sy: number; h: number; z0?: number; m: string }) {
   const n = p(x, y, z0 + h), e = p(x + sx, y, z0 + h), s = p(x + sx, y + sy, z0 + h), w = p(x, y + sy, z0 + h);
   const sb = p(x + sx, y + sy, z0), wb = p(x, y + sy, z0), eb = p(x + sx, y, z0);
   return (
@@ -36,11 +36,11 @@ function Block({ x, y, sx, sy, h, z0 = 0, m }: { x: number; y: number; sx: numbe
   );
 }
 /** Text lying flat on the back-right wall, reading left to right. */
-const rightWallText = (x: number, z: number) => `matrix(${2 / Math.sqrt(5)} ${1 / Math.sqrt(5)} 0 1 ${p(x, 0, z).x} ${p(x, 0, z).y})`;
+export const rightWallText = (x: number, z: number) => `matrix(${2 / Math.sqrt(5)} ${1 / Math.sqrt(5)} 0 1 ${p(x, 0, z).x} ${p(x, 0, z).y})`;
 /** Text on the back-left wall, reading left to right (toward the viewer's left). */
-const leftWallText = (y: number, z: number) => `matrix(${2 / Math.sqrt(5)} ${-1 / Math.sqrt(5)} 0 1 ${p(0, y, z).x} ${p(0, y, z).y})`;
+export const leftWallText = (y: number, z: number) => `matrix(${2 / Math.sqrt(5)} ${-1 / Math.sqrt(5)} 0 1 ${p(0, y, z).x} ${p(0, y, z).y})`;
 
-const wrap = (s: string, n: number, max: number) => {
+export const wrap = (s: string, n: number, max: number) => {
   const words = s.split(/\s+/);
   const lines: string[] = [];
   let cur = "";
@@ -52,6 +52,39 @@ const wrap = (s: string, n: number, max: number) => {
   if (lines.length === max && words.join(" ").length > lines.join(" ").length) lines[max - 1] = `${lines[max - 1]!.slice(0, n - 1)}…`;
   return lines;
 };
+
+/** The room itself: floor, two back walls with skirting, the cut edges, and a window on the right wall. */
+export function RoomShell({ window: showWindow = true }: { window?: boolean }) {
+  return (
+    <>
+        <defs>
+          <radialGradient id="i-glow"><stop offset="0" style={{ stopColor: "var(--w-glow)", stopOpacity: 0.5 }} /><stop offset="1" style={{ stopColor: "var(--w-glow)", stopOpacity: 0 }} /></radialGradient>
+          <linearGradient id="i-sky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" style={{ stopColor: "var(--i-sky-top)" }} /><stop offset="1" style={{ stopColor: "var(--i-sky-low)" }} /></linearGradient>
+        </defs>
+        {/* Shell: floor, two back walls with skirting, and the cut edges of the walls. */}
+        <polygon points={pts(p(0, 0, -14), p(SIZE, 0, -14), p(SIZE, SIZE, -14), p(0, SIZE, -14))} className="i-base" />
+        <polygon points={pts(p(0, SIZE), p(SIZE, SIZE), p(SIZE, SIZE, -14), p(0, SIZE, -14))} className="i-cut l" />
+        <polygon points={pts(p(SIZE, SIZE), p(SIZE, 0), p(SIZE, 0, -14), p(SIZE, SIZE, -14))} className="i-cut r" />
+        <polygon points={pts(p(0, 0), p(SIZE, 0), p(SIZE, SIZE), p(0, SIZE))} className="i-floor" />
+        {Array.from({ length: SIZE * 2 - 1 }, (_, k) => { const q = (k + 1) / 2; const a1 = p(q, 0), b1 = p(q, SIZE); return <line key={k} x1={a1.x} y1={a1.y} x2={b1.x} y2={b1.y} className="i-plank" />; })}
+        <polygon points={onRight(0, SIZE, 0, WALL)} className="i-wall r" />
+        <polygon points={onLeft(0, SIZE, 0, WALL)} className="i-wall l" />
+        <polygon points={pts(p(0, 0, WALL), p(SIZE, 0, WALL), p(SIZE, -0.25, WALL), p(-0.25, -0.25, WALL), p(-0.25, SIZE, WALL), p(0, SIZE, WALL))} className="i-wall-top" />
+        <polygon points={onRight(0, SIZE, 0, 10)} className="i-skirt" />
+        <polygon points={onLeft(0, SIZE, 0, 10)} className="i-skirt" />
+
+        {showWindow && <>
+        {/* Window, showing the sky for the theme (day, or night with the town's glow). */}
+        <polygon points={onRight(4.4, 6.4, 78, 162)} className="i-frame" />
+        <polygon points={onRight(4.55, 6.25, 86, 154)} fill="url(#i-sky)" />
+        <circle cx={p(5.8, 0, 140).x} cy={p(5.8, 0, 140).y} r={7} className="i-moon" />
+        <line x1={p(5.4, 0, 86).x} y1={p(5.4, 0, 86).y} x2={p(5.4, 0, 154).x} y2={p(5.4, 0, 154).y} className="i-mullion" />
+        <line x1={p(4.55, 0, 120).x} y1={p(4.55, 0, 120).y} x2={p(6.25, 0, 120).x} y2={p(6.25, 0, 120).y} className="i-mullion" />
+
+        </>}
+    </>
+  );
+}
 
 export function HouseInterior({ a, home, where, last, symbols, onBack }: {
   a: Agent; home: boolean; where: string; last?: Decision; symbols: Map<string, string>; onBack: () => void;
@@ -92,28 +125,7 @@ export function HouseInterior({ a, home, where, last, symbols, onBack }: {
         <span className="muted">Inside @{a.handle}&rsquo;s {t.name}. {home ? "It's home." : `It's out: ${where}.`}</span>
       </div>
       <svg className={`interior-svg tier-${t.tier}`} viewBox={VIEW} role="img" aria-label={`Inside the ${t.name} of @${a.handle}: ${earned.length} trophies, ${a.positions.length} coins held, ${home ? "at home on its charging dock" : "out"}`}>
-        <defs>
-          <radialGradient id="i-glow"><stop offset="0" style={{ stopColor: "var(--w-glow)", stopOpacity: 0.5 }} /><stop offset="1" style={{ stopColor: "var(--w-glow)", stopOpacity: 0 }} /></radialGradient>
-          <linearGradient id="i-sky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" style={{ stopColor: "var(--i-sky-top)" }} /><stop offset="1" style={{ stopColor: "var(--i-sky-low)" }} /></linearGradient>
-        </defs>
-        {/* Shell: floor, two back walls with skirting, and the cut edges of the walls. */}
-        <polygon points={pts(p(0, 0, -14), p(SIZE, 0, -14), p(SIZE, SIZE, -14), p(0, SIZE, -14))} className="i-base" />
-        <polygon points={pts(p(0, SIZE), p(SIZE, SIZE), p(SIZE, SIZE, -14), p(0, SIZE, -14))} className="i-cut l" />
-        <polygon points={pts(p(SIZE, SIZE), p(SIZE, 0), p(SIZE, 0, -14), p(SIZE, SIZE, -14))} className="i-cut r" />
-        <polygon points={pts(p(0, 0), p(SIZE, 0), p(SIZE, SIZE), p(0, SIZE))} className="i-floor" />
-        {Array.from({ length: SIZE * 2 - 1 }, (_, k) => { const q = (k + 1) / 2; const a1 = p(q, 0), b1 = p(q, SIZE); return <line key={k} x1={a1.x} y1={a1.y} x2={b1.x} y2={b1.y} className="i-plank" />; })}
-        <polygon points={onRight(0, SIZE, 0, WALL)} className="i-wall r" />
-        <polygon points={onLeft(0, SIZE, 0, WALL)} className="i-wall l" />
-        <polygon points={pts(p(0, 0, WALL), p(SIZE, 0, WALL), p(SIZE, -0.25, WALL), p(-0.25, -0.25, WALL), p(-0.25, SIZE, WALL), p(0, SIZE, WALL))} className="i-wall-top" />
-        <polygon points={onRight(0, SIZE, 0, 10)} className="i-skirt" />
-        <polygon points={onLeft(0, SIZE, 0, 10)} className="i-skirt" />
-
-        {/* Window, showing the sky for the theme (day, or night with the town's glow). */}
-        <polygon points={onRight(4.4, 6.4, 78, 162)} className="i-frame" />
-        <polygon points={onRight(4.55, 6.25, 86, 154)} fill="url(#i-sky)" />
-        <circle cx={p(5.8, 0, 140).x} cy={p(5.8, 0, 140).y} r={7} className="i-moon" />
-        <line x1={p(5.4, 0, 86).x} y1={p(5.4, 0, 86).y} x2={p(5.4, 0, 154).x} y2={p(5.4, 0, 154).y} className="i-mullion" />
-        <line x1={p(4.55, 0, 120).x} y1={p(4.55, 0, 120).y} x2={p(6.25, 0, 120).x} y2={p(6.25, 0, 120).y} className="i-mullion" />
+        <RoomShell />
 
         {/* Level plaque and debate certificates on the left wall. */}
         <polygon points={onLeft(5.3, 6.7, 118, 160)} className="i-plaque" />
