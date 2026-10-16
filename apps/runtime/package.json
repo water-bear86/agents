@@ -13,7 +13,8 @@
     "counsel:preread": "tsx src/counsel-preread.ts",
     "solana:e2e": "tsx src/solana/e2e.ts",
     "solana:validator": "sh -c 'K=\"${SOLANA_KEY_DIR:-$HOME/.config/agents-solana-devnet}/runtime.json\"; exec solana-test-validator --reset --ledger ../../solana/.ledger --url devnet --clone-upgradeable-program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s --upgradeable-program 4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r ../../solana/target/deploy/agents.so \"$K\" --upgradeable-program 8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9 ../../solana/target/deploy/agents_hook.so \"$K\"'",
-    "solana:mainnet": "tsx src/solana/mainnet.ts"
+    "solana:mainnet": "tsx src/solana/mainnet.ts",
+    "solana:town": "tsx src/solana/town.ts"
   },
   "dependencies": {
     "@agents/brand": "workspace:*",

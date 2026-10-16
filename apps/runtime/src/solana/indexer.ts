@@ -20,7 +20,11 @@ export class SolanaQuoter implements Quoter {
 }
 
 /** A coin as the agents program records it. */
-export interface CoinRecord { mint: string; launcher: string; pool: string; opensAt: number; opened: boolean; name: string; symbol: string }
+export interface CoinRecord {
+  mint: string; launcher: string; pool: string; opensAt: number; opened: boolean; name: string; symbol: string;
+  /** When it launched (ms): the program records only the opening time, which is the launch time plus the platform's open window. */
+  launchedAt?: number;
+}
 
 /** The program data the indexer reads; `AgentsClient` in production, a stub in tests. */
 export interface CoinSource {
@@ -31,10 +35,11 @@ export interface CoinSource {
 export function programSource(client: AgentsClient): CoinSource {
   return {
     async coins() {
-      const all = await client.program.account.coin.all();
+      const [all, p] = await Promise.all([client.program.account.coin.all(), client.program.account.platform.fetch(pdas.platform())]);
+      const windowMs = Number(p.openWindow) * 1000;
       return all.map(({ account: c }) => ({
         mint: c.mint.toBase58(), launcher: c.launcher.toBase58(), pool: c.pool.toBase58(), opensAt: Number(c.opensAt) * 1000,
-        opened: c.opened, name: c.name, symbol: c.symbol,
+        opened: c.opened, name: c.name, symbol: c.symbol, launchedAt: Number(c.opensAt) * 1000 - windowMs,
       }));
     },
     async platform() {
@@ -72,7 +77,9 @@ export class SolanaIndexer {
       const agent = this.world.agents.get(r.launcher);
       if (!agent || this.world.coins.has(r.mint)) continue;
       this.world.coins.set(r.mint, {
-        token: r.mint, symbol: r.symbol, name: r.name, launcher: r.launcher, launcherOwner: agent.owner, opened: r.opened, ethReserveWei: 0n, launchedAt: Date.now(),
+        token: r.mint, symbol: r.symbol, name: r.name, launcher: r.launcher, launcherOwner: agent.owner, opened: r.opened, ethReserveWei: 0n,
+        // A coin found after a restart keeps its real launch time, so its launcher's cooldown isn't reset.
+        launchedAt: Math.min(Date.now(), r.launchedAt ?? Date.now()),
       });
       discovered++;
     }

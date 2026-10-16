@@ -96,6 +96,14 @@ describe("SolanaIndexer", () => {
     expect(await indexer.pass()).toEqual({ discovered: 0 }); // idempotent
   });
 
+  it("keeps a discovered coin's real launch time, so a restart doesn't reset its launcher's cooldown", async () => {
+    const agent = pdas.agent("atlas").toBase58();
+    const old = rec({ launcher: agent, launchedAt: Date.now() - 5 * 3_600_000 });
+    const { world, indexer } = setup([old]);
+    await indexer.pass();
+    expect(world.coins.get(old.mint)?.launchedAt).toBe(old.launchedAt);
+  });
+
   it("marks a coin open once the program says so or its opening time has passed", async () => {
     const agent = pdas.agent("atlas").toBase58();
     const late = rec({ launcher: agent, opensAt: Date.now() - 1 });

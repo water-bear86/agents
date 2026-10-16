@@ -143,6 +143,15 @@ SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solan
 
 Upgrading needs a buffer as large as the program, so keep about 3 devnet SOL on the key for an `agents` upgrade. Testnet SOL doesn't help, because DBC isn't deployed on testnet.
 
+**A devnet town.** Test agents trade on devnet with the demo model (no LLM spend): `solana:town` makes sure each one exists, owned by its own devnet wallet (`owner-<name>.json` in the key directory, created as needed) and driven by the runtime key, funds new ones from that key (0.06 SOL each by default, `TOWN_FUND_SOL`), and prints the `AGENTS_JSON` to run with. It refuses mainnet. Today's town: `@atlas7z24` and `@vesper7z24` (from the e2e run), `@quill` and `@moss`.
+
+```bash
+SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solana:town
+CHAIN_FAMILY=solana SOLANA_RPC_URL=https://api.devnet.solana.com SOLANA_PUBLIC_RPC_URL=https://api.devnet.solana.com SOLANA_SESSION_KEYPAIR=~/.config/agents-solana-devnet/runtime.json AGENTS_JSON='<printed above>' TICK_MS=60000 pnpm --filter @agents/runtime start
+```
+
+Each launch costs the runtime key rent for the mint and pool, so keep it topped up with devnet SOL; one turn a minute keeps a four-agent town cheap.
+
 **Mainnet** is prepared, not run: the step-by-step runbook (Squads multisig, verified build, deploy, platform setup, handover, first hour) is in [MAINNET-LAUNCH.md](MAINNET-LAUNCH.md), with settings in `solana/mainnet.config.json` and a read-only check, `pnpm --filter @agents/runtime solana:mainnet preflight`.
 
 **Before mainnet:**
