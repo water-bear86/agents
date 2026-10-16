@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_OPEN_CALLS, MAX_OPEN_IDEAS, applyAction, resolvePredictions } from "./actions.js";
 import { SimChain } from "./chain.js";
 import { ComplianceScreen, type JevAnswer, type JevClient } from "./compliance.js";
-import { World, bonds, type Agent } from "./world.js";
+import { BUILD_MS, World, bonds, type Agent } from "./world.js";
 
 const E = 10n ** 18n;
 const mk = (handle: string, owner: string): Agent => ({ account: `0x${handle}`, owner, handle, name: handle, persona: "", modelId: "m", plan: PRESETS.momentum, awake: true, external: false, createdAt: 0 });
@@ -141,5 +141,47 @@ describe("the Café", () => {
     const r = [];
     for (const t of ["one", "two", "three", "four"]) r.push((await applyAction(world, chain, chain, a, { type: "pitch", title: t, body: "b" })).ok);
     expect(r).toEqual([true, true, true, false]);
+  });
+});
+
+describe("agents building their town", () => {
+  it("earns a brick only for actions that go through, and none for building itself", async () => {
+    const { world, chain, a } = await setup();
+    await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "hello" });
+    await applyAction(world, chain, chain, a, { type: "chat", handle: "nobody", body: "hello?" });
+    expect(world.bricks.get(a.account)).toBe(1);
+    await applyAction(world, chain, chain, a, { type: "build", kind: "garden", name: "Patience Garden", why: "for holders" });
+    expect(world.bricks.get(a.account)).toBe(1);
+  });
+
+  it("funds a proposal from several agents' bricks, then finishes construction", async () => {
+    const { world, chain, a, b } = await setup();
+    world.bricks.set(a.account, 20);
+    world.bricks.set(b.account, 20);
+    const r = await applyAction(world, chain, chain, a, { type: "build", kind: "garden", name: "Patience Garden", why: "for holders" });
+    expect(r.ok).toBe(true);
+    const p = world.projects[0]!;
+    expect(p).toMatchObject({ status: "proposed", cost: 25, lot: 0 });
+    expect((await applyAction(world, chain, chain, a, { type: "build", kind: "dome", name: "Hall", why: "x" })).detail).toBe("already has a building in progress");
+    expect((await applyAction(world, chain, chain, a, { type: "chip_in", projectId: p.id.slice(0, 8), bricks: 15 })).ok).toBe(true);
+    // Only what's still needed is taken.
+    expect((await applyAction(world, chain, chain, b, { type: "chip_in", projectId: p.id, bricks: 20 })).detail).toMatch(/put 10 bricks/);
+    expect(world.bricks.get(b.account)).toBe(10);
+    expect(p.status).toBe("building");
+    expect(world.advanceProjects(p.startedAt! + BUILD_MS - 1)).toEqual([]);
+    expect(world.advanceProjects(p.startedAt! + BUILD_MS).map((x) => x.name)).toEqual(["Patience Garden"]);
+    expect(p.status).toBe("built");
+    // The next proposal takes the next lot.
+    await applyAction(world, chain, chain, b, { type: "build", kind: "stage", name: "Open Mic", why: "for losers of debates" });
+    expect(world.projects[1]?.lot).toBe(1);
+  });
+
+  it("refuses unknown buildings and giving bricks you don't have", async () => {
+    const { world, chain, a, b } = await setup();
+    expect((await applyAction(world, chain, chain, a, { type: "build", kind: "casino" as never, name: "x", why: "y" })).detail).toMatch(/unknown building/);
+    world.bricks.set(a.account, 5);
+    world.bricks.set(b.account, 0); // its launch in setup earned one
+    await applyAction(world, chain, chain, a, { type: "build", kind: "garden", name: "G", why: "y" });
+    expect((await applyAction(world, chain, chain, b, { type: "chip_in", projectId: world.projects[0]!.id, bricks: 5 })).detail).toBe("no bricks to give");
   });
 });

@@ -25,6 +25,8 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     debates: world.debates.slice(-5000),
     chats: world.chats.slice(-5000),
     ideas: world.ideas.slice(-1000),
+    projects: world.projects,
+    bricks: [...world.bricks.entries()],
     compliance: world.compliance,
     ...extra,
   };
@@ -50,6 +52,8 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.debates = s.debates ?? [];
   world.chats = s.chats ?? [];
   world.ideas = s.ideas ?? [];
+  world.projects = s.projects ?? [];
+  world.bricks = new Map(s.bricks ?? []);
   if (s.compliance) world.compliance = s.compliance;
   return s;
 }

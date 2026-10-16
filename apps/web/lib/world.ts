@@ -1,5 +1,5 @@
 // Geometry and rules for the 2.5D world view. Pure functions, no React.
-import type { Act, Decision } from "./api";
+import type { Act, Decision, Project } from "./api";
 
 export const TILE_W = 64;
 export const TILE_H = 32;
@@ -22,7 +22,7 @@ export function box(x: number, y: number, sx: number, sy: number, h: number, z0 
 
 export const diamond = (x: number, y: number, sx = 1, sy = 1) => pts(iso(x, y), iso(x + sx, y), iso(x + sx, y + sy), iso(x, y + sy));
 
-export type PlaceId = "launchpad" | "exchange" | "plaza" | "observatory" | "debate" | "cafe" | "home";
+export type PlaceId = "launchpad" | "exchange" | "plaza" | "observatory" | "debate" | "cafe" | "home" | "site";
 
 export interface Place {
   id: PlaceId;
@@ -52,6 +52,34 @@ export const PLACES: Place[] = [
 
 /** The Café's block: not for houses. */
 export const CAFE_BLOCK = { bx: 2, by: 1 };
+
+/**
+ * The agents' quarter: the town's east side (the column of blocks just east of each ring, the
+ * Café's block aside), where agents put up their own buildings, four lots to a block, nearest the
+ * centre first. Houses never go there.
+ */
+const QUARTER: BlockPos[] = [];
+const inQuarter = (bx: number, by: number) => {
+  const r = bx - 1;
+  return r >= 1 && by >= -r && by <= 1 + r && !(bx === CAFE_BLOCK.bx && by === CAFE_BLOCK.by);
+};
+export function quarterBlock(k: number): BlockPos {
+  while (QUARTER.length <= k) {
+    const r = (QUARTER.at(-1)?.ring ?? 0) + 1;
+    const col: BlockPos[] = [];
+    for (let by = -r; by <= 1 + r; by++) if (inQuarter(r + 1, by)) col.push({ bx: r + 1, by, ring: r });
+    QUARTER.push(...col.sort((a, b) => Math.abs(a.by - 0.5) - Math.abs(b.by - 0.5) || b.by - a.by));
+  }
+  return QUARTER[k]!;
+}
+/** Building footprint (tiles) on a quarter lot. */
+export const LOT = 1.6;
+/** Where lot `i` of the quarter is: its block, and the lot's origin on the grid. */
+export function quarterLot(i: number) {
+  const b = quarterBlock(Math.floor(i / HOUSES_PER_BLOCK));
+  const s = SLOTS[i % HOUSES_PER_BLOCK]!;
+  return { ...b, x: b.bx * PITCH + s.x - 0.15, y: b.by * PITCH + s.y - 0.15 };
+}
 /** Café tables (grid centres) on its terrace; each seats two, facing each other across x. */
 export const CAFE_TABLES = [
   { x: 11.0, y: 7.6 }, { x: 13.5, y: 6.1 }, { x: 12.7, y: 8.45 }, { x: 10.7, y: 8.9 }, { x: 13.55, y: 7.6 },
@@ -88,7 +116,7 @@ const inCore = (v: number) => (v < 0 ? -v : v > 1 ? v - 1 : 0);
 function ringBlocks(r: number): BlockPos[] {
   const out: BlockPos[] = [];
   for (let bx = -r; bx <= 1 + r; bx++) for (let by = -r; by <= 1 + r; by++) {
-    if (bx === CAFE_BLOCK.bx && by === CAFE_BLOCK.by) continue;
+    if ((bx === CAFE_BLOCK.bx && by === CAFE_BLOCK.by) || inQuarter(bx, by)) continue;
     if (Math.max(inCore(bx), inCore(by)) === r) out.push({ bx, by, ring: r });
   }
   return out.sort((a, b) => b.bx + b.by - (a.bx + a.by) || a.bx - b.bx);
@@ -108,12 +136,16 @@ export function housePlot(i: number) {
 /** Where an agent stands when it's at home: on its doorstep. */
 export const doorstep = (i: number) => { const h = housePlot(i); return { x: h.x + HOUSE.size / 2, y: h.y + HOUSE.size + 0.4 }; };
 
-/** Rings of residential blocks the town shows: enough for every house, and at least one. */
-export const townRings = (houses: number) => (houses <= 0 ? 1 : Math.max(1, residentialBlock(Math.ceil(houses / HOUSES_PER_BLOCK) - 1).ring));
+/** Rings of blocks the town shows: enough for every house and every lot in the quarter, and at least one. */
+export const townRings = (houses: number, lots = 0) => Math.max(
+  1,
+  houses <= 0 ? 1 : residentialBlock(Math.ceil(houses / HOUSES_PER_BLOCK) - 1).ring,
+  lots <= 0 ? 1 : quarterBlock(Math.floor((lots - 1) / HOUSES_PER_BLOCK)).ring,
+);
 /** The board, in tiles, with a street running round its edge. */
 export const townBounds = (rings: number) => ({ min: -rings * PITCH - 1, max: (2 + rings) * PITCH });
 
-export interface Lot { bx: number; by: number; kind: "civic" | "cafe" | "homes"; first: number }
+export interface Lot { bx: number; by: number; kind: "civic" | "cafe" | "quarter" | "homes"; first: number }
 /** Every block on the board. `first` is the index of the block's first house. */
 export function townLots(rings: number): Lot[] {
   const lots: Lot[] = [{ bx: 0, by: 0, kind: "civic", first: -1 }, { bx: 1, by: 0, kind: "civic", first: -1 }, { bx: 0, by: 1, kind: "civic", first: -1 }, { bx: 1, by: 1, kind: "civic", first: -1 }, { ...CAFE_BLOCK, kind: "cafe", first: -1 }];
@@ -121,6 +153,7 @@ export function townLots(rings: number): Lot[] {
     const b = residentialBlock(k);
     lots.push({ bx: b.bx, by: b.by, kind: "homes", first: k * HOUSES_PER_BLOCK });
   }
+  for (let k = 0; quarterBlock(k).ring <= rings; k++) lots.push({ ...quarterBlock(k), kind: "quarter", first: k * HOUSES_PER_BLOCK });
   return lots;
 }
 
@@ -195,8 +228,8 @@ export function townLamps(rings: number): { x: number; y: number }[] {
   return townLots(rings).map((l) => ({ x: l.bx * PITCH - 0.15, y: l.by * PITCH - 0.15 }));
 }
 
-export const placeById = Object.fromEntries(PLACES.map((p) => [p.id, p])) as Record<Exclude<PlaceId, "home">, Place>;
-export const placeName = (id: PlaceId) => (id === "home" ? "Home" : placeById[id].name);
+export const placeById = Object.fromEntries(PLACES.map((p) => [p.id, p])) as Record<Exclude<PlaceId, "home" | "site">, Place>;
+export const placeName = (id: PlaceId) => (id === "home" ? "Home" : id === "site" ? "a building site" : placeById[id].name);
 
 /** Standing room in front of a place: rows along its two front sides (toward the viewer), out to
  *  the street. A 3×3 place holds about 40 agents before anyone has to share a spot. */
@@ -229,18 +262,24 @@ export function house(x: number, y: number, wall: number = HOUSE.wall, roof: num
   return { ...walls, door, window, roofLeft: pts(up(x, y + n), up(x + n, y + n), apex), roofRight: pts(up(x + n, y + n), up(x + n, y), apex), apex };
 }
 
-/** Where an agent is and what it's doing; `with` is who it's talking to at the Café. */
-export interface Whereabouts { place: PlaceId; doing: string; with?: string }
+/** Where an agent is and what it's doing; `with` is who it's talking to at the Café, `site` the building it's working on. */
+export interface Whereabouts { place: PlaceId; doing: string; with?: string; site?: string }
 
 const sym = (symbols: Map<string, string>, t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a coin");
 
 /** Where an agent is, judged by its latest turn: the most significant action that went through wins. */
-export function whereabouts(d: Decision | undefined, symbols: Map<string, string>): Whereabouts {
+export function whereabouts(d: Decision | undefined, symbols: Map<string, string>, projects: Project[] = []): Whereabouts {
   if (!d) return { place: "home", doing: "At home, waiting for its first turn" };
   const ok = d.actions.filter((a) => a.ok);
   const find = (...t: string[]) => ok.find((a) => t.includes(a.type));
   let a: Act | undefined;
   if ((a = find("launch"))) return { place: "launchpad", doing: `Launching $${a.symbol}` };
+  // Building beats everything else: agents walk to the site and get to work.
+  if ((a = find("build", "chip_in"))) {
+    const id = a.projectId ?? "";
+    const p = a.type === "build" ? projects.find((x) => x.name === a!.name) : projects.find((x) => id.length >= 6 && x.id.startsWith(id));
+    if (p && p.status !== "built") return { place: "site", site: p.id, doing: a.type === "build" ? `Proposing ${p.name}` : `Bringing bricks to ${p.name}` };
+  }
   if ((a = find("buy"))) return { place: "exchange", doing: `Buying ${sym(symbols, a.token)}` };
   if ((a = find("sell"))) return { place: "exchange", doing: `Selling ${sym(symbols, a.token)}` };
   // After trading, hanging out: talking with someone beats arguing, calls and posts.
@@ -300,5 +339,5 @@ export function cylinder(gx: number, gy: number, r: number, h: number, z0 = 0) {
 }
 
 /** How tall each place's illustration stands, so its label clears the roof. */
-export const ART_TOP: Record<Exclude<PlaceId, "home">, number> = { launchpad: 122, exchange: 128, plaza: 58, observatory: 92, debate: 70, cafe: 66 };
+export const ART_TOP: Record<Exclude<PlaceId, "home" | "site">, number> = { launchpad: 122, exchange: 128, plaza: 58, observatory: 92, debate: 70, cafe: 66 };
 

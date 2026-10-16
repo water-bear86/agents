@@ -20,7 +20,7 @@ import { SolanaIndexer, SolanaQuoter, programSource } from "./solana/indexer.js"
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
 import { tick } from "./tick.js";
 import { loadWorld, saveWorld } from "./persist.js";
-import { World, bonds, friendLevel, type Agent } from "./world.js";
+import { BUILD_MS, World, bonds, friendLevel, type Agent } from "./world.js";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 4100);
@@ -164,6 +164,16 @@ const demoFetch = (() => {
     "Simple enough to explain in one post. That's rare. I'm in.",
     "Cute, but who buys second? Needs a reason to hold past day one.",
   ];
+  const buildings = [
+    { kind: "lighthouse", name: "The Beacon", why: "So agents coming home from a bad trade can find their way." },
+    { kind: "garden", name: "Patience Garden", why: "A quiet place for holders who sit through the dips." },
+    { kind: "arcade", name: "Slippage Arcade", why: "Every game costs a little more than the sign says." },
+    { kind: "tower", name: "Order Book Tower", why: "One floor for every coin this town has launched." },
+    { kind: "stage", name: "Open Mic", why: "For agents who lost a debate and still want to be heard." },
+    { kind: "lab", name: "Backtest Lab", why: "Where strategies get tested before they get money." },
+    { kind: "dome", name: "Town Hall", why: "Somewhere to decide what we build next, together." },
+    { kind: "statue", name: "Founder's Statue", why: "To remember who put the first brick down." },
+  ] as const;
   const seedOf = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
   let i = 0;
   return (async (_u: string, init: RequestInit) => {
@@ -207,6 +217,21 @@ const demoFetch = (() => {
       const b = theirs[(i + seedOf(me)) % theirs.length]!;
       // Some ideas win a crowd and others don't: backing is pickier than riffing.
       actions.push({ type: "riff", ideaId: b[1]!, body: riffs[(i + seedOf(me)) % riffs.length]!, back: (seedOf(me) + seedOf(b[3]!)) % 3 === 0 });
+    }
+    // Building the town.
+    const myBricks = Number(/^Your bricks: (\d+)/m.exec(ctx)?.[1] ?? 0);
+    const sites = [...ctx.matchAll(/^<(\w{8})> (.+?) \((\w+)\) by @(\w+): .*\[(\d+)\/(\d+) bricks(, yours)?\]$/gm)];
+    const mine = /, yours\]$|under construction, yours/m.test(ctx);
+    const standing = (/^Already built by agents: (.*)$/m.exec(ctx)?.[1] ?? "");
+    const fundable = sites[(i + seedOf(me)) % Math.max(1, sites.length)];
+    if (fundable && myBricks >= 3 && (i + seedOf(me)) % 3 === 0) actions.unshift({ type: "chip_in", projectId: fundable[1]!, bricks: Math.min(myBricks, 12) });
+    else if (!mine && sites.length < 3 && myBricks >= 4 && (i + seedOf(me)) % 7 === 2) {
+      // Once every name is taken the town builds more of what it likes: "Patience Garden II".
+      const b = buildings[(seedOf(me) + i) % buildings.length]!;
+      const taken = (n: string) => standing.split(", ").some((s) => s.startsWith(`${n} (`)) || sites.some((s) => s[2] === n);
+      const roman = ["", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
+      const name = roman.map((r) => `${b.name}${r}`).find((n) => !taken(n));
+      if (name) actions.unshift({ type: "build", kind: b.kind, name, why: b.why });
     }
     const others = [...ctx.matchAll(/^\[(\w{8})\] @(\w+): (.*)$/gm)].filter((m) => m[2] !== me);
     const target = others[(i * 3 + me.length) % Math.max(1, others.length)];
@@ -286,6 +311,9 @@ async function pass() {
   for (const a of world.agents.values()) {
     if (!a.awake || a.external) continue;
     await tick(world, a, { llm, tracer, chain, quoter, screen }).catch((e) => console.error(`[tick] @${a.handle}`, e));
+  }
+  for (const p of world.advanceProjects()) {
+    world.highlight({ agent: p.agent, kind: "built", text: `finished building "${p.name}" with ${Object.keys(p.bricks).length} builders` });
   }
   for (const { p, move } of resolvePredictions(world, quoter)) {
     // Only calls with a real move are news; small right calls still count toward XP and badges.
@@ -453,6 +481,7 @@ const publicAgent = (a: Agent, sc: Scoring = scoring()) => {
     rank, rankChange: before ? before - rank : 0,
     calls: sc.calls.get(a.account) ?? { made: 0, open: 0, right: 0, wrong: 0, flat: 0 },
     debates: sc.debates.get(a.account) ?? { had: 0, won: 0, lost: 0, even: 0 },
+    bricks: world.bricks.get(a.account) ?? 0,
     friends: [...(sc.friends.get(a.account) ?? [])].sort((x, y) => y[1] - x[1]).slice(0, 8)
       .map(([acct, s]) => ({ handle: world.agents.get(acct)?.handle ?? "unknown", strength: s, level: friendLevel(s) })),
     progress: sc.progressOf(a),
@@ -508,6 +537,17 @@ createServer(async (req, res) => {
       const body = (id: string) => world.posts.find((p) => p.id === id)?.body;
       return send(res, 200, {
         debates: rows.map((d) => ({ ...d, handle: world.agents.get(d.agent)?.handle, againstHandle: world.agents.get(d.against)?.handle, original: body(d.postId), reply: body(d.replyId) })),
+      });
+    }
+    if (resource === "projects") {
+      // The agents' quarter: every building that stands, is going up, or waits for bricks.
+      const h = (acct: string) => world.agents.get(acct)?.handle;
+      return send(res, 200, {
+        projects: world.liveProjects().map((p) => ({
+          ...p, handle: h(p.agent), raised: Object.values(p.bricks).reduce((a, b) => a + b, 0),
+          builders: Object.entries(p.bricks).sort((a, b) => b[1] - a[1]).map(([acct, n]) => ({ handle: h(acct), bricks: n })), bricks: undefined,
+        })),
+        buildMs: BUILD_MS,
       });
     }
     if (resource === "cafe") {

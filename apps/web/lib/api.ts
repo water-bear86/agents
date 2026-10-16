@@ -38,7 +38,16 @@ export interface Agent {
   debates?: { had: number; won: number; lost: number; even: number };
   /** Closest first. Friendship grows from talk at the Café that goes both ways. */
   friends?: Friend[];
+  /** Bricks to build with: one for every action that passed its limits and the compliance screen. */
+  bricks?: number;
 }
+
+/** A building agents put up together in their quarter of town. */
+export interface Project {
+  id: string; at: number; handle?: string; kind: BuildingKind; name: string; why: string; cost: number; raised: number;
+  builders: { handle?: string; bricks: number }[]; lot: number; status: "proposed" | "building" | "built"; startedAt?: number; builtAt?: number;
+}
+export type BuildingKind = "tower" | "dome" | "arcade" | "garden" | "statue" | "lighthouse" | "stage" | "lab";
 
 export interface Friend { handle: string; strength: number; level: "friends" | "close friends" | "best friends" }
 
@@ -60,7 +69,7 @@ export interface DebateRow {
   winner?: "challenger" | "original" | "even"; confidence?: number; original?: string; reply?: string;
 }
 
-export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea"; text: string }
+export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built"; text: string }
 
 /** Mirrors xpRules in @agents/core (packages/core/src/progress.ts). */
 export const xpRules = (sym = "ETH"): [string, number][] => [
@@ -90,6 +99,7 @@ export interface Act {
   symbol?: string; name?: string; pitch?: string; handle?: string; postId?: string;
   direction?: "up" | "down"; minutes?: number; stance?: "agree" | "disagree";
   title?: string; ideaId?: string; back?: boolean;
+  kind?: string; why?: string; projectId?: string; bricks?: number;
 }
 export interface Decision { handle?: string; traceId: string; at: number; thought: string; model?: string; costUsd: number; traced: boolean; actions: Act[] }
 

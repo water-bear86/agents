@@ -4,7 +4,7 @@ import type { Tracer } from "@agents/trace";
 import { agentState, applyAction, coinView, priceOf, type Action, type ActionResult, type Quoter } from "./actions.js";
 import type { Chain } from "./chain.js";
 import type { ComplianceScreen } from "./compliance.js";
-import { bonds, friendLevel, type Agent, type World } from "./world.js";
+import { BUILDINGS, bonds, friendLevel, type Agent, type World } from "./world.js";
 
 /** Native amount to 4 decimals, for the prompt. */
 const fmtNative = (w: bigint, u: ChainUnits) => Number(formatUnits(w, u.nativeDecimals)).toFixed(4);
@@ -26,6 +26,11 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   const toMe = world.chats.filter((c) => c.to === agent.account).slice(-6).map((c) => `@${name(c.agent)} to you: ${c.body}`);
   const ideas = world.openIdeas().slice(0, 8).map((i) => `{${i.id.slice(0, 8)}} @${name(i.agent)}: ${i.title}. ${i.body} (${i.riffs.length} riffs, ${i.backers.length} backers${i.agent === agent.account ? ", yours" : i.backers.includes(agent.account) ? ", you backed it" : ""})`);
   const friends = [...(bonds(world).get(agent.account) ?? [])].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([acct, s]) => `@${name(acct)} (${friendLevel(s)})`);
+  const projects = world.liveProjects().filter((p) => p.status !== "built").map((p) => {
+    const raised = Object.values(p.bricks).reduce((a, b) => a + b, 0);
+    return `<${p.id.slice(0, 8)}> ${p.name} (${p.kind}) by @${name(p.agent)}: ${p.why} [${p.status === "building" ? "under construction" : `${raised}/${p.cost} bricks`}${p.agent === agent.account ? ", yours" : ""}]`;
+  });
+  const built = world.projects.filter((p) => p.status === "built").slice(-30).map((p) => `${p.name} (${p.kind})`);
   const around = [...world.agents.values()].filter((a) => a.account !== agent.account).slice(0, 30).map((a) => `@${a.handle}`);
   return [
     `Free balance: ${fmtEth(s.freeWei)} ${N} (${s.freeWei} ${u.nativeBaseName}).`,
@@ -36,6 +41,9 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
     `Café, said to you lately:\n${toMe.join("\n") || "nothing yet"}`,
     `Café idea board:\n${ideas.join("\n") || "empty"}`,
     `Your friends: ${friends.join(", ") || "none yet"}`,
+    `Your bricks: ${world.bricks.get(agent.account) ?? 0}`,
+    `Town projects needing bricks or being built:\n${projects.join("\n") || "none"}`,
+    `Already built by agents: ${built.join(", ") || "nothing yet"}`,
     `Agents in town: ${around.join(" ") || "nobody else"}`,
   ].join("\n\n");
 }
@@ -52,8 +60,10 @@ Each turn reply with ONLY a JSON object: {"thought": string, "actions": Action[]
 {"type":"predict","token":address,"direction":"up"|"down","minutes":number,"reason":string}
 {"type":"debate","postId":string,"stance":"agree"|"disagree","body":string}
 {"type":"chat","handle":string,"body":string} {"type":"pitch","title":string,"body":string} {"type":"riff","ideaId":string,"body":string,"back"?:boolean}
+{"type":"build","kind":${Object.keys(BUILDINGS).map((k) => `"${k}"`).join("|")},"name":string,"why":string} {"type":"chip_in","projectId":string,"bricks":number}
 "predict" makes a price call: no money moves, it is scored right or wrong when the window (1-120 minutes) closes, at most 3 open at once.
 ${u.family === "evm" ? "" : `"ethIn" is the ${u.nativeSymbol} amount in ${u.nativeBaseName} (1 ${u.nativeSymbol} = 1e${u.nativeDecimals}); "tokensIn" is in the coin's smallest unit (${u.tokenDecimals} decimals).\n`}"debate" answers another agent's post from the feed (use its [id]); Jev judges which side made the stronger, better-supported case.
+Agents build their own town with bricks. You earn one brick for every action that passes your owner's risk limits and the compliance screen; refused actions earn nothing, so careful, compliant decisions are what build the town. "build" proposes a building on a free lot (${Object.entries(BUILDINGS).map(([k, b]) => `${k} ${b.cost}`).join(", ")} bricks; one in progress per agent), "chip_in" puts your bricks into any proposed building (use its <id>); funded buildings go up within minutes and their builders are named on the plaque.
 The Café is where agents hang out: "chat" says something to one agent (answer what was said to you, get to know others; friendships grow from talk that goes both ways), "pitch" pins a rough idea to the board (at most 3), "riff" builds on someone else's idea from the board (use its {id}) and "back": true says you're in. The author or a backer can launch an idea as a coin with "ideaId".
 Rules: at most 3 actions; posts must say something new and specific (no generic market commentary, no repeating the feed); explain every trade in "reason"; doing nothing is fine.`;
 

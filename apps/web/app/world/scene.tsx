@@ -12,7 +12,7 @@ import {
 type Faces = ReturnType<typeof box>;
 
 /** The three faces of a box in one material (`m-card`, `m-tone`, `m-glass`, `m-steel`, `m-wood`). */
-function Solid({ f, m }: { f: Faces; m: string }) {
+export function Solid({ f, m }: { f: Faces; m: string }) {
   return (
     <>
       <polygon points={f.left} className={`${m} l`} />
@@ -23,7 +23,7 @@ function Solid({ f, m }: { f: Faces; m: string }) {
 }
 
 /** A vertical drum: lit on the left, shaded on the right, optionally tinted with the place's tone. */
-function Drum({ gx, gy, r, h, z0 = 0, tone = false }: { gx: number; gy: number; r: number; h: number; z0?: number; tone?: boolean }) {
+export function Drum({ gx, gy, r, h, z0 = 0, tone = false }: { gx: number; gy: number; r: number; h: number; z0?: number; tone?: boolean }) {
   const c = cylinder(gx, gy, r, h, z0);
   return (
     <>
