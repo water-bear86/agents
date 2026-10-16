@@ -95,6 +95,49 @@ export function townLots(rings: number): Lot[] {
   return lots;
 }
 
+/** Houses grow with their agent's level: cottage, two-storey house, villa with a pool, tower. */
+export interface Tier { tier: 1 | 2 | 3 | 4; wall: number; roof: number; storeys: number[]; name: string }
+export function houseTier(level = 1): Tier {
+  if (level >= 8) return { tier: 4, wall: 74, roof: 0, storeys: [10, 26, 42, 58], name: "tower" };
+  if (level >= 5) return { tier: 3, wall: 42, roof: 20, storeys: [10, 27], name: "villa" };
+  if (level >= 3) return { tier: 2, wall: 40, roof: 22, storeys: [10, 26], name: "two-storey house" };
+  return { tier: 1, wall: HOUSE.wall, roof: HOUSE.roof, storeys: [10], name: "cottage" };
+}
+
+/** What an agent's earned badges add to its yard. */
+export interface YardFeatures { flag: boolean; fire: boolean; statue: boolean }
+export const yardFeatures = (earned: Set<string>): YardFeatures => ({
+  flag: earned.has("founder"),
+  fire: earned.has("hot_streak") || earned.has("on_fire"),
+  statue: earned.has("jev_pick"),
+});
+
+/** Small deterministic hash for picking decorations, so the town looks the same on every visit. */
+export const hash = (a: number, b: number, c = 0) => {
+  let h = (a * 374761393 + b * 668265263 + c * 2147483647) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+
+export type Decor = "trees" | "garden" | "pond";
+/** What grows on an empty house lot. A block with no houses at all becomes a park instead. */
+export const lotDecor = (bx: number, by: number, slot: number): Decor => {
+  const r = hash(bx, by, slot);
+  return r < 0.5 ? "trees" : r < 0.8 ? "garden" : "pond";
+};
+export const SLOT_ORIGINS = [{ x: 2.35, y: 2.3 }, { x: 0.35, y: 2.3 }, { x: 2.35, y: 0.3 }, { x: 0.35, y: 0.3 }];
+
+/** Car routes: straight runs along the streets around the core, one direction each. */
+export function carRoutes(rings: number): { from: { x: number; y: number }; to: { x: number; y: number }; axis: "x" | "y"; dur: number; delay: number }[] {
+  const { min, max } = townBounds(rings);
+  return [
+    { from: { x: min, y: -0.25 }, to: { x: max, y: -0.25 }, axis: "x", dur: 26, delay: 0 },
+    { from: { x: max, y: 9.3 }, to: { x: min, y: 9.3 }, axis: "x", dur: 30, delay: -11 },
+    { from: { x: 4.25, y: min }, to: { x: 4.25, y: max }, axis: "y", dur: 24, delay: -6 },
+    { from: { x: 9.25, y: max }, to: { x: 9.25, y: min }, axis: "y", dur: 28, delay: -17 },
+  ];
+}
+
 /** Trees: in the gaps between houses, on lots still waiting for a house, and in the civic core's open corners. */
 export function townTrees(rings: number, houses: number): { x: number; y: number; s: number }[] {
   // The block shared by the observatory and the debate hall has two open corners.
@@ -104,9 +147,15 @@ export function townTrees(rings: number, houses: number): { x: number; y: number
     const ox = lot.bx * PITCH, oy = lot.by * PITCH;
     const jitter = ((lot.bx * 7 + lot.by * 13) % 5) * 0.04;
     out.push({ x: ox + 2 + jitter, y: oy + 1.95, s: 0.7 });
+    const empty = lot.first >= houses;
     SLOTS.forEach((sl, j) => {
       if (lot.first + j < houses) return;
-      out.push({ x: ox + sl.x + 0.55 + jitter * 2, y: oy + sl.y + 0.75 - jitter, s: 1 - jitter });
+      if (empty) {
+        // A whole empty block is a park: trees round its edge, a pond and paths in the middle.
+        if (j === 0 || j === 3) out.push({ x: ox + sl.x + 0.3, y: oy + sl.y + 0.3, s: 1.05 }, { x: ox + sl.x + 1.1, y: oy + sl.y + 1.1, s: 0.8 });
+        return;
+      }
+      if (lotDecor(lot.bx, lot.by, j) === "trees") out.push({ x: ox + sl.x + 0.4 + jitter * 2, y: oy + sl.y + 0.6 - jitter, s: 1 - jitter }, { x: ox + sl.x + 1.05, y: oy + sl.y + 1.15, s: 0.7 + jitter });
     });
   }
   return out;
@@ -141,8 +190,8 @@ export function spotAt(p: Place, i: number) {
 }
 
 /** A house: walls as a box, plus the two roof faces the viewer can see. */
-export function house(x: number, y: number) {
-  const { size: n, wall, roof } = HOUSE;
+export function house(x: number, y: number, wall: number = HOUSE.wall, roof: number = HOUSE.roof) {
+  const n = HOUSE.size;
   const walls = box(x, y, n, n, wall);
   const apex = iso(x + n / 2, y + n / 2, wall + roof);
   const up = (gx: number, gy: number) => iso(gx, gy, wall);

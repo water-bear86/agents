@@ -610,3 +610,87 @@ legend + * { clear: both; }
   @keyframes stride { from { transform: rotate(24deg); } to { transform: rotate(-24deg); } }
   @keyframes bob { from { transform: translateY(0); } to { transform: translateY(-1.5px); } }
 }
+
+/* ---------------------------------------------------------------- world: life and detail */
+.world-svg { --w-hedge: #5d8a58; --w-flower-a: #e7769b; --w-flower-b: #f2c14e; --w-flower-c: #9a7be0; --w-car-1: #e15a4f; --w-car-2: #3f7fd8; --w-car-3: #f0b43c; --w-car-4: #eef1f5; }
+@media (prefers-color-scheme: dark) { .world-svg { --w-hedge: #1f3a2a; --w-flower-a: #8a4560; --w-flower-b: #8a7232; --w-flower-c: #5a4a8a; --w-car-1: #8f3a33; --w-car-2: #2b4f86; --w-car-3: #8c6a24; --w-car-4: #8e98a6; } }
+
+.world-svg .stars { display: none; }
+@media (prefers-color-scheme: dark) { .world-svg .stars { display: inline; } .world-svg .stars circle { fill: #c9d6ff; opacity: 0.55; } }
+
+/* Lots: gardens, ponds and parks where houses haven't been built yet. */
+.world-svg .bed-edge { fill: color-mix(in oklab, var(--w-wood) 55%, var(--w-grass)); }
+.world-svg .bed.b0 { fill: var(--w-flower-a); }
+.world-svg .bed.b1 { fill: var(--w-flower-b); }
+.world-svg .bed.b2 { fill: var(--w-flower-c); }
+.world-svg .pond-rim { fill: var(--w-paving); }
+.world-svg .lily { fill: var(--w-leaf-lit); }
+.world-svg .reeds { stroke: var(--w-leaf); stroke-width: 1.1; stroke-linecap: round; fill: none; }
+.world-svg .park-path { fill: var(--w-paving); }
+
+/* Cars drive one way along a street and loop; hidden for reduced motion. */
+.world-svg .car { display: none; }
+.world-svg .m-car.l { fill: var(--car); }
+.world-svg .m-car.r { fill: color-mix(in oklab, var(--car) 75%, #000); }
+.world-svg .m-car.t { fill: color-mix(in oklab, var(--car) 85%, #fff); }
+.world-svg .m-cab.l, .world-svg .m-cab.r { fill: color-mix(in oklab, var(--w-pane) 75%, #000); }
+.world-svg .m-cab.t { fill: color-mix(in oklab, var(--car) 70%, #fff); }
+.world-svg :is(.m-car, .m-cab) { stroke: var(--w-edge); stroke-width: 0.5; }
+.world-svg .car.c1 { --car: var(--w-car-1); }
+.world-svg .car.c2 { --car: var(--w-car-2); }
+.world-svg .car.c3 { --car: var(--w-car-3); }
+.world-svg .car.c4 { --car: var(--w-car-4); }
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .car { display: inline; animation-name: drive; animation-timing-function: linear; animation-iteration-count: infinite; }
+  @keyframes drive { from { transform: translate(var(--fx), var(--fy)); } to { transform: translate(var(--tx), var(--ty)); } }
+}
+
+/* Houses by tier, and what badges add to the yard. */
+.world-svg .m-hedge.l { fill: var(--w-hedge); }
+.world-svg .m-hedge.r { fill: color-mix(in oklab, var(--w-hedge) 75%, #000); }
+.world-svg .m-hedge.t { fill: color-mix(in oklab, var(--w-hedge) 80%, #fff); }
+.world-svg .pool-rim { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.5; }
+.world-svg .house .m-tone-agent.l { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); }
+.world-svg .house .m-tone-agent.r { fill: oklch(calc(var(--agent-l) - 0.12) var(--agent-c) var(--h)); }
+.world-svg .house .m-tone-agent.t { fill: oklch(calc(var(--agent-l) + 0.1) calc(var(--agent-c) * 0.6) var(--h)); }
+.world-svg .house .house-beacon { fill: oklch(calc(var(--agent-l) + 0.1) var(--agent-c) var(--h)); }
+@media (prefers-color-scheme: dark) { .world-svg .house .house-beacon { filter: drop-shadow(0 0 4px oklch(var(--agent-l) var(--agent-c) var(--h))); } }
+.world-svg .statue rect { fill: #d9b24c; stroke: color-mix(in oklab, #d9b24c 60%, #000); stroke-width: 0.5; }
+.world-svg .firepit .pit { fill: var(--w-steel); }
+.world-svg .firepit .fire { fill: #ff9a3c; }
+.world-svg .firepit .fire-glow { opacity: 0; }
+@media (prefers-color-scheme: dark) { .world-svg .firepit .fire-glow { opacity: 1; } }
+.world-svg .flagpole { stroke: var(--w-steel); stroke-width: 1.2; }
+.world-svg .flag-cloth { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke: var(--w-edge); stroke-width: 0.5; }
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .firepit .fire { transform-box: fill-box; transform-origin: 50% 100%; animation: flicker 0.5s ease-in-out infinite alternate; }
+  @keyframes flicker { from { transform: scale(1, 1); } to { transform: scale(0.85, 1.15); } }
+  .world-svg .flag-cloth { transform-box: fill-box; transform-origin: 0 50%; animation: wave 2.4s ease-in-out infinite alternate; }
+  @keyframes wave { from { transform: skewY(0deg); } to { transform: skewY(-6deg) scaleX(0.94); } }
+}
+
+/* Places reacting to what agents do. */
+.world-svg .ticker-text { font-size: 4.2px; font-weight: 750; fill: #cfd8e6; letter-spacing: 0.1px; white-space: pre; }
+.world-svg .ticker-text .up { fill: #42d39c; }
+.world-svg .ticker-text .down { fill: #ff7a6b; }
+.world-svg .flame { fill: #ffb14a; }
+.world-svg .smoke circle { fill: color-mix(in oklab, var(--w-wall) 85%, var(--w-steel)); opacity: 0; }
+.world-svg .glint { fill: #fff6c9; }
+.world-svg .speech rect, .world-svg .speech path { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .speech text { font-size: 9px; font-weight: 850; fill: color-mix(in oklab, var(--teal, #1b9aaa) 80%, #000); }
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .ticker-text { transform-box: fill-box; animation: ticker 18s linear infinite; }
+  @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .world-svg .rocket-g.liftoff { animation: liftoff 3.4s cubic-bezier(.55, 0, .9, .4) forwards; }
+  @keyframes liftoff { 0% { transform: translateY(0); } 12% { transform: translate(0.6px, 0.5px); } 20% { transform: translate(-0.6px, 0); } 100% { transform: translateY(-340px); opacity: 0; } }
+  .world-svg .flame { transform-box: fill-box; transform-origin: 50% 0; animation: flicker 0.12s linear infinite alternate; }
+  .world-svg .smoke circle { transform-box: fill-box; transform-origin: center; animation: puff 3s ease-out forwards; }
+  .world-svg .smoke circle:nth-child(2n) { animation-delay: 0.25s; }
+  @keyframes puff { 0% { opacity: 0; transform: scale(0.4); } 25% { opacity: 0.85; } 100% { opacity: 0; transform: scale(2.6) translateY(-4px); } }
+  .world-svg .glint { transform-box: fill-box; transform-origin: center; animation: glint 1.2s ease-in-out infinite alternate; }
+  @keyframes glint { from { opacity: 0.2; transform: scale(0.6) rotate(0deg); } to { opacity: 1; transform: scale(1.1) rotate(45deg); } }
+  .world-svg .speech > g { transform-box: fill-box; animation: pop 0.35s cubic-bezier(.3, 1.6, .5, 1) both; }
+  .world-svg .speech > g.late { animation-delay: 0.6s; }
+  @keyframes pop { from { opacity: 0; scale: 0.4; } to { opacity: 1; scale: 1; } }
+}
+@media (prefers-reduced-motion: reduce) { .world-svg .rocket-g.liftoff { opacity: 0.35; } }

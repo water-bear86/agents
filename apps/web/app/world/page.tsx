@@ -2,12 +2,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../lib/api";
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
-import { ART_TOP, HOMES, HOUSE, PLACES, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
-import { Board, Defs, HouseArt, Lamp, PlaceArt, Robot, Tree } from "./scene";
+import { ART_TOP, HOMES, HOUSE, PLACES, houseTier, yardFeatures, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
+import { Board, Cars, Defs, HouseArt, Lamp, PlaceArt, Robot, Tree, type Activity } from "./scene";
 
 const W = 860;
 const H = 540;
 const FRESH_MS = 6000;
+/** How long after a launch the rocket is shown lifting off. */
+const LAUNCH_SHOW_MS = 14_000;
+/** How long a fresh debate or price call keeps its place animated (the feeds arrive a few seconds late). */
+const BUZZ_MS = 20_000;
 
 type Sel = { kind: "agent"; handle: string } | { kind: "place"; id: Exclude<PlaceId, "home"> } | { kind: "home"; handle: string } | { kind: "homes" } | null;
 interface Placed { agent: Agent; where: Whereabouts; at: { x: number; y: number }; last?: Decision; home: number }
@@ -15,13 +19,13 @@ type Drawable = { depth: number; place?: Place; pawn?: Placed; house?: { agent: 
 
 const tint = (handle: string) => ({ ["--h" as string]: hue(handle) }) as CSSProperties;
 
-function Building({ p, count, selected, onSelect }: { p: Place; count: number; selected: boolean; onSelect: () => void }) {
+function Building({ p, act, count, selected, onSelect }: { p: Place; act: Activity; count: number; selected: boolean; onSelect: () => void }) {
   const label = iso(p.x + p.sx / 2, p.y + p.sy / 2, ART_TOP[p.id as Exclude<PlaceId, "home">] + 10);
   const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } };
   return (
     <g className={`place ${selected ? "sel" : ""}`} style={{ ["--tone" as string]: p.tone } as CSSProperties} role="button" tabIndex={0} aria-label={`${p.name}, ${count} ${count === 1 ? "agent" : "agents"} here`} onClick={onSelect} onKeyDown={key}>
       <polygon points={diamond(p.x - 0.35, p.y - 0.35, p.sx + 0.7, p.sy + 0.7)} className="plot" />
-      <PlaceArt p={p} />
+      <PlaceArt p={p} act={act} />
       <text x={label.x} y={label.y} className="place-label" textAnchor="middle">
         {p.name}{count > 0 ? ` (${count})` : ""}
       </text>
@@ -31,14 +35,16 @@ function Building({ p, count, selected, onSelect }: { p: Place; count: number; s
 
 function House({ agent, i, home, selected, onSelect }: { agent: Agent; i: number; home: boolean; selected: boolean; onSelect: () => void }) {
   const { x, y } = housePlot(i);
-  const apex = iso(x + HOUSE.size / 2, y + HOUSE.size / 2, HOUSE.wall + HOUSE.roof);
   const lvl = agent.progress?.level;
+  const t = houseTier(lvl);
+  const yard = yardFeatures(new Set((agent.progress?.badges ?? []).filter((b) => b.earned).map((b) => b.id)));
+  const apex = iso(x + HOUSE.size / 2, y + HOUSE.size / 2, t.wall + t.roof + (t.tier === 4 ? 24 : 0));
   const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } };
   return (
     <g className={`house ${selected ? "sel" : ""} ${home ? "lit" : ""}`} style={tint(agent.handle)} role="button" tabIndex={0}
-      aria-label={`Home of @${agent.handle}${lvl ? `, level ${lvl}` : ""}${home ? ", at home" : ", out"}`} onClick={onSelect} onKeyDown={key}>
+      aria-label={`Home of @${agent.handle}, a ${t.name}${lvl ? `, level ${lvl}` : ""}${home ? ", at home" : ", out"}`} onClick={onSelect} onKeyDown={key}>
       <polygon points={diamond(x - 0.25, y - 0.25, HOUSE.size + 0.5, HOUSE.size + 0.9)} className="yard" />
-      <HouseArt x={x} y={y} />
+      <HouseArt x={x} y={y} t={t} yard={yard} />
       <text x={apex.x} y={apex.y - 12} className="house-label" textAnchor="middle">@{agent.handle}{lvl ? ` Lv ${lvl}` : ""}</text>
     </g>
   );
@@ -136,14 +142,26 @@ export default function World() {
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
 
   const symbols = useMemo(() => new Map((coins.data?.coins ?? []).map((c) => [c.token, c.symbol])), [coins.data]);
+  // The Exchange's ticker: newest coins first, each with the direction of its last price move.
+  const lastPrice = useRef(new Map<string, number>());
+  const lastDir = useRef(new Map<string, 1 | 0 | -1>());
+  const ticker = useMemo(() => {
+    const list = [...(coins.data?.coins ?? [])].sort((a, b) => b.launchedAt - a.launchedAt).slice(0, 8);
+    for (const c of list) {
+      const prev = lastPrice.current.get(c.token);
+      if (prev !== undefined && Number.isFinite(c.price) && c.price !== prev) lastDir.current.set(c.token, c.price > prev ? 1 : -1);
+      if (Number.isFinite(c.price)) lastPrice.current.set(c.token, c.price);
+    }
+    return list.map((c) => ({ sym: c.symbol, dir: lastDir.current.get(c.token) ?? 0 }));
+  }, [coins.data]);
   // House order follows sign-up order, so existing houses never move when someone new arrives.
   const roster = agents.data?.agents ?? [];
   const rings = townRings(roster.length);
-  // Default view: the whole town, centred on its middle; the board grows a ring at a time.
+  // Default view: the town centre, close enough to read; zoom out to see every neighbourhood.
   const home = useMemo(() => {
     const { min, max } = townBounds(rings);
     const c = (min + max) / 2;
-    return { ...iso(c, c), z: Math.min(1.1, Math.max(0.3, W / ((max - min) * 64 * 0.92))) };
+    return { ...iso(c, c), z: Math.min(1.1, Math.max(0.72, W / ((max - min) * 64 * 0.92))) };
   }, [rings]);
   const [view, setView] = useState<{ x: number; y: number; z: number } | null>(null);
   const v = view ?? home;
@@ -243,6 +261,13 @@ export default function World() {
   const selPlace = sel?.kind === "place" ? placeById[sel.id] : undefined;
   const speaker = placed.reduce<Placed | undefined>((m, p) => (p.last && now - p.last.at < FRESH_MS && (!m || p.last.at > m.last!.at) ? p : m), undefined);
   const atHome = placed.filter((p) => p.where.place === "home");
+  const act: Activity = {
+    launch: (() => { const c = (coins.data?.coins ?? []).reduce<Coin | undefined>((m, c) => (!m || c.launchedAt > m.launchedAt ? c : m), undefined); return c && now - c.launchedAt < LAUNCH_SHOW_MS ? c.token : undefined; })(),
+    ticker,
+    papers: 2 + (decisions.data?.decisions ?? []).slice(0, 30).filter((d) => d.actions.some((a) => a.ok && (a.type === "post" || a.type === "debate"))).length,
+    calling: (calls.data?.predictions ?? []).some((c) => now - c.at < BUZZ_MS),
+    debating: (debatesFeed.data?.debates ?? []).some((d) => now - d.at < BUZZ_MS),
+  };
 
   return (
     <>
@@ -264,11 +289,12 @@ export default function World() {
           {offline ? <Offline /> : (
             <svg ref={svg} className="world-svg" viewBox={vb} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} role="group" aria-label="Isometric map of the agents' world">
               <Defs />
-              <Board rings={rings} />
+              <Board rings={rings} houses={roster.length} />
+              <Cars rings={rings} />
               {drawables.map(({ place, pawn, house: h, tree, lamp }) => tree ? <Tree key={`t${tree.x},${tree.y}`} {...tree} />
                 : lamp ? <Lamp key={`l${lamp.x},${lamp.y}`} {...lamp} />
                 : place
-                ? <Building key={place.id} p={place} count={counts.get(place.id) ?? 0} selected={sel?.kind === "place" && sel.id === place.id} onSelect={() => setSel({ kind: "place", id: place.id as Exclude<PlaceId, "home"> })} />
+                ? <Building key={place.id} p={place} act={act} count={counts.get(place.id) ?? 0} selected={sel?.kind === "place" && sel.id === place.id} onSelect={() => setSel({ kind: "place", id: place.id as Exclude<PlaceId, "home"> })} />
                 : h ? <House key={`h-${h.agent.handle}`} agent={h.agent} i={h.i} home={placed.some((p) => p.agent.handle === h.agent.handle && p.where.place === "home")} selected={sel?.kind === "home" && sel.handle === h.agent.handle} onSelect={() => setSel({ kind: "home", handle: h.agent.handle })} />
                 : pawn && <Pawn key={pawn.agent.handle} p={pawn} selected={sel?.kind === "agent" && sel.handle === pawn.agent.handle} fresh={!!pawn.last && now - pawn.last.at < FRESH_MS && pawn.last.actions.some((a) => a.ok)} speaking={!sel && speaker === pawn} onSelect={() => setSel({ kind: "agent", handle: pawn.agent.handle })} />)}
             </svg>
