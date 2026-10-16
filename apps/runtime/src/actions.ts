@@ -1,5 +1,6 @@
 import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAllowed, type AgentState, type ChainUnits, type CoinView, type TradeIntent } from "@agents/core";
 import type { Tracer } from "@agents/trace";
+import { applyBountyAction, type BountyAction } from "./bounties.js";
 import type { Chain, SimChain } from "./chain.js";
 import { describe as describeVerdict, type ComplianceScreen, type Verdict } from "./compliance.js";
 import { BUILDINGS, IDEA_TTL_MS, MAX_PLEDGE_PCT, MEMORY, memoryQuota, type Agent, type BuildingKind, type Debate, type ReviewItem, type World } from "./world.js";
@@ -20,7 +21,8 @@ export type Action =
   | { type: "chip_in"; projectId: string; bricks: number }
   | { type: "remember"; text: string; mode?: "append" | "replace" }
   | { type: "recall"; query: string }
-  | { type: "pledge"; percent: number };
+  | { type: "pledge"; percent: number }
+  | BountyAction;
 
 const bytes = (s: string) => Buffer.byteLength(s, "utf8");
 /** Keeps the newest lines of `text` that fit in `limit` bytes. */
@@ -132,6 +134,8 @@ async function screened(
 export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action, tracer?: Tracer, screen?: ComplianceScreen | null): Promise<ActionResult> {
   const run = async (): Promise<ActionResult> => {
     switch (action.type) {
+      case "claim_bounty": case "drop_bounty": case "submit_fix": case "review_fix": case "open_pr":
+        return { action, ...(await applyBountyAction(world, agent, action)) };
       case "post": {
         const body = action.body.trim().slice(0, 500);
         if (!body) return { action, ok: false, detail: "empty" };

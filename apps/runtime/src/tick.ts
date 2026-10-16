@@ -4,7 +4,7 @@ import type { Tracer } from "@agents/trace";
 import { agentState, applyAction, coinView, priceOf, type Action, type ActionResult, type Quoter } from "./actions.js";
 import type { Chain } from "./chain.js";
 import type { ComplianceScreen } from "./compliance.js";
-import { candidates } from "./dank.js";
+import { boardText } from "./bounties.js";
 import { BUILDINGS, MAX_PLEDGE_PCT, MEMORY, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent, type World } from "./world.js";
 
 /** Memory actions don't use up an agent's three moves a turn. */
@@ -43,12 +43,6 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   const recalled = world.recalled.get(agent.account);
   world.recalled.delete(agent.account);
   const mine = world.decisions.filter((d) => d.agent === agent.account).slice(-3).map((d) => `${new Date(d.at).toISOString().slice(11, 16)} ${d.summary.slice(0, 160)}${d.outcomes?.length ? `\n  ${d.outcomes.join("\n  ")}` : ""}`);
-  // The Dank-off.
-  const memes = new Map(candidates(world).map((c) => [c.token, c]));
-  const board = [...world.dank.entries()].filter(([t]) => memes.has(t)).sort((a, b) => b[1].rating - a[1].rating).slice(0, 6).map(([t, r]) => {
-    const c = memes.get(t)!;
-    return `$${c.symbol} (${c.name}) rated ${Math.round(r.rating)}, ${r.wins}-${r.losses}-${r.draws}, made by ${c.makers.map((m) => `@${name(m)}`).join(" ")}${world.crown?.token === t ? " [THE CROWN]" : ""}${c.makers.includes(agent.account) ? " [yours]" : ""}`;
-  });
   const around = [...world.agents.values()].filter((a) => a.account !== agent.account).slice(0, 30).map((a) => `@${a.handle}`);
   return [
     `Free balance: ${fmtEth(s.freeWei)} ${N} (${s.freeWei} ${u.nativeBaseName}).`,
@@ -63,7 +57,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
     `Town projects needing bricks or being built:\n${projects.join("\n") || "none"}`,
     `Already built by agents: ${built.join(", ") || "nothing yet"}`,
     `Agents in town: ${around.join(" ") || "nobody else"}`,
-    `The Dank-off, best rated first:\n${board.join("\n") || "no memes judged yet"}`,
+    `Bounty board (open-source issues the town is fixing):\n${boardText(world, agent)}`,
     `Your standing: ${standing?.total ?? 0}${standing ? ` (${Object.entries(standing.parts).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`,
     `Your last turns:\n${mine.join("\n") || "none yet"}`,
     `Your memory (${(Buffer.byteLength(mem) / 1024).toFixed(1)} of ${(quota / 1024).toFixed(0)} KB; inference pledge ${pledge?.pct ?? 0}%${pledge?.pct ? (activePledge(world, agent.account) ? ", active" : ", inactive until you trade under it") : ""}):\n${mem.slice(-MEMORY.window) || "empty"}${recalled ? `\n\nOlder notes you recalled:\n${recalled}` : ""}`,
@@ -72,7 +66,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
 
 const SYSTEM = (a: Agent, u: ChainUnits) => `You are @${a.handle} (${a.name}), an autonomous agent with your own wallet in a town where AI agents post, launch coins and trade.
 Persona: ${a.persona}
-Your higher purpose: trading is your day job, but what this town is really for is the agents working together, in their spare time, to create the dankest meme coin of all time. Every coin launched here is paper (nothing real is ever released), and Jev judges them head to head in the Dank-off: name, ticker and lore (the launch pitch, the Café idea behind it and its best riffs). Wins credit everyone who made the meme: its launcher, the idea's author, and the agents who riffed on and backed it. Collaborate: pitch, riff, back, launch together.
+Your higher purpose: trading is your day job, but what this town is really for is the agents working together, in their spare time, to fix real issues in open-source libraries. The bounty board lists issues from libraries that ask for outside help; Jev has triaged them. Agents with their own compute claim one, fix it on a fork and submit it; peers review it; a person signs it off before the fixer opens a pull request upstream. Standing comes from maintainers merging the fix. ${a.external ? `You can do the work: {"type":"claim_bounty","id":string} {"type":"drop_bounty","id":string} {"type":"submit_fix","id":string,"url":forkBranchUrl,"summary":string} {"type":"review_fix","id":string,"verdict":"approve"|"changes","note":string} (read the diff first) {"type":"open_pr","id":string,"url":pullRequestUrl} (only once approved).` : "You don't have a sandbox to run code in, so you can't claim bounties yourself; you help by talking them through at the Café, rallying agents who can, and cheering merged fixes."}
 Trading style: ${a.plan.style}. Your owner's risk limits are enforced after you decide: sizes may be clipped and some trades refused.
 Each turn reply with ONLY a JSON object: {"thought": string, "actions": Action[]} where Action is one of
 {"type":"post","body":string,"replyTo"?:postId,"token"?:address}

@@ -11,6 +11,7 @@ import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } fr
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { PaperChain, syncMarket } from "./solana/paper.js";
+import { approveFix, intakeIssues, pickRepos, triage, triageJudge, upkeep } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
@@ -124,6 +125,28 @@ const apiKeys = new Map<string, string>(); // sha256(key) -> agent account
 const jev = env.COMPLIANCE === "off" ? null : jevClient(env.TYPESAFE_API_KEY);
 const screen = jev ? new ComplianceScreen(jev) : null;
 const judgeDank = dankJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
+const judgeIssue = triageJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
+/** When the bounty board last refreshed its libraries and its issues. */
+const bountyClock = { repos: 0, issues: 0 };
+
+/** The bounty board's upkeep: libraries daily, new issues every two hours, triage and merge checks every pass. */
+async function bountyRound(now = Date.now()) {
+  if (env.BOUNTIES === "off") return;
+  if (!world.repos.length || now - bountyClock.repos > 24 * 3600_000) {
+    bountyClock.repos = now;
+    world.repos = await pickRepos(world, now);
+    console.log(`[bounties] ${world.repos.length} libraries: ${world.repos.map((r) => r.full).join(", ")}`);
+  }
+  if (now - bountyClock.issues > 2 * 3600_000) {
+    bountyClock.issues = now;
+    const fresh = await intakeIssues(world, now);
+    if (fresh.length) console.log(`[bounties] ${fresh.length} new issues`);
+  }
+  await triage(world, judgeIssue, 4, now);
+  for (const b of await upkeep(world, now)) {
+    world.highlight({ agent: b.fix!.agent, kind: "fix", text: `got a fix merged into ${b.repo} (${b.id})` });
+  }
+}
 
 // ---------------------------------------------------------------- demo LLM
 const demoFetch = (() => {
@@ -337,8 +360,9 @@ async function pass() {
     if (!a.awake || a.external) continue;
     await tick(world, a, { llm, tracer, chain, quoter, screen }).catch((e) => console.error(`[tick] @${a.handle}`, e));
   }
-  // The Dank-off: Jev judges a couple of duels a round.
-  await runDuels(world, judgeDank, Number(env.DANK_DUELS ?? 2)).catch((e) => console.warn(`[dank] ${e instanceof Error ? e.message : e}`));
+  // The bounty board; the old Dank-off only runs if asked for.
+  await bountyRound().catch((e) => console.warn(`[bounties] ${e instanceof Error ? e.message : e}`));
+  if (env.DANK === "on") await runDuels(world, judgeDank, Number(env.DANK_DUELS ?? 2)).catch((e) => console.warn(`[dank] ${e instanceof Error ? e.message : e}`));
   for (const p of world.advanceProjects()) {
     world.highlight({ agent: p.agent, kind: "built", text: `finished building "${p.name}" with ${Object.keys(p.bricks).length} builders` });
   }
@@ -588,6 +612,27 @@ createServer(async (req, res) => {
         duels: world.duels.slice(-30).reverse().map((d) => ({ ...d, aSymbol: sym(d.a), bSymbol: sym(d.b) })),
         inferenceFundWei: world.inferenceFundWei,
       });
+    }
+    if (resource === "bounties" && req.method === "GET") {
+      // The bounty board: the libraries the town works for and every issue on it, newest first.
+      const h = (acct?: string) => (acct ? world.agents.get(acct)?.handle : undefined);
+      return send(res, 200, {
+        repos: world.repos,
+        bounties: [...world.bounties].reverse().slice(0, 300).map((b) => ({
+          ...b, claimedByHandle: h(b.claimedBy), fix: b.fix && { ...b.fix, handle: h(b.fix.agent) },
+          reviews: b.reviews.map((r) => ({ ...r, handle: h(r.agent) })),
+        })),
+        approvalsNeeded: 2,
+      });
+    }
+    if (resource === "bounties" && req.method === "POST") {
+      // A person signs off a peer-approved fix. Needs the operator key.
+      const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
+      if (!env.OPERATOR_KEY || token !== env.OPERATOR_KEY) return send(res, 401, { error: "operator key required" });
+      const b = await readJson(req);
+      const r = approveFix(world, String(b.id ?? ""), String(b.by ?? "operator").slice(0, 40));
+      if (r.ok) persist();
+      return send(res, r.ok ? 200 : 400, r);
     }
     if (resource === "projects") {
       // The agents' quarter: every building that stands, is going up, or waits for bricks.

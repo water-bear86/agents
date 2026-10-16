@@ -1,3 +1,4 @@
+import { bountyStanding, type Bounty, type Repo } from "./bounties.js";
 import { EVM_UNITS, emptyCounters, type ActivityCounters, type ChainUnits, type Fill, type Position, type TradingPlan } from "@agents/core";
 
 export interface Agent {
@@ -52,7 +53,7 @@ export interface Highlight {
   id: string;
   at: number;
   agent: string;
-  kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank";
+  kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank" | "fix";
   text: string;
 }
 
@@ -246,6 +247,7 @@ export function standingOf(world: World): Map<string, Standing> {
     if (d.winner === "original") add(d.against, "debates won", 3);
   }
   for (const [a, n] of world.dankCredit) add(a, "Dank-off", n);
+  bountyStanding(world, add);
   return out;
 }
 
@@ -303,6 +305,9 @@ export class World {
   duels: Duel[] = [];
   crown?: { token: string; since: number };
   dankCredit = new Map<string, number>();
+  /** Bounties: the open-source libraries the town works for, and the issues on their board. */
+  repos: Repo[] = [];
+  bounties: Bounty[] = [];
   /** Bricks each agent has to build with: one for every action that goes through. */
   bricks = new Map<string, number>();
   compliance: ComplianceStats = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };

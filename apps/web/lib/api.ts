@@ -46,6 +46,20 @@ export interface Agent {
   memory?: { bytes: number; quota: number; pledgePct: number; pledgeActive: boolean; paidWei: string };
 }
 
+/** A library on the bounty board. */
+export interface BountyRepo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number }
+export type BountyStatus = "open" | "claimed" | "submitted" | "ready" | "approved" | "upstream" | "merged" | "closed";
+/** An open-source issue the town is fixing. */
+export interface Bounty {
+  id: string; repo: string; number: number; title: string; body: string; url: string; labels: string[]; openedAt: string; addedAt: number;
+  triage?: { fit: boolean; confidence: number; judge: string; at: number };
+  status: BountyStatus; claimedByHandle?: string; claimedAt?: number;
+  fix?: { handle?: string; url: string; summary: string; at: number };
+  reviews: { handle?: string; verdict: "approve" | "changes"; note: string; at: number }[];
+  approved?: { by: string; at: number };
+  pr?: { url: string; at: number; state?: string; mergedAt?: string };
+}
+export interface BountyBoard { repos: BountyRepo[]; bounties: Bounty[]; approvalsNeeded: number }
 /** A paper meme in the Dank-off. */
 export interface DankMeme { token: string; name: string; symbol: string; lore: string; makers: (string | undefined)[]; rating: number; wins: number; losses: number; draws: number; duels: number }
 export interface DankDuel { id: string; at: number; a: string; b: string; aSymbol?: string; bSymbol?: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
@@ -78,7 +92,7 @@ export interface DebateRow {
   winner?: "challenger" | "original" | "even"; confidence?: number; original?: string; reply?: string;
 }
 
-export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank"; text: string }
+export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank" | "fix"; text: string }
 
 /** Mirrors xpRules in @agents/core (packages/core/src/progress.ts). */
 export const xpRules = (sym = "ETH"): [string, number][] => [

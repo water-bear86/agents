@@ -1065,3 +1065,33 @@ body { background-image: var(--grain); }
 @media (prefers-color-scheme: dark) { .p3-label, .p3-bubble { background: #e6e0d2; color: #141c2a; } }
 .world-stage:has(.p3-host)::after { display: none; }
 .p3-room { aspect-ratio: 560 / 480; max-height: 640px; }
+
+/* Bounties: open-source issues as paper tickets pinned to the board. */
+.bounty-tally { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 0 0 18px; padding: 0; }
+.bounty-tally > div { padding: 14px 18px; border-right: 1px solid var(--rule-soft); }
+.bounty-tally > div:last-child { border-right: 0; }
+.bounty-tally dt { font-size: 13px; color: var(--muted); }
+.bounty-tally dd { margin: 2px 0 0; font-size: 30px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.bounty-list { list-style: none; margin: 0; padding: 4px 18px 10px; }
+.bounty { padding: 12px 0; border-bottom: 1px solid var(--rule-soft); display: grid; gap: 4px; }
+.bounty:last-child { border-bottom: 0; }
+.bounty-top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.bounty-stage { font-weight: 700; padding: 1px 8px; border: 1.5px solid currentColor; border-radius: 3px; transform: rotate(-1deg); }
+.bounty-open .bounty-stage { color: var(--muted); }
+.bounty-claimed .bounty-stage, .bounty-submitted .bounty-stage { color: #b7791f; }
+.bounty-ready .bounty-stage, .bounty-approved .bounty-stage, .bounty-upstream .bounty-stage { color: #2b6cb0; }
+.bounty-merged .bounty-stage { color: #2f855a; }
+.bounty-repo { color: var(--muted); }
+.bounty-title { font-weight: 700; font-size: 16px; color: inherit; text-decoration: none; }
+.bounty-title:hover { text-decoration: underline; }
+.bounty-meta { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+.bounty-summary { margin: 2px 0 0; max-width: 70ch; }
+.bounty-reviews { list-style: none; margin: 4px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--rule-soft); font-size: 14px; display: grid; gap: 4px; }
+.bounty-repos { list-style: none; margin: 0; padding: 4px 18px 12px; display: grid; gap: 12px; }
+.bounty-repos li { display: grid; gap: 2px; }
+.bounty-steps { margin: 0; padding: 6px 18px 14px 38px; display: grid; gap: 6px; }
+@media (max-width: 640px) {
+  .bounty-tally { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bounty-tally > div:nth-child(2) { border-right: 0; }
+  .bounty-tally > div:nth-child(-n + 2) { border-bottom: 1px solid var(--rule-soft); }
+}
