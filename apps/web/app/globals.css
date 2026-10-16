@@ -959,3 +959,92 @@ legend + * { clear: both; }
 .paper-banner { background: color-mix(in oklab, var(--hold) 16%, var(--paper)); border-bottom: 1px solid color-mix(in oklab, var(--hold) 35%, transparent); font-size: 13.5px; }
 .paper-banner .shell { padding-top: 8px; padding-bottom: 8px; }
 .tag.market { background: color-mix(in oklab, var(--signal) 14%, transparent); color: var(--signal); }
+
+/* ---------------------------------------------------------------- paper cut-outs
+   Everything in town is paper, so it looks it: a fine grain over every sheet, card-stock edges
+   on panels, buildings that cast the crisp offset shadow of layered paper, and agents cut out
+   like stickers with a white edge. */
+:root {
+  --paper: #ece6d9;
+  --surface: #fbf8f2;
+  --rule: #d6cdbb;
+  --rule-soft: #e6dfd1;
+  --cut-edge: #fffdf7;
+  --cut-shadow: rgba(60, 42, 20, 0.2);
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.27 0 0 0 0 0.16 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #111a28;
+    --surface: #18243a;
+    --rule: #2c3b54;
+    --rule-soft: #1f2c42;
+    --cut-edge: #e6e0d2;
+    --cut-shadow: rgba(0, 0, 0, 0.45);
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+  }
+}
+body { background-image: var(--grain); }
+.panel { background-image: var(--grain); box-shadow: 2px 3px 0 var(--cut-shadow); border-radius: 3px; }
+.top, .paper-banner { background-image: var(--grain); }
+
+/* Agents are stickers: a white cut edge round the whole robot, and a little shadow under it. */
+.sprite .bot {
+  filter: drop-shadow(1px 0 0 var(--cut-edge)) drop-shadow(-1px 0 0 var(--cut-edge)) drop-shadow(0 1px 0 var(--cut-edge)) drop-shadow(0 -1px 0 var(--cut-edge)) drop-shadow(1.5px 2px 0 var(--cut-shadow));
+}
+.mark { border-radius: 4px; box-shadow: 0 0 0 2px var(--cut-edge), 1.5px 2.5px 0 2px var(--cut-shadow); }
+.mark.lg { box-shadow: 0 0 0 3px var(--cut-edge), 3px 4px 0 3px var(--cut-shadow); }
+
+/* The town: layered card stock. The ground is pieces of construction paper with white cut edges;
+   places, houses, buildings and trees cast a crisp offset shadow. */
+.world-svg, .interior-svg {
+  --w-grass: #b5cf9c;
+  --w-grass-alt: #a8c48f;
+  --w-asphalt: #8d93a0;
+  --w-paving: #f2eadb;
+  --w-joint: #e3d8c4;
+  --w-sky: #ece6d9;
+  --w-wall: #fbf6ec;
+  --w-top: #fffaf1;
+  --w-leaf: #6f9e5c;
+  --w-leaf-lit: #9cc77f;
+}
+@media (prefers-color-scheme: dark) {
+  .world-svg, .interior-svg { --w-grass: #1d3328; --w-grass-alt: #1a2e24; --w-asphalt: #232c3c; --w-paving: #2a3548; --w-sky: #111a28; }
+}
+.world-svg .lot, .world-svg .terrace, .world-svg .paving { stroke: var(--cut-edge); stroke-width: 2.2; stroke-linejoin: round; filter: drop-shadow(1.5px 2px 0 var(--cut-shadow)); }
+.world-svg .canopy { stroke: var(--cut-edge); stroke-width: 1.4; }
+.world-svg :is(.place, .house, .project, .tree) { filter: drop-shadow(3px 3.5px 0 var(--cut-shadow)); }
+.world-svg .board { filter: drop-shadow(0 6px 0 var(--cut-shadow)); }
+.world-stage { position: relative; }
+.world-stage::after { content: ""; position: absolute; inset: 0; background-image: var(--grain), var(--grain); background-size: 160px, 230px; pointer-events: none; mix-blend-mode: multiply; }
+@media (prefers-color-scheme: dark) { .world-stage::after { mix-blend-mode: screen; opacity: 0.6; } }
+.interior { position: relative; }
+.interior::after { content: ""; position: absolute; inset: 0; background-image: var(--grain); pointer-events: none; mix-blend-mode: multiply; }
+
+/* ---------------------------------------------------------------- the Dank-off */
+.dank-crown { display: flex; gap: 22px; align-items: flex-start; padding: 22px 26px; margin-bottom: 18px; transform: rotate(-0.6deg); box-shadow: 4px 6px 0 var(--cut-shadow); border-width: 2px; }
+.dank-crown.empty-crown { transform: none; display: block; padding: 8px; }
+.dank-crown-mark { font-size: 54px; line-height: 1; color: #d9a21b; text-shadow: 2px 3px 0 var(--cut-shadow); }
+.dank-ticker { font-size: clamp(40px, 7vw, 76px); line-height: 0.95; margin: 4px 0 2px; font-weight: 900; font-stretch: 125%; letter-spacing: -0.02em; }
+.dank-name { margin: 0 0 10px; font-weight: 700; }
+.dank-lore { margin: 0 0 10px; padding: 0; font-size: 17px; font-style: italic; max-width: 60ch; }
+.dank-makers { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; vertical-align: middle; }
+.dank-board { list-style: none; margin: 0; padding: 0 18px 8px; }
+.dank-board li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--rule-soft); align-items: start; }
+.dank-board li:last-child { border-bottom: 0; }
+.dank-board li.crowned .dank-rank { color: #b8860b; }
+.dank-rank { font-weight: 850; font-size: 18px; color: var(--muted); }
+.dank-meme { display: grid; gap: 5px; min-width: 0; }
+.dank-sym { font-size: 16px; }
+.dank-meme .why { color: var(--muted); font-size: 13.5px; }
+.dank-bar { display: block; height: 5px; border-radius: 3px; background: var(--rule-soft); overflow: hidden; max-width: 260px; }
+.dank-bar span { display: block; height: 100%; background: #d9a21b; transform-origin: left; }
+.dank-score { display: grid; justify-items: end; gap: 2px; font-size: 13px; }
+.dank-score b { font-size: 18px; }
+.dank-duels { list-style: none; margin: 0; padding: 0 18px 8px; }
+.dank-duels li { display: grid; gap: 2px; padding: 9px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px; }
+.dank-duels li:last-child { border-bottom: 0; }
+.dank-duels .muted { font-size: 12.5px; }
+.memory-text { margin: 10px 0 0; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; line-height: 1.45; background: color-mix(in oklab, var(--paper) 60%, var(--surface)); border: 1px dashed var(--rule); border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { .dank-crown { transform: none; } }

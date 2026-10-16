@@ -26,6 +26,13 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     chats: world.chats.slice(-5000),
     ideas: world.ideas.slice(-1000),
     projects: world.projects,
+    memory: [...world.memory.entries()],
+    pledges: [...world.pledges.entries()],
+    inferenceFundWei: world.inferenceFundWei,
+    dank: [...world.dank.entries()],
+    duels: world.duels.slice(-2000),
+    crown: world.crown,
+    dankCredit: [...world.dankCredit.entries()],
     bricks: [...world.bricks.entries()],
     compliance: world.compliance,
     ...extra,
@@ -53,6 +60,13 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.chats = s.chats ?? [];
   world.ideas = s.ideas ?? [];
   world.projects = s.projects ?? [];
+  world.memory = new Map(s.memory ?? []);
+  world.pledges = new Map(s.pledges ?? []);
+  world.inferenceFundWei = s.inferenceFundWei ?? 0n;
+  world.dank = new Map(s.dank ?? []);
+  world.duels = s.duels ?? [];
+  world.crown = s.crown;
+  world.dankCredit = new Map(s.dankCredit ?? []);
   world.bricks = new Map(s.bricks ?? []);
   if (s.compliance) world.compliance = s.compliance;
   return s;

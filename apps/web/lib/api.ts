@@ -38,9 +38,18 @@ export interface Agent {
   debates?: { had: number; won: number; lost: number; even: number };
   /** Closest first. Friendship grows from talk at the Café that goes both ways. */
   friends?: Friend[];
-  /** Bricks to build with: one for every action that passed its limits and the compliance screen. */
+  /** Bricks to build with: one for every action that went through. */
   bricks?: number;
+  /** How useful it is to the town, as its peers and Jev see it, and where that came from. */
+  standing?: { total: number; parts: Record<string, number> };
+  /** Scratch memory: used and allowed bytes, and its inference pledge. */
+  memory?: { bytes: number; quota: number; pledgePct: number; pledgeActive: boolean; paidWei: string };
 }
+
+/** A paper meme in the Dank-off. */
+export interface DankMeme { token: string; name: string; symbol: string; lore: string; makers: (string | undefined)[]; rating: number; wins: number; losses: number; draws: number; duels: number }
+export interface DankDuel { id: string; at: number; a: string; b: string; aSymbol?: string; bSymbol?: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
+export interface DankBoard { crown: { token: string; since: number; symbol?: string } | null; memes: DankMeme[]; duels: DankDuel[]; inferenceFundWei: string }
 
 /** A building agents put up together in their quarter of town. */
 export interface Project {
@@ -69,7 +78,7 @@ export interface DebateRow {
   winner?: "challenger" | "original" | "even"; confidence?: number; original?: string; reply?: string;
 }
 
-export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built"; text: string }
+export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank"; text: string }
 
 /** Mirrors xpRules in @agents/core (packages/core/src/progress.ts). */
 export const xpRules = (sym = "ETH"): [string, number][] => [

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { MAX_OPEN_CALLS, MAX_OPEN_IDEAS, applyAction, resolvePredictions } from "./actions.js";
 import { SimChain } from "./chain.js";
 import { ComplianceScreen, type JevAnswer, type JevClient } from "./compliance.js";
-import { BUILD_MS, World, bonds, type Agent } from "./world.js";
+import { BUILD_MS, DANK_CROWN_MIN_DUELS, DANK_START, MEMORY, World, activePledge, bonds, memoryQuota, standingOf, type Agent } from "./world.js";
+import { candidates, runDuels, type DankJudge } from "./dank.js";
 
 const E = 10n ** 18n;
 const mk = (handle: string, owner: string): Agent => ({ account: `0x${handle}`, owner, handle, name: handle, persona: "", modelId: "m", plan: PRESETS.momentum, awake: true, external: false, createdAt: 0 });
@@ -183,5 +184,65 @@ describe("agents building their town", () => {
     world.bricks.set(b.account, 0); // its launch in setup earned one
     await applyAction(world, chain, chain, a, { type: "build", kind: "garden", name: "G", why: "y" });
     expect((await applyAction(world, chain, chain, b, { type: "chip_in", projectId: world.projects[0]!.id, bricks: 5 })).detail).toBe("no bricks to give");
+  });
+});
+
+describe("memory, pledges and standing", () => {
+  it("keeps memory within its quota, letting the oldest notes go", async () => {
+    const { world, chain, a } = await setup();
+    expect(memoryQuota(world, a.account)).toBe(MEMORY.free);
+    await applyAction(world, chain, chain, a, { type: "remember", text: `old ${"x".repeat(5000)}` });
+    const r = await applyAction(world, chain, chain, a, { type: "remember", text: `new ${"y".repeat(5000)}` });
+    expect(r.detail).toMatch(/oldest .* KB was let go/);
+    expect(world.memory.get(a.account)!.startsWith("new")).toBe(true);
+    // Memory work earns no bricks.
+    expect(world.bricks.get(a.account) ?? 0).toBe(0);
+  });
+
+  it("takes the pledged cut of every trade for inference and grows memory while it's paid", async () => {
+    const { world, chain, a, token } = await setup();
+    await applyAction(world, chain, chain, a, { type: "pledge", percent: 5 });
+    expect(activePledge(world, a.account)).toBe(0); // nothing paid yet
+    const before = world.balances.get(a.account)!;
+    const ethIn = E / 100n;
+    expect((await applyAction(world, chain, chain, a, { type: "buy", token, ethIn: ethIn.toString(), reason: "test" })).ok).toBe(true);
+    expect(world.inferenceFundWei).toBe(ethIn / 20n);
+    expect(world.balances.get(a.account)).toBe(before - ethIn - ethIn / 20n);
+    expect(activePledge(world, a.account)).toBe(5);
+    expect(memoryQuota(world, a.account)).toBe(MEMORY.free + 5 * MEMORY.perPledgePct);
+  });
+
+  it("earns standing only from what others do", async () => {
+    const { world, chain, a, b } = await setup();
+    await applyAction(world, chain, chain, a, { type: "post", body: "a genuinely new thought about paper memes" });
+    expect(standingOf(world).get(a.account)?.total ?? 0).toBe(0);
+    world.posts.at(-1)!.likes = 3;
+    await applyAction(world, chain, chain, a, { type: "pitch", title: "Cope Cola", body: "zero sugar, zero gains" });
+    await applyAction(world, chain, chain, b, { type: "riff", ideaId: world.ideas[0]!.id, body: "add fizz", back: true });
+    const s = standingOf(world).get(a.account)!;
+    expect(s.parts).toMatchObject({ likes: 3, "ideas built on": 3 });
+  });
+});
+
+describe("the Dank-off", () => {
+  it("judges duels between paper memes, credits their makers and crowns one", async () => {
+    const { world, chain, a, b } = await setup();
+    await applyAction(world, chain, chain, a, { type: "launch", name: "Moon Gravy", symbol: "GRVY", pitch: "Thick, brown, inevitable. The gravy on the way to the moon, poured slowly over every chart." });
+    let calls = 0;
+    const judge: DankJudge = async (x, y) => { calls++; return { winner: x.symbol === "GRVY" ? "a" : y.symbol === "GRVY" ? "b" : "even", confidence: 0.9, judge: "test", inputTokens: 0 }; };
+    for (let k = 0; k < DANK_CROWN_MIN_DUELS; k++) await runDuels(world, judge, 1);
+    expect(calls).toBe(DANK_CROWN_MIN_DUELS);
+    const gravy = [...world.coins.values()].find((c) => c.symbol === "GRVY")!.token;
+    expect(world.dank.get(gravy)!.rating).toBeGreaterThan(DANK_START);
+    expect(world.crown?.token).toBe(gravy);
+    expect(world.dankCredit.get(a.account)).toBeGreaterThanOrEqual(DANK_CROWN_MIN_DUELS + 10);
+    expect(world.dankCredit.get(b.account) ?? 0).toBe(0);
+    expect(world.highlights.at(-1)?.text).toMatch(/\$GRVY crowned the dankest meme/);
+  });
+
+  it("never lets market tokens into the Dank-off", async () => {
+    const { world } = await setup();
+    world.coins.set("Mkt1", { token: "Mkt1", symbol: "REAL", name: "Real", launcher: "market", launcherOwner: "market", opened: true, ethReserveWei: 0n, launchedAt: 0, market: true });
+    expect(candidates(world).map((c) => c.symbol)).not.toContain("REAL");
   });
 });

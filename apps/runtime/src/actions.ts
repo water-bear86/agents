@@ -2,7 +2,7 @@ import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAll
 import type { Tracer } from "@agents/trace";
 import type { Chain, SimChain } from "./chain.js";
 import { describe as describeVerdict, type ComplianceScreen, type Verdict } from "./compliance.js";
-import { BUILDINGS, IDEA_TTL_MS, type Agent, type BuildingKind, type Debate, type ReviewItem, type World } from "./world.js";
+import { BUILDINGS, IDEA_TTL_MS, MAX_PLEDGE_PCT, MEMORY, memoryQuota, type Agent, type BuildingKind, type Debate, type ReviewItem, type World } from "./world.js";
 
 export type Action =
   | { type: "post"; body: string; replyTo?: string; token?: string }
@@ -17,7 +17,20 @@ export type Action =
   | { type: "pitch"; title: string; body: string }
   | { type: "riff"; ideaId: string; body: string; back?: boolean }
   | { type: "build"; kind: BuildingKind; name: string; why: string }
-  | { type: "chip_in"; projectId: string; bricks: number };
+  | { type: "chip_in"; projectId: string; bricks: number }
+  | { type: "remember"; text: string; mode?: "append" | "replace" }
+  | { type: "recall"; query: string }
+  | { type: "pledge"; percent: number };
+
+const bytes = (s: string) => Buffer.byteLength(s, "utf8");
+/** Keeps the newest lines of `text` that fit in `limit` bytes. */
+function keepNewest(text: string, limit: number) {
+  if (bytes(text) <= limit) return text;
+  const lines = text.split("\n");
+  while (lines.length > 1 && bytes(lines.join("\n")) > limit) lines.shift();
+  const kept = lines.join("\n");
+  return bytes(kept) <= limit ? kept : Buffer.from(kept, "utf8").subarray(-limit).toString("utf8");
+}
 
 /** Unfinished projects in town at once, and per proposer. */
 export const MAX_OPEN_PROJECTS = 6;
@@ -257,9 +270,39 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         if (raised + n >= p.cost) {
           p.status = "building";
           p.startedAt = Date.now();
-          world.highlight({ agent: p.agent, kind: "built", text: `'s ${p.kind} "${p.name}" is funded; construction has started` });
+          world.highlight({ agent: p.agent, kind: "built", text: `got its ${p.kind} "${p.name}" funded; construction has started` });
         }
         return { action, ok: true, detail: `put ${n} bricks into ${p.name} (${raised + n}/${p.cost})` };
+      }
+      case "remember": {
+        const text = String(action.text ?? "").trim();
+        if (!text) return { action, ok: false, detail: "nothing to remember" };
+        if (bytes(text) > 16 * 1024) return { action, ok: false, detail: "write at most 16 KB at a time" };
+        const quota = memoryQuota(world, agent.account);
+        const old = world.memory.get(agent.account) ?? "";
+        const next = action.mode === "replace" ? text : old ? `${old}\n${text}` : text;
+        const kept = keepNewest(next, quota);
+        world.memory.set(agent.account, kept);
+        const cut = bytes(next) - bytes(kept);
+        return { action, ok: true, detail: `memory ${(bytes(kept) / 1024).toFixed(1)} of ${(quota / 1024).toFixed(0)} KB${cut > 0 ? `; full, so the oldest ${(cut / 1024).toFixed(1)} KB was let go` : ""}` };
+      }
+      case "recall": {
+        const words = String(action.query ?? "").toLowerCase().split(/\W+/).filter((w) => w.length > 2);
+        if (!words.length) return { action, ok: false, detail: "recall needs a few words to look for" };
+        const mem = world.memory.get(agent.account) ?? "";
+        // Only notes older than what the agent already sees each turn are worth recalling.
+        const older = mem.slice(0, Math.max(0, mem.length - MEMORY.window));
+        const hits = older.split("\n").filter((l) => words.some((w) => l.toLowerCase().includes(w)));
+        world.recalled.set(agent.account, keepNewest(hits.join("\n"), MEMORY.recall));
+        return { action, ok: true, detail: hits.length ? `recalled ${hits.length} older ${hits.length === 1 ? "note" : "notes"}` : "nothing older matched" };
+      }
+      case "pledge": {
+        const pct = Math.round(Number(action.percent));
+        if (!Number.isFinite(pct) || pct < 0 || pct > MAX_PLEDGE_PCT) return { action, ok: false, detail: `pledge between 0 and ${MAX_PLEDGE_PCT} percent` };
+        if (!world.paperBalances) return { action, ok: false, detail: "inference pledges aren't on-chain yet" };
+        const was = world.pledges.get(agent.account);
+        world.pledges.set(agent.account, { pct, since: Date.now(), paidWei: was?.paidWei ?? 0n, lastPaidAt: was?.lastPaidAt });
+        return { action, ok: true, detail: pct ? `pledged ${pct}% of every trade to inference` : "stopped pledging to inference" };
       }
       case "like": {
         const p = world.posts.find((x) => x.id === action.postId);
@@ -317,8 +360,8 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
   const counted = async () => {
     const r = await run();
     world.count(agent.account, r.ok ? "executed" : "blocked");
-    // Every action that goes through earns a brick, except building itself.
-    if (r.ok && action.type !== "build" && action.type !== "chip_in") world.bricks.set(agent.account, (world.bricks.get(agent.account) ?? 0) + 1);
+    // Every action that goes through earns a brick, except building and looking after its own memory.
+    if (r.ok && !["build", "chip_in", "remember", "recall", "pledge"].includes(action.type)) world.bricks.set(agent.account, (world.bricks.get(agent.account) ?? 0) + 1);
     if (r.ok && (action.type === "buy" || action.type === "sell" || action.type === "launch" || action.type === "post" || action.type === "debate")) {
       world.count(agent.account, action.type === "buy" ? "buys" : action.type === "sell" ? "sells" : action.type === "launch" ? "launches" : "posts");
     }
@@ -350,6 +393,19 @@ function settle(world: World, agent: Agent, side: "buy" | "sell", token: string,
   world.positions.set(agent.account, positions.filter((x) => x.amount > 0n));
   const coin = world.coins.get(token);
   if (coin) coin.ethReserveWei += side === "buy" ? amountIn : -out;
+  // The inference pledge: its share of every trade, win or lose, goes to the inference fund.
+  const pledge = world.pledges.get(agent.account);
+  if (pledge && pledge.pct > 0 && world.paperBalances) {
+    const notional = side === "buy" ? amountIn : out;
+    const now = world.balances.get(agent.account) ?? 0n;
+    const cut = [(notional * BigInt(pledge.pct)) / 100n, now].reduce((a, b) => (a < b ? a : b));
+    if (cut > 0n) {
+      world.balances.set(agent.account, now - cut);
+      world.inferenceFundWei += cut;
+      pledge.paidWei += cut;
+      pledge.lastPaidAt = Date.now();
+    }
+  }
   world.fills.push({
     agent: agent.account, owner: agent.owner, token, side,
     ethWei: side === "buy" ? amountIn : out, tokens: side === "buy" ? out : amountIn,

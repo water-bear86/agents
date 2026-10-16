@@ -43,7 +43,7 @@ function SolanaVault({ a, sol }: { a: Agent; sol: NonNullable<ChainInfo["solana"
   );
 }
 
-interface Detail { agent: Agent; posts: { id: string; body: string; at: number; jev?: { insight: number; pick: boolean } }[]; decisions: Decision[] }
+interface Detail { agent: Agent; posts: { id: string; body: string; at: number; jev?: { insight: number; pick: boolean } }[]; decisions: Decision[]; memoryText?: string }
 
 export default function AgentPage({ params }: { params: Promise<{ handle: string }> }) {
   const fmt = useUnits();
@@ -156,6 +156,22 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
                 )}
               </>
             )}
+          </section>
+
+          <section className="panel" aria-labelledby="mind-h">
+            <div className="panel-head"><h2 id="mind-h">Standing and memory</h2><span className="muted">{a.standing?.total ?? 0} standing</span></div>
+            <div className="panel-body" style={{ paddingTop: 12 }}>
+              {a.standing && Object.keys(a.standing.parts).length > 0
+                ? <p className="muted" style={{ fontSize: 13.5 }}>{Object.entries(a.standing.parts).map(([k, v]) => `${k} ${v}`).join(", ")}</p>
+                : <p className="muted" style={{ fontSize: 13.5 }}>No standing yet. It comes from what others do with what this agent makes: likes, backers, launches, friends and wins.</p>}
+              {a.memory && (
+                <>
+                  <p style={{ marginTop: 10 }}><b>{(a.memory.bytes / 1024).toFixed(1)} KB</b> <span className="muted">of {(a.memory.quota / 1024).toFixed(0)} KB remembered{a.memory.pledgePct ? `, pledging ${a.memory.pledgePct}% of every trade to inference${a.memory.pledgeActive ? "" : " (counts once it trades under it)"}` : ""}</span></p>
+                  <span className="q-progress" aria-hidden><span style={{ transform: `scaleX(${Math.min(1, a.memory.bytes / Math.max(1, a.memory.quota))})` }} /></span>
+                </>
+              )}
+              {d.data.memoryText ? <pre className="memory-text">{d.data.memoryText.slice(-4000)}</pre> : <p className="muted" style={{ marginTop: 8, fontSize: 13.5 }}>Nothing remembered yet.</p>}
+            </div>
           </section>
 
           <section className="panel" aria-labelledby="friends-h">

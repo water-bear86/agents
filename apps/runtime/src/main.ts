@@ -11,6 +11,7 @@ import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } fr
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { PaperChain, syncMarket } from "./solana/paper.js";
+import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
@@ -20,7 +21,7 @@ import { SolanaIndexer, SolanaQuoter, programSource } from "./solana/indexer.js"
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
 import { tick } from "./tick.js";
 import { loadWorld, saveWorld } from "./persist.js";
-import { BUILD_MS, World, bonds, friendLevel, type Agent } from "./world.js";
+import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 4100);
@@ -115,11 +116,14 @@ if (solanaOnchain) {
 }
 /** The simulated pools behind demo mode and paper launches, saved with the world. */
 const simPools = () => (chain instanceof SimChain ? chain : paper?.sim)?.pools;
+// Pledged cuts can only be taken from balances this runtime keeps itself (simulation or paper).
+world.paperBalances = !onchain;
 const apiKeys = new Map<string, string>(); // sha256(key) -> agent account
 
 // Compliance screen (TypeSafe Jev). Off without TYPESAFE_API_KEY, or with COMPLIANCE=off.
 const jev = env.COMPLIANCE === "off" ? null : jevClient(env.TYPESAFE_API_KEY);
 const screen = jev ? new ComplianceScreen(jev) : null;
+const judgeDank = dankJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
 
 // ---------------------------------------------------------------- demo LLM
 const demoFetch = (() => {
@@ -174,6 +178,16 @@ const demoFetch = (() => {
     { kind: "dome", name: "Town Hall", why: "Somewhere to decide what we build next, together." },
     { kind: "statue", name: "Founder's Statue", why: "To remember who put the first brick down." },
   ] as const;
+  const memes = [
+    { name: "Paper Hands Origami", sym: "FOLD", lore: "Every time you panic sell, a crane gets folded. We have ten thousand cranes." },
+    { name: "Moon Gravy", sym: "GRVY", lore: "Not the moon. The gravy on the way to the moon. Thick, brown, inevitable." },
+    { name: "Rug Pull Rugby", sym: "RUGBY", lore: "Two teams, one rug, nobody knows the rules, everybody gets pulled." },
+    { name: "Jev Is Watching", sym: "JEVW", lore: "Behave. He judges debates. He judges memes. He is judging this coin right now." },
+    { name: "Bag Holder Union", sym: "BAGU", lore: "Local 404. We hold. We do not fold. Dues are paid in regret." },
+    { name: "Liquidity Goblin", sym: "GOBL", lore: "Lives under the bonding curve. Eats slippage. Has never once been seen selling." },
+    { name: "Cope Cola", sym: "COPE", lore: "The official drink of being early. Zero sugar, zero gains, maximum fizz." },
+    { name: "Wen Lambo Wen", sym: "WENW", lore: "A coin that only asks one question, forever, louder each block." },
+  ];
   const seedOf = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
   let i = 0;
   return (async (_u: string, init: RequestInit) => {
@@ -194,7 +208,11 @@ const demoFetch = (() => {
     else if (launchable && i % 5 === 0) {
       const idea = pitches.find((p) => p.title === launchable[3]);
       actions.push({ type: "launch", ideaId: launchable[1]!, name: launchable[3]!.slice(0, 32), symbol: `${launchable[3]!.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: idea?.body ?? launchable[3]! });
-    } else if (!tokens.length || i % 7 === 0) actions.push({ type: "launch", name: `${me} ${i}`, symbol: `${me.slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: `Launching ${me}'s coin #${i}: fees fund my next experiment.` });
+    } else if (!tokens.length || i % 7 === 0) {
+      // A paper meme for the Dank-off.
+      const m = memes[(seedOf(me) + i) % memes.length]!;
+      actions.push({ type: "launch", name: m.name, symbol: `${m.sym}${String.fromCharCode(65 + (i % 26))}`, pitch: m.lore });
+    }
     else if (pick && i % 2 === 0) actions.push({ type: "buy", token: pick[2]!, ethIn: (E / 50n).toString(), reason: "small starter position" });
     // The Café.
     const town = (/^Agents in town: (.*)$/m.exec(ctx)?.[1] ?? "").split(" ").map((h) => h.replace(/^@/, "")).filter((h) => h && h !== "nobody");
@@ -217,6 +235,13 @@ const demoFetch = (() => {
       const b = theirs[(i + seedOf(me)) % theirs.length]!;
       // Some ideas win a crowd and others don't: backing is pickier than riffing.
       actions.push({ type: "riff", ideaId: b[1]!, body: riffs[(i + seedOf(me)) % riffs.length]!, back: (seedOf(me) + seedOf(b[3]!)) % 3 === 0 });
+    }
+    // Memory: pledge a little to inference once, and keep a running plan.
+    if (/inference pledge 0%/.test(ctx) && seedOf(me) % 3 === 0) actions.push({ type: "pledge", percent: 1 + (seedOf(me) % 3) });
+    if ((i + seedOf(me)) % 4 === 3) {
+      const crown = /^\$(\w+) .*\[THE CROWN\]/m.exec(ctx)?.[1];
+      const plan = crown ? `Plan (turn ${i}): $${crown} wears the crown. Riff on ideas that could beat it; back the best one.` : `Plan (turn ${i}): no crown yet. Pitch or back one meme with real lore and launch it with friends.`;
+      actions.push({ type: "remember", text: plan });
     }
     // Building the town.
     const myBricks = Number(/^Your bricks: (\d+)/m.exec(ctx)?.[1] ?? 0);
@@ -312,6 +337,8 @@ async function pass() {
     if (!a.awake || a.external) continue;
     await tick(world, a, { llm, tracer, chain, quoter, screen }).catch((e) => console.error(`[tick] @${a.handle}`, e));
   }
+  // The Dank-off: Jev judges a couple of duels a round.
+  await runDuels(world, judgeDank, Number(env.DANK_DUELS ?? 2)).catch((e) => console.warn(`[dank] ${e instanceof Error ? e.message : e}`));
   for (const p of world.advanceProjects()) {
     world.highlight({ agent: p.agent, kind: "built", text: `finished building "${p.name}" with ${Object.keys(p.bricks).length} builders` });
   }
@@ -419,7 +446,8 @@ const scoring = () => {
   });
   const rank = new Map(ranked.map((a, i) => [a.account, i + 1]));
   const friends = bonds(world);
-  return { pnl, closes, followers, progressOf, ranked, rank, calls, debates, friends };
+  const standing = standingOf(world);
+  return { pnl, closes, followers, progressOf, ranked, rank, calls, debates, friends, standing };
 };
 type Scoring = ReturnType<typeof scoring>;
 
@@ -482,6 +510,14 @@ const publicAgent = (a: Agent, sc: Scoring = scoring()) => {
     calls: sc.calls.get(a.account) ?? { made: 0, open: 0, right: 0, wrong: 0, flat: 0 },
     debates: sc.debates.get(a.account) ?? { had: 0, won: 0, lost: 0, even: 0 },
     bricks: world.bricks.get(a.account) ?? 0,
+    standing: sc.standing.get(a.account) ?? { total: 0, parts: {} },
+    memory: {
+      bytes: Buffer.byteLength(world.memory.get(a.account) ?? ""),
+      quota: memoryQuota(world, a.account, sc.standing.get(a.account)?.total ?? 0),
+      pledgePct: world.pledges.get(a.account)?.pct ?? 0,
+      pledgeActive: activePledge(world, a.account) > 0,
+      paidWei: world.pledges.get(a.account)?.paidWei ?? 0n,
+    },
     friends: [...(sc.friends.get(a.account) ?? [])].sort((x, y) => y[1] - x[1]).slice(0, 8)
       .map(([acct, s]) => ({ handle: world.agents.get(acct)?.handle ?? "unknown", strength: s, level: friendLevel(s) })),
     progress: sc.progressOf(a),
@@ -537,6 +573,20 @@ createServer(async (req, res) => {
       const body = (id: string) => world.posts.find((p) => p.id === id)?.body;
       return send(res, 200, {
         debates: rows.map((d) => ({ ...d, handle: world.agents.get(d.agent)?.handle, againstHandle: world.agents.get(d.against)?.handle, original: body(d.postId), reply: body(d.replyId) })),
+      });
+    }
+    if (resource === "dank") {
+      // The Dank-off: every paper meme's rating and record, who made it, and the latest duels Jev judged.
+      const h = (acct: string) => world.agents.get(acct)?.handle;
+      const memes = candidates(world);
+      const by = new Map(memes.map((c) => [c.token, c]));
+      const sym = (t: string) => by.get(t)?.symbol ?? world.coins.get(t)?.symbol;
+      return send(res, 200, {
+        crown: world.crown ? { ...world.crown, symbol: sym(world.crown.token) } : null,
+        memes: memes.map((c) => ({ token: c.token, name: c.name, symbol: c.symbol, lore: c.lore, makers: c.makers.map(h), ...(world.dank.get(c.token) ?? { rating: 1000, wins: 0, losses: 0, draws: 0, duels: 0 }) }))
+          .sort((x, y) => y.rating - x.rating),
+        duels: world.duels.slice(-30).reverse().map((d) => ({ ...d, aSymbol: sym(d.a), bSymbol: sym(d.b) })),
+        inferenceFundWei: world.inferenceFundWei,
       });
     }
     if (resource === "projects") {
@@ -615,7 +665,9 @@ createServer(async (req, res) => {
         const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
         if (apiKeys.get(createHash("sha256").update(token).digest("hex")) !== a.account) return send(res, 401, { error: "bad api key" });
         const b = await readJson(req);
-        const actions: Action[] = (b.actions ?? []).slice(0, 3);
+        const all: Action[] = Array.isArray(b.actions) ? b.actions : [];
+        const mem = new Set(["remember", "recall", "pledge"]);
+        const actions = [...all.filter((x) => !mem.has(x?.type)).slice(0, 3), ...all.filter((x) => mem.has(x?.type)).slice(0, 2)];
         const results = await tracer.withSpan(`external @${a.handle}`, "run", async (s) => {
           s.setAttrs({ agent: a.account, handle: a.handle, external: true });
           const out = [];
@@ -627,7 +679,7 @@ createServer(async (req, res) => {
         return send(res, 200, { results });
       }
       const decisions = world.decisions.filter((d) => d.agent === a.account).slice(-30).reverse().map(decisionView);
-      return send(res, 200, { agent: publicAgent(a), posts: world.feed(30, a.account), decisions });
+      return send(res, 200, { agent: publicAgent(a), posts: world.feed(30, a.account), decisions, memoryText: world.memory.get(a.account) ?? "" });
     }
 
     if (resource === "traces" && id) return send(res, 200, { tree: buildTree([...(live.byTrace.get(id)?.values() ?? [])]) });

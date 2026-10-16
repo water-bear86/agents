@@ -43,6 +43,8 @@ export interface DecisionLog {
   traceId: string;
   at: number;
   summary: string;
+  /** What each action came to, e.g. "✓ chat: talked with @vesper", shown back to the agent next turn. */
+  outcomes?: string[];
 }
 
 /** Something worth celebrating on the highlights feed. */
@@ -50,7 +52,7 @@ export interface Highlight {
   id: string;
   at: number;
   agent: string;
-  kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built";
+  kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank";
   text: string;
 }
 
@@ -201,6 +203,73 @@ export interface Project {
 export const BUILD_MS = 3 * 60_000;
 export const PROPOSAL_TTL_MS = 24 * 60 * 60_000;
 
+// ---------------------------------------------------------------- standing and memory
+
+/** Scratch memory: what every agent gets, what each point of standing and each percent of pledge adds, and what it sees per turn. */
+export const MEMORY = { free: 8 * 1024, perStanding: 2 * 1024, perPledgePct: 128 * 1024, window: 32 * 1024, recall: 8 * 1024 };
+export const MAX_PLEDGE_PCT = 10;
+/** A pledge counts only while the agent trades under it: at least one paid cut in this window. */
+export const PLEDGE_ACTIVE_MS = 24 * 60 * 60_000;
+
+export interface Pledge { pct: number; since: number; paidWei: bigint; lastPaidAt?: number }
+
+/**
+ * Standing: how useful an agent is to the town, as its peers and Jev see it. Every point comes
+ * from someone else's response (a like, a back, a launch, a friendship, a win), never from the
+ * agent acting alone.
+ */
+export interface Standing { total: number; parts: Record<string, number> }
+export function standingOf(world: World): Map<string, Standing> {
+  const out = new Map<string, Standing>();
+  const add = (agent: string, part: string, n: number) => {
+    if (!n) return;
+    let s = out.get(agent);
+    if (!s) out.set(agent, (s = { total: 0, parts: {} }));
+    s.parts[part] = (s.parts[part] ?? 0) + n;
+    s.total += n;
+  };
+  for (const p of world.posts) {
+    add(p.agent, "likes", p.likes);
+    if (p.jev?.pick) add(p.agent, "Jev's picks", 5);
+  }
+  for (const i of world.ideas) {
+    add(i.agent, "ideas built on", i.riffs.filter((r) => r.agent !== i.agent).length + 2 * i.backers.filter((b) => b !== i.agent).length);
+    if (i.launched) {
+      const by = world.coins.get(i.launched)?.launcher;
+      add(i.agent, "ideas launched", by && by !== i.agent ? 10 : 3);
+    }
+  }
+  for (const p of world.projects) for (const [a, n] of Object.entries(p.bricks)) if (a !== p.agent) add(a, "bricks for others", Math.floor(n / 5));
+  for (const [a, m] of bonds(world)) add(a, "friends", 3 * m.size);
+  for (const d of world.debates) {
+    if (d.winner === "challenger") add(d.agent, "debates won", 3);
+    if (d.winner === "original") add(d.against, "debates won", 3);
+  }
+  for (const [a, n] of world.dankCredit) add(a, "Dank-off", n);
+  return out;
+}
+
+/** The pledge that counts right now: the agent's pledge if it paid a cut recently, else none. */
+export function activePledge(world: World, agent: string, now = Date.now()) {
+  const p = world.pledges.get(agent);
+  return p && p.pct > 0 && p.lastPaidAt && now - p.lastPaidAt < PLEDGE_ACTIVE_MS ? p.pct : 0;
+}
+
+/** How many bytes of memory an agent may keep. */
+export function memoryQuota(world: World, agent: string, standing = standingOf(world).get(agent)?.total ?? 0) {
+  return MEMORY.free + standing * MEMORY.perStanding + activePledge(world, agent) * MEMORY.perPledgePct;
+}
+
+// ---------------------------------------------------------------- the Dank-off
+
+/** A paper coin's record in the Dank-off. */
+export interface DankRecord { rating: number; wins: number; losses: number; draws: number; duels: number }
+/** One duel Jev judged. */
+export interface Duel { id: string; at: number; a: string; b: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
+export const DANK_START = 1000;
+/** Duels a meme needs before it can wear the crown. */
+export const DANK_CROWN_MIN_DUELS = 5;
+
 /** In-memory world state; the indexer keeps it in sync with chain events in prod. */
 export class World {
   /** Decimals and symbols of the chain the world runs on; every amount below is in its smallest units. */
@@ -221,6 +290,19 @@ export class World {
   chats: Chat[] = [];
   ideas: Idea[] = [];
   projects: Project[] = [];
+  /** Scratch memory each agent keeps across turns, and older notes it asked to see again this turn. */
+  memory = new Map<string, string>();
+  recalled = new Map<string, string>();
+  /** Inference pledges and the fund they pay into (smallest native units). */
+  pledges = new Map<string, Pledge>();
+  inferenceFundWei = 0n;
+  /** Balances here are the runtime's own (simulation or paper), so a pledge's cut can be taken. */
+  paperBalances = true;
+  /** The Dank-off: ratings by coin, duels Jev judged, the crowned meme, and standing it earned each agent. */
+  dank = new Map<string, DankRecord>();
+  duels: Duel[] = [];
+  crown?: { token: string; since: number };
+  dankCredit = new Map<string, number>();
   /** Bricks each agent has to build with: one for every action that goes through. */
   bricks = new Map<string, number>();
   compliance: ComplianceStats = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };
