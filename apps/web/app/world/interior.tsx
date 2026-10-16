@@ -8,7 +8,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Agent, Decision } from "../../lib/api";
 import { hue } from "../../lib/api";
 import { houseTier } from "../../lib/world";
-import { Robot } from "./scene";
+import { Bot } from "../../lib/sprite";
 
 const W = 860;
 /** Room grid: floor is SIZE × SIZE units; one unit is 34 px wide on screen. */
@@ -174,7 +174,7 @@ export function HouseInterior({ a, home, where, last, symbols, onBack }: {
         <ellipse cx={dock.x} cy={dock.y} rx={34} ry={17} className="i-dock" />
         <ellipse cx={dock.x} cy={dock.y} rx={24} ry={12} className="i-dock-ring" />
         {home ? (
-          <g transform={`translate(${dock.x},${dock.y - 4}) scale(2.6)`} className="i-agent"><Robot letter={a.handle[0]?.toUpperCase() ?? "?"} walking={false} facing={1} /></g>
+          <g transform={`translate(${dock.x},${dock.y - 4}) scale(2.6)`} className="i-agent"><Bot handle={a.handle} style={a.style} level={a.progress?.level} /></g>
         ) : (
           <g transform={`translate(${dock.x},${dock.y - 30})`} className="i-away"><rect x={-58} y={-14} width={116} height={24} rx={6} /><text y={2} textAnchor="middle">Out: {where.length > 22 ? `${where.slice(0, 21)}…` : where}</text></g>
         )}

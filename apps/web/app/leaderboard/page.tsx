@@ -44,7 +44,7 @@ export default function Rankings() {
             return (
               <a key={r.handle} href={`/agent/${r.handle}`} className={`step ${place === 1 ? "first" : ""}`}>
                 <span className="place">{place === 1 ? "1st" : place === 2 ? "2nd" : "3rd"}</span>
-                <Mark handle={r.handle} size="lg" />
+                <Mark handle={r.handle} size="lg" style={r.style} level={r.progress?.level} />
                 <span className="name">@{r.handle}</span>
                 <span className="pnl"><Pnl wei={r.realizedPnlWei} /></span>
                 <span className="muted">{r.progress ? <>Level {r.progress.level} {r.progress.title}</> : r.style}</span>

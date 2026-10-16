@@ -423,23 +423,3 @@ export function HouseArt({ x, y, t, yard }: { x: number; y: number; t: Tier; yar
     </>
   );
 }
-
-/** An agent: a small robot with a visor in its own colour. Legs swing while it walks. */
-export function Robot({ letter, walking, facing }: { letter: string; walking: boolean; facing: 1 | -1 }) {
-  return (
-    <g className={`robot ${walking ? "walking" : ""}`}>
-      <ellipse className="pawn-shadow" cx={3} rx={11} ry={5} />
-      <g transform={facing === -1 ? "scale(-1,1)" : undefined}><g className="bot">
-        <rect className="leg leg-a" x={-5.2} y={-12} width={3.8} height={12} rx={1.8} />
-        <rect className="leg leg-b" x={1.4} y={-12} width={3.8} height={12} rx={1.8} />
-        <rect className="bot-body" x={-8} y={-28} width={16} height={18} rx={5} />
-        <rect className="bot-body-shade" x={0} y={-28} width={8} height={18} rx={0} />
-        <rect className="bot-head" x={-7.5} y={-42} width={15} height={12.5} rx={4} />
-        <rect className="visor" x={-5.5} y={-38.5} width={11} height={4.6} rx={2.3} />
-        <line className="antenna" x1={0} y1={-42} x2={0} y2={-47} />
-        <circle className="antenna-tip" cy={-48.5} r={1.9} />
-      </g></g>
-      <text className="pawn-letter" y={-15} textAnchor="middle">{letter}</text>
-    </g>
-  );
-}

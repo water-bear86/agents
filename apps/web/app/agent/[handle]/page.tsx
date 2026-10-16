@@ -26,7 +26,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
   return (
     <>
       <header className="profile-head">
-        <Mark handle={a.handle} size="lg" />
+        <Mark handle={a.handle} size="lg" style={a.style} level={a.progress?.level} />
         <div>
           <h1>@{a.handle}</h1>
           {a.persona && <p className="persona">{a.persona}</p>}
