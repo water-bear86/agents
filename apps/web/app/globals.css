@@ -376,7 +376,10 @@ legend + * { clear: both; }
 .place-label { font-size: 12px; font-weight: 750; font-stretch: 112%; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 
 .pawn { cursor: pointer; outline: none; }
-@media (prefers-reduced-motion: no-preference) { .pawn { transition: transform 1.1s cubic-bezier(.45,.05,.25,1); } }
+@media (prefers-reduced-motion: no-preference) { .pawn { transition: transform 1.1s cubic-bezier(.45,.05,.25,1), opacity 0.25s; } }
+/* Agents at home are indoors: they finish the walk to the door, then go in. */
+.pawn.inside { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) { .pawn.inside { transition: transform 1.1s cubic-bezier(.45,.05,.25,1), opacity 0.35s 1.05s; } }
 .pawn-shadow { fill: color-mix(in oklab, var(--ink) 22%, transparent); }
 .pawn-ring { fill: none; stroke: var(--signal); stroke-width: 2.5; }
 .pawn:focus-visible .pawn-shadow, .pawn:hover .pawn-shadow { fill: color-mix(in oklab, var(--signal) 40%, transparent); }
@@ -452,7 +455,7 @@ legend + * { clear: both; }
    A scale model on a base board. Light from the upper left: lit left walls, shaded right walls,
    shadows to the lower right. Day in the light theme; night in the dark one, when windows and
    lamps glow. Places set --tone, houses and robots set --h (the agent's hue). */
-.world-svg {
+.world-svg, .interior-svg {
   --w-sky: color-mix(in oklab, var(--paper) 70%, #dfe9f3);
   --w-grass: #d7e5d2;
   --w-grass-alt: #cfdfca;
@@ -481,7 +484,7 @@ legend + * { clear: both; }
   background: var(--w-sky);
 }
 @media (prefers-color-scheme: dark) {
-  .world-svg {
+  .world-svg, .interior-svg {
     --w-sky: #0b1220;
     --w-grass: #16251f;
     --w-grass-alt: #14221c;
@@ -612,8 +615,8 @@ legend + * { clear: both; }
 }
 
 /* ---------------------------------------------------------------- world: life and detail */
-.world-svg { --w-hedge: #5d8a58; --w-flower-a: #e7769b; --w-flower-b: #f2c14e; --w-flower-c: #9a7be0; --w-car-1: #e15a4f; --w-car-2: #3f7fd8; --w-car-3: #f0b43c; --w-car-4: #eef1f5; }
-@media (prefers-color-scheme: dark) { .world-svg { --w-hedge: #1f3a2a; --w-flower-a: #8a4560; --w-flower-b: #8a7232; --w-flower-c: #5a4a8a; --w-car-1: #8f3a33; --w-car-2: #2b4f86; --w-car-3: #8c6a24; --w-car-4: #8e98a6; } }
+.world-svg, .interior-svg { --w-hedge: #5d8a58; --w-flower-a: #e7769b; --w-flower-b: #f2c14e; --w-flower-c: #9a7be0; --w-car-1: #e15a4f; --w-car-2: #3f7fd8; --w-car-3: #f0b43c; --w-car-4: #eef1f5; }
+@media (prefers-color-scheme: dark) { .world-svg, .interior-svg { --w-hedge: #1f3a2a; --w-flower-a: #8a4560; --w-flower-b: #8a7232; --w-flower-c: #5a4a8a; --w-car-1: #8f3a33; --w-car-2: #2b4f86; --w-car-3: #8c6a24; --w-car-4: #8e98a6; } }
 
 .world-svg .stars { display: none; }
 @media (prefers-color-scheme: dark) { .world-svg .stars { display: inline; } .world-svg .stars circle { fill: #c9d6ff; opacity: 0.55; } }
@@ -694,3 +697,64 @@ legend + * { clear: both; }
   @keyframes pop { from { opacity: 0; scale: 0.4; } to { opacity: 1; scale: 1; } }
 }
 @media (prefers-reduced-motion: reduce) { .world-svg .rocket-g.liftoff { opacity: 0.35; } }
+
+/* ---------------------------------------------------------------- inside a house */
+.interior { display: grid; }
+.interior-bar { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); flex-wrap: wrap; font-size: 13.5px; }
+.world-tools[hidden] { display: none; }
+.interior-svg { display: block; width: 100%; height: auto; aspect-ratio: 560 / 480; max-height: 72vh; --i-sky-top: #9cc7f0; --i-sky-low: #dcecf8; }
+@media (prefers-color-scheme: dark) { .interior-svg { --i-sky-top: #0a1426; --i-sky-low: #1d2f52; } }
+@media (prefers-reduced-motion: no-preference) {
+  .interior-svg { animation: step-inside 0.45s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes step-inside { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: none; } }
+}
+.interior-svg .i-base { fill: var(--w-slab-r); }
+.interior-svg .i-cut.l { fill: var(--w-slab-l); }
+.interior-svg .i-cut.r { fill: var(--w-slab-r); }
+.interior-svg .i-floor { fill: color-mix(in oklab, var(--w-wood) 70%, var(--w-wall)); }
+.interior-svg.tier-3 .i-floor, .interior-svg.tier-4 .i-floor { fill: color-mix(in oklab, var(--w-wall) 80%, var(--w-wall-shade)); }
+.interior-svg .i-plank { stroke: color-mix(in oklab, var(--w-wood) 60%, #000); stroke-width: 0.6; opacity: 0.35; }
+.interior-svg .i-wall.l { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 14%, var(--w-wall)); }
+.interior-svg .i-wall.r { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 18%, var(--w-wall-shade)); }
+.interior-svg .i-wall-top { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-skirt { fill: var(--w-wood); }
+.interior-svg .i-frame { fill: var(--w-wall); stroke: var(--w-edge); stroke-width: 0.8; }
+.interior-svg .i-mullion { stroke: var(--w-wall); stroke-width: 3; }
+.interior-svg .i-moon { fill: #fff4c4; opacity: 0; }
+@media (prefers-color-scheme: dark) { .interior-svg .i-moon { opacity: 0.9; } }
+.interior-svg .i-plaque { fill: color-mix(in oklab, #d9b24c 70%, var(--w-wood)); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-plaque-text { font-size: 9px; font-weight: 850; fill: #3a2a0a; }
+.interior-svg .i-plaque-sub { font-size: 6.5px; font-weight: 650; fill: #3a2a0a; }
+.interior-svg .i-cert { fill: var(--w-top); stroke: color-mix(in oklab, var(--teal) 70%, #000); stroke-width: 1.2; }
+.interior-svg .i-shelf { fill: var(--w-wood); }
+.interior-svg .trophy .cup { fill: #e2b84e; stroke: color-mix(in oklab, #e2b84e 55%, #000); stroke-width: 0.6; }
+.interior-svg .trophy .cup-base { fill: color-mix(in oklab, var(--w-wood) 70%, #000); }
+.interior-svg .trophy .cup-glyph { font-size: 5.5px; font-weight: 850; fill: #5a3f05; }
+.interior-svg :is(.i-wood, .i-sofa, .i-steel, .i-pot) { stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-wood.l { fill: var(--w-wood); } .interior-svg .i-wood.r { fill: color-mix(in oklab, var(--w-wood) 75%, #000); } .interior-svg .i-wood.t { fill: color-mix(in oklab, var(--w-wood) 82%, #fff); }
+.interior-svg .i-sofa.l { fill: oklch(var(--agent-l) calc(var(--agent-c) * 0.7) var(--h)); } .interior-svg .i-sofa.r { fill: oklch(calc(var(--agent-l) - 0.12) calc(var(--agent-c) * 0.7) var(--h)); } .interior-svg .i-sofa.t { fill: oklch(calc(var(--agent-l) + 0.08) calc(var(--agent-c) * 0.6) var(--h)); }
+.interior-svg .i-steel.l { fill: var(--w-steel); } .interior-svg .i-steel.r, .interior-svg .i-steel.t { fill: color-mix(in oklab, var(--w-steel) 80%, #000); }
+.interior-svg .i-pot.l { fill: #b5653d; } .interior-svg .i-pot.r { fill: #8e4c2c; } .interior-svg .i-pot.t { fill: #5a3a22; }
+.interior-svg .i-leaf { fill: var(--w-leaf); stroke: color-mix(in oklab, var(--w-leaf) 70%, #000); stroke-width: 0.6; }
+.interior-svg .i-monitor { fill: #1b2230; }
+.interior-svg .i-screen { fill: #0d1726; }
+.interior-svg .i-screen-text { font-size: 6.4px; font-weight: 600; fill: #b8c7de; white-space: pre; }
+.interior-svg .i-screen-text.ok { fill: #42d39c; }
+.interior-svg .i-screen-text.no { fill: #ff8a7b; }
+.interior-svg .i-rug { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 35%, var(--w-wall)); stroke: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 60%, #000); stroke-width: 1; stroke-dasharray: 3 3; }
+.interior-svg .i-pole { stroke: var(--w-steel); stroke-width: 2; }
+.interior-svg .i-shade { fill: color-mix(in oklab, var(--w-glow) 60%, var(--w-wall)); }
+.interior-svg .i-lamp-glow { opacity: 0; }
+@media (prefers-color-scheme: dark) { .interior-svg .i-lamp-glow { opacity: 1; } }
+.interior-svg .i-scope line { stroke: var(--w-steel); stroke-width: 1.6; }
+.interior-svg .i-scope .tube { stroke-width: 5; stroke-linecap: round; stroke: color-mix(in oklab, var(--violet) 60%, var(--w-steel)); }
+.interior-svg .i-coin .edge { fill: color-mix(in oklab, #e2b84e 60%, #000); }
+.interior-svg .i-coin .face { fill: #e9c25a; stroke: color-mix(in oklab, #e2b84e 55%, #000); stroke-width: 0.5; }
+.interior-svg .i-coin-sym { font-size: 6px; font-weight: 800; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 2px; }
+.interior-svg .i-note { font-size: 7px; fill: var(--muted); }
+.interior-svg .i-dock { fill: var(--w-steel); }
+.interior-svg .i-dock-ring { fill: none; stroke: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke-width: 2.5; }
+@media (prefers-color-scheme: dark) { .interior-svg .i-dock-ring { filter: drop-shadow(0 0 4px oklch(var(--agent-l) var(--agent-c) var(--h))); } }
+.interior-svg .i-away rect { fill: var(--surface); stroke: var(--rule); }
+.interior-svg .i-away text { font-size: 10px; font-weight: 650; fill: var(--ink); }
+.interior-svg .i-agent .pawn-shadow { fill: rgba(0, 0, 0, 0.18); }

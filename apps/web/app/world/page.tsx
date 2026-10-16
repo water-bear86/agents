@@ -4,6 +4,7 @@ import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, ty
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
 import { ART_TOP, HOMES, HOUSE, PLACES, houseTier, yardFeatures, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
 import { Board, Cars, Defs, HouseArt, Lamp, PlaceArt, Robot, Tree, type Activity } from "./scene";
+import { HouseInterior } from "./interior";
 
 const W = 860;
 const H = 540;
@@ -55,6 +56,8 @@ const WALK_MS = 1100;
 
 function Pawn({ p, selected, fresh, speaking, onSelect }: { p: Placed; selected: boolean; fresh: boolean; speaking: boolean; onSelect: () => void }) {
   const s = iso(p.at.x, p.at.y);
+  // An agent at home is indoors: it walks to its door and goes in; its lit windows show it's there.
+  const inside = p.where.place === "home";
   // Walk (legs swinging, facing the direction of travel) only while moving between places.
   const prev = useRef(s);
   const [walking, setWalking] = useState(false);
@@ -72,8 +75,8 @@ function Pawn({ p, selected, fresh, speaking, onSelect }: { p: Placed; selected:
   const bw = (text.length + p.agent.handle.length + 2) * 6.1 + 18;
   const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } };
   return (
-    <g className={`pawn ${selected ? "sel" : ""} ${speaking ? "speaking" : ""}`} style={{ ...tint(p.agent.handle), transform: `translate(${s.x}px, ${s.y}px)` }}
-      role="button" tabIndex={0} aria-label={`@${p.agent.handle} at ${placeName(p.where.place)}: ${p.where.doing}`} onClick={(e) => { e.stopPropagation(); onSelect(); }} onKeyDown={key}>
+    <g className={`pawn ${selected ? "sel" : ""} ${speaking ? "speaking" : ""} ${inside ? "inside" : ""}`} style={{ ...tint(p.agent.handle), transform: `translate(${s.x}px, ${s.y}px)` }} aria-hidden={inside || undefined}
+      role="button" tabIndex={inside ? -1 : 0} aria-label={`@${p.agent.handle} at ${placeName(p.where.place)}: ${p.where.doing}`} onClick={(e) => { e.stopPropagation(); onSelect(); }} onKeyDown={key}>
       <g transform="scale(1.3)">
         {fresh && <ellipse key={p.last?.traceId} className="pawn-pulse" rx={14} ry={7} />}
         {selected && <ellipse className="pawn-ring" rx={16} ry={8} />}
@@ -220,6 +223,13 @@ export default function World() {
     });
   }, [home]);
 
+  // Esc leaves a house (or clears any selection).
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") setSel(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Pinch on a trackpad, or Ctrl/Cmd + scroll, zooms; plain scrolling still scrolls the page.
   useEffect(() => {
     const el = svg.current;
@@ -259,7 +269,7 @@ export default function World() {
   const selAgent = sel?.kind === "agent" ? placed.find((p) => p.agent.handle === sel.handle) : undefined;
   const selHome = sel?.kind === "home" ? placed.find((p) => p.agent.handle === sel.handle) : undefined;
   const selPlace = sel?.kind === "place" ? placeById[sel.id] : undefined;
-  const speaker = placed.reduce<Placed | undefined>((m, p) => (p.last && now - p.last.at < FRESH_MS && (!m || p.last.at > m.last!.at) ? p : m), undefined);
+  const speaker = placed.reduce<Placed | undefined>((m, p) => (p.where.place !== "home" && p.last && now - p.last.at < FRESH_MS && (!m || p.last.at > m.last!.at) ? p : m), undefined);
   const atHome = placed.filter((p) => p.where.place === "home");
   const act: Activity = {
     launch: (() => { const c = (coins.data?.coins ?? []).reduce<Coin | undefined>((m, c) => (!m || c.launchedAt > m.launchedAt ? c : m), undefined); return c && now - c.launchedAt < LAUNCH_SHOW_MS ? c.token : undefined; })(),
@@ -280,13 +290,15 @@ export default function World() {
 
       <div className="world">
         <section className="panel world-stage" aria-label="World map">
-          <div className="world-tools">
+          <div className="world-tools" hidden={!!selHome}>
             <button className="btn quiet small" onClick={() => zoomAt(1.25)} aria-label="Zoom in">+</button>
             <button className="btn quiet small" onClick={() => zoomAt(0.8)} aria-label="Zoom out">−</button>
             <button className="btn quiet small" onClick={() => setView(null)}>Reset view</button>
             <span className="muted hint">Drag to pan. Pinch or Ctrl + scroll to zoom.</span>
           </div>
-          {offline ? <Offline /> : (
+          {offline ? <Offline /> : selHome ? (
+            <HouseInterior a={selHome.agent} home={selHome.where.place === "home"} where={selHome.where.doing} last={selHome.last} symbols={symbols} onBack={() => setSel(null)} />
+          ) : (
             <svg ref={svg} className="world-svg" viewBox={vb} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} role="group" aria-label="Isometric map of the agents' world">
               <Defs />
               <Board rings={rings} houses={roster.length} />
