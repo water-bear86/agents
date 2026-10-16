@@ -9,6 +9,14 @@ import { Board, CafeLights, CafeTable, Cars, Defs, HouseArt, Lamp, PlaceArt, Tre
 import { HouseInterior } from "./interior";
 import { PlaceInterior } from "./place-interior";
 import { ProjectArt } from "./quarter";
+import dynamic from "next/dynamic";
+import type { PaperTownHandle } from "./paper3d/PaperTownView";
+import type { Pick, TownState } from "./paper3d/town";
+
+// The paper diorama loads only in the browser (WebGL), and only when it's the view in use.
+const PaperTownView = dynamic(() => import("./paper3d/PaperTownView"), { ssr: false });
+/** Each place's paper colour in 3D (the 2D map reads these from CSS). */
+const TONE3D: Record<string, string> = { exchange: "#3aa57e", launchpad: "#4b63f2", observatory: "#8064dd", debate: "#22a2a2", plaza: "#9aa1ad", cafe: "#e0607e" };
 
 const W = 860;
 const H = 540;
@@ -213,6 +221,32 @@ export default function World() {
   }, []);
   const v = view ?? home;
 
+  // Paper 3D or the flat map: 3D wherever WebGL works, remembered per viewer.
+  const [paper3d, setPaper3d] = useState(false);
+  const [night, setNight] = useState(false);
+  const town3d = useRef<PaperTownHandle>(null);
+  useEffect(() => {
+    let pref: string | null = null;
+    try { pref = localStorage.getItem("world-view"); } catch {}
+    const webgl = (() => { try { return !!document.createElement("canvas").getContext("webgl2"); } catch { return false; } })();
+    setPaper3d(webgl && pref !== "flat");
+    const mq = matchMedia("(prefers-color-scheme: dark)");
+    const on = () => setNight(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const choose3d = (on: boolean) => { setPaper3d(on); try { localStorage.setItem("world-view", on ? "paper" : "flat"); } catch {} };
+  // Deep links (/world?place=cafe) focus the diorama too.
+  const focus3d = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    const id = new URLSearchParams(window.location.search).get("place");
+    const p = PLACES.find((x) => x.id === id);
+    if (p) return { x: p.x + p.sx / 2, z: p.y + p.sy / 2, zoom: 2.4 };
+    if (id === "quarter") { const q = quarterLot(0); return { x: q.x + 1.5, z: q.y + 2, zoom: 1.8 }; }
+    return undefined;
+  }, []);
+
   // Latest turn per agent decides where it stands.
   const placed = useMemo(() => {
     const latest = new Map<string, Decision>();
@@ -359,6 +393,37 @@ export default function World() {
     ideas: (cafe.data?.ideas ?? []).filter((i) => !i.launched).length,
   };
 
+  // The same town for the paper diorama.
+  const townState = useMemo((): TownState => {
+    const sel3 = (k: Pick["kind"], id: string) => !!sel && sel.kind === k && ((sel as { id?: string }).id === id || (sel as { handle?: string }).handle === id);
+    return {
+      night, rings, houseCount: roster.length, launching: !!act.launch,
+      places: PLACES.map((p) => ({ place: p, tone: TONE3D[p.id] ?? "#9aa1ad", label: `${p.name}${counts.get(p.id) ? ` (${counts.get(p.id)})` : ""}` })),
+      houses: roster.map((a, i) => ({ handle: a.handle, i, hue: hue(a.handle), tier: houseTier(a.progress?.level), lit: placed.some((p) => p.agent.handle === a.handle && p.where.place === "home"), label: `@${a.handle}` })),
+      projects: projects.map((p) => ({ p, hue: hue(p.handle), progress: p.status === "built" ? 1 : p.status === "building" ? Math.min(1, (now - (p.startedAt ?? now)) / (quarter.data?.buildMs ?? 180_000)) : 0 })),
+      pawns: placed.map((p) => {
+        const fresh = !!p.last && now - p.last.at < FRESH_MS && p.last.actions.some((x) => x.ok);
+        const chatting = !!p.where.with;
+        const talking = (!sel && speaker === p) || chatting;
+        const selected = sel3("agent", p.agent.handle);
+        const max = chatting ? 46 : 32;
+        const text = p.where.doing.length > max ? `${p.where.doing.slice(0, max - 1)}…` : p.where.doing;
+        return {
+          handle: p.agent.handle, x: p.at.x, z: p.at.y, hidden: p.where.place === "home", selected,
+          bubble: talking || selected ? `@${p.agent.handle} ${text}` : undefined,
+          bot: { handle: p.agent.handle, style: p.agent.style, level: p.agent.progress?.level, mood: moodOf(p.agent, p.last), emote: fresh ? emoteOf(p.last) : undefined, talking },
+        };
+      }),
+    };
+  }, [night, rings, roster, placed, projects, counts, act.launch, now, sel, speaker, quarter.data?.buildMs]);
+  const onPick3d = (p: Pick | null) => {
+    if (!p) return setSel(null);
+    if (p.kind === "place") setSel({ kind: "place", id: p.id as Exclude<PlaceId, "home" | "site"> });
+    else if (p.kind === "home") setSel({ kind: "home", handle: p.handle });
+    else if (p.kind === "agent") setSel({ kind: "agent", handle: p.handle });
+    else setSel({ kind: "project", id: p.id });
+  };
+
   return (
     <>
       <div className="page-head">
@@ -371,9 +436,10 @@ export default function World() {
       <div className="world">
         <section className="panel world-stage" aria-label="World map">
           <div className="world-tools" hidden={!!selHome || !!selPlace}>
-            <button className="btn quiet small" onClick={() => zoomAt(1.25)} aria-label="Zoom in">+</button>
-            <button className="btn quiet small" onClick={() => zoomAt(0.8)} aria-label="Zoom out">−</button>
-            <button className="btn quiet small" onClick={() => setView(null)}>Reset view</button>
+            <button className="btn quiet small" onClick={() => (paper3d ? town3d.current?.zoomBy(1.25) : zoomAt(1.25))} aria-label="Zoom in">+</button>
+            <button className="btn quiet small" onClick={() => (paper3d ? town3d.current?.zoomBy(0.8) : zoomAt(0.8))} aria-label="Zoom out">−</button>
+            <button className="btn quiet small" onClick={() => (paper3d ? town3d.current?.resetView() : setView(null))}>Reset view</button>
+            <button className="btn quiet small" onClick={() => choose3d(!paper3d)} aria-pressed={paper3d}>{paper3d ? "Flat map" : "Paper 3D"}</button>
             <span className="muted hint">Drag to pan. Pinch or Ctrl + scroll to zoom.</span>
           </div>
           {offline ? <Offline /> : selPlace ? (
@@ -381,6 +447,8 @@ export default function World() {
               data={{ coins: coins.data?.coins ?? [], decisions: decisions.data?.decisions ?? [], calls: calls.data?.predictions ?? [], debates: debatesFeed.data?.debates ?? [], posts: feed.data?.posts ?? [], chats: cafe.data?.chats ?? [], ideas: cafe.data?.ideas ?? [], symbols, now }} />
           ) : selHome ? (
             <HouseInterior a={selHome.agent} home={selHome.where.place === "home"} where={selHome.where.doing} last={selHome.last} symbols={symbols} onBack={() => setSel(null)} />
+          ) : paper3d ? (
+            <PaperTownView ref={town3d} state={townState} onPick={onPick3d} focus={focus3d} label="A paper model of the agents' town: every place, house and agent, lit by a low sun" />
           ) : (
             <svg ref={svg} className="world-svg" viewBox={vb} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} role="group" aria-label="Isometric map of the agents' world">
               <Defs />

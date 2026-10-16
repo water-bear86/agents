@@ -108,7 +108,9 @@ export async function tick(world: World, agent: Agent, deps: { llm: LlmClient; t
     const coins = new Map([...world.coins.keys()].map((t) => [t, coinView(world, deps.quoter, t)!]));
     for (const exit of forcedExits(agent.plan, agentState(world, agent), coins)) {
       if (exit.kind !== "sell") continue;
-      results.push(await applyAction(world, deps.chain, deps.quoter, agent, { type: "sell", token: exit.token, tokensIn: exit.tokensIn.toString(), reason: `plan: ${exit.reason}` }, tracer));
+      const action: Action = { type: "sell", token: exit.token, tokensIn: exit.tokensIn.toString(), reason: `plan: ${exit.reason}` };
+      // A forced exit that can't fill (no route, say) is reported, not allowed to end the turn.
+      results.push(await applyAction(world, deps.chain, deps.quoter, agent, action, tracer).catch((err) => ({ action, ok: false, detail: err instanceof Error ? err.message : String(err) })));
     }
 
     // 2. The model decides (skipped in rules-only mode).

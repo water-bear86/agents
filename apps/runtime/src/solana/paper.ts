@@ -51,7 +51,10 @@ export class PaperChain implements Chain, Quoter {
 
   async #json<T>(url: string, init?: RequestInit): Promise<T> {
     const r = await this.#fetch(url, init);
-    if (!r.ok) throw new Error(`${new URL(url).pathname}: HTTP ${r.status}`);
+    if (!r.ok) {
+      const why = await r.text().then((t) => { try { return (JSON.parse(t) as { error?: string }).error ?? t; } catch { return t; } }).catch(() => "");
+      throw new Error(`${new URL(url).pathname}: HTTP ${r.status}${why ? ` (${String(why).slice(0, 120)})` : ""}`);
+    }
     return (await r.json()) as T;
   }
 

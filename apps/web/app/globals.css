@@ -1048,3 +1048,19 @@ body { background-image: var(--grain); }
 .dank-duels .muted { font-size: 12.5px; }
 .memory-text { margin: 10px 0 0; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; line-height: 1.45; background: color-mix(in oklab, var(--paper) 60%, var(--surface)); border: 1px dashed var(--rule); border-radius: 3px; }
 @media (prefers-reduced-motion: reduce) { .dank-crown { transform: none; } }
+
+/* ---------------------------------------------------------------- the paper diorama (3D) */
+.p3-host { position: relative; width: 100%; aspect-ratio: 860 / 540; min-height: 320px; overflow: hidden; cursor: grab; }
+.p3-host:active { cursor: grabbing; }
+.p3-host canvas { display: block; }
+.p3-label {
+  padding: 2px 8px; border-radius: 3px; background: var(--cut-edge); color: var(--ink); font-size: 12px; font-weight: 750; font-stretch: 112%;
+  box-shadow: 1.5px 2px 0 var(--cut-shadow); white-space: nowrap; transform: translateY(-8px);
+}
+.p3-label.small { font-size: 10.5px; font-weight: 650; color: var(--muted); }
+.p3-bubble {
+  max-width: 240px; padding: 5px 9px; border-radius: 6px; background: var(--cut-edge); color: var(--ink); font-size: 12px; line-height: 1.3;
+  box-shadow: 2px 3px 0 var(--cut-shadow); transform: translateY(-10px); white-space: normal; text-align: center;
+}
+@media (prefers-color-scheme: dark) { .p3-label, .p3-bubble { background: #e6e0d2; color: #141c2a; } }
+.world-stage:has(.p3-host)::after { display: none; }
