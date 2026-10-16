@@ -9,6 +9,7 @@ import type { BotProps } from "../../../lib/sprite";
 import { BLOCK, PITCH, quarterLot, townBounds, townLamps, townLots, townTrees, type Place, type Tier, housePlot } from "../../../lib/world";
 import { PALETTE, Paper } from "./materials";
 import { Kit } from "./models";
+import { PaperLens } from "./lens";
 import { StandeePrinter, makeStandee } from "./standee";
 
 export type Pick = { kind: "place"; id: string } | { kind: "home"; handle: string } | { kind: "agent"; handle: string } | { kind: "project"; id: string };
@@ -28,6 +29,8 @@ export interface TownState {
 interface Pawn { group: THREE.Group; from: THREE.Vector3; to: THREE.Vector3; t0: number; texKey: string; bubble?: CSS2DObject }
 
 const WALK_MS = 1100;
+/** The top of the paper blocks everything stands on: road sheet, foam pads, then the block. */
+const GROUND = 0.12;
 /** Camera elevation for a 2:1 isometric view, and its azimuth (looking from +x +z). */
 const ELEV = Math.PI / 6;
 const AZ = Math.PI / 4;
@@ -39,7 +42,10 @@ export class PaperTown {
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
   readonly sun = new THREE.DirectionalLight(0xffffff, 2);
   readonly hemi = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
-  readonly paper = new Paper();
+  /** A soft light from the camera's side, so fronts lit from behind stay readable. No shadow. */
+  readonly fill = new THREE.DirectionalLight(0xfff8ee, 0.8);
+  readonly paper = new Paper(3);
+  readonly lens: PaperLens;
   readonly printer = new StandeePrinter();
   readonly target = new THREE.Vector3();
   #frustum = 16;
@@ -63,6 +69,7 @@ export class PaperTown {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     host.appendChild(this.renderer.domElement);
+    this.lens = new PaperLens(this.renderer, this.scene, this.camera, { aoRadius: 0.35, blur: 3 });
     Object.assign(this.labels.domElement.style, { position: "absolute", inset: "0", pointerEvents: "none" });
     host.appendChild(this.labels.domElement);
 
@@ -72,7 +79,7 @@ export class PaperTown {
     this.sun.shadow.bias = -0.0008;
     this.sun.shadow.normalBias = 0.02;
     this.sun.shadow.radius = 4;
-    this.scene.add(this.sun, this.sun.target);
+    this.scene.add(this.sun, this.sun.target, this.fill, this.fill.target);
     // 6. Bounce light keeps the paper colours vibrant and the shadows grey-brown, not black.
     this.scene.add(this.hemi);
     this.scene.add(this.#static);
@@ -103,6 +110,7 @@ export class PaperTown {
     this.hemi.color.set(pal.hemiSky);
     this.hemi.groundColor.set(pal.hemiGround);
     this.hemi.intensity = pal.hemiIntensity;
+    this.fill.intensity = s.night ? 0.15 : 0.35;
 
     const key = JSON.stringify([s.night, s.rings, s.houseCount, s.places.map((p) => p.label), s.houses.map((h) => [h.i, h.hue, h.tier.tier, h.lit]), s.projects.map((p) => [p.p.id, p.p.status, p.p.lot, p.p.kind, Math.round(p.progress * 10), p.p.raised])]);
     if (key !== this.#staticKey) {
@@ -122,19 +130,21 @@ export class PaperTown {
     const { min, max } = townBounds(s.rings);
     const size = max - min;
     const P = kit.pal;
-    // The board: a thick sheet of card, roads a layer above, each block a sheet above that.
-    this.#static.add(kit.box(min, min, size, size, 0.25, P.board, -0.25));
-    this.#static.add(kit.box(min + 0.15, min + 0.15, size - 0.3, size - 0.3, 0.04, P.road, 0, { edges: false }));
+    // The board is a sheet of corrugated cardboard, flutes showing along its cut edge. The roads are a grey sheet glued flat on it; every block
+    // is a sheet of coloured paper raised on foam pads, so it floats a little above the road and throws
+    // a thin shadow along its edge, and its pale cut edge shows.
+    this.#static.add(kit.box(min, min, size, size, 0.25, P.kraft, -0.25, { cardboard: true, square: true, wobble: 0.03 }));
+    this.#static.add(kit.box(min + 0.15, min + 0.15, size - 0.3, size - 0.3, 0.025, P.road, 0, { square: true, wobble: 0.02 }));
     for (let k = -s.rings; k <= 2 + s.rings; k++) {
       const c = k * PITCH - 0.5;
-      this.#static.add(kit.box(c - 0.02, min + 0.3, 0.04, size - 0.6, 0.005, P.lane, 0.04, { edges: false }));
-      this.#static.add(kit.box(min + 0.3, c - 0.02, size - 0.6, 0.04, 0.005, P.lane, 0.04, { edges: false }));
+      this.#static.add(kit.box(c - 0.025, min + 0.3, 0.05, size - 0.6, 0.006, P.lane, 0.025, { square: true, wobble: 0.004 }));
+      this.#static.add(kit.box(min + 0.3, c - 0.025, size - 0.6, 0.05, 0.006, P.lane, 0.025, { square: true, wobble: 0.004 }));
     }
     for (const l of townLots(s.rings)) {
       const colour = l.kind === "homes" ? ((l.bx + l.by) % 2 ? P.grass : P.grassAlt) : P.paving;
-      this.#static.add(kit.box(l.bx * PITCH, l.by * PITCH, BLOCK, BLOCK, 0.06, colour, 0.04));
+      this.#static.add(kit.box(l.bx * PITCH, l.by * PITCH, BLOCK, BLOCK, 0.025, colour, GROUND - 0.025));
     }
-    const y0 = 0.1;
+    const y0 = GROUND;
     const lift = (o: THREE.Object3D) => { o.position.y += y0; return o; };
     for (const t of townTrees(s.rings, s.houseCount)) this.#static.add(lift(kit.tree(t.x, t.y, t.s * 1.1)));
     for (const l of townLamps(s.rings)) this.#static.add(lift(kit.lamp(l.x, l.y)));
@@ -163,7 +173,9 @@ export class PaperTown {
     // Fit the light's shadow box tightly round the town: the smaller it is, the crisper the shadows.
     const cx = (min + max) / 2;
     const half = size * 0.78;
-    this.sun.position.set(cx - size * 0.45, size * 0.9, cx + size * 0.2);
+    this.sun.position.set(cx - size * 0.55, size * 0.62, cx + size * 0.3);
+    this.fill.position.set(cx + size, size * 0.6, cx + size);
+    this.fill.target.position.set(cx, 0, cx);
     this.sun.target.position.set(cx, 0, cx);
     const cam = this.sun.shadow.camera;
     cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half;
@@ -194,7 +206,7 @@ export class PaperTown {
     for (const p of s.pawns) {
       seen.add(p.handle);
       let pawn = this.#pawns.get(p.handle);
-      const to = new THREE.Vector3(p.x, 0.1, p.z);
+      const to = new THREE.Vector3(p.x, GROUND, p.z);
       if (!pawn) {
         const group = makeStandee();
         group.rotation.y = AZ;
@@ -273,6 +285,7 @@ export class PaperTown {
     const w = this.host.clientWidth, h = this.host.clientHeight;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
+    this.lens.setSize(w, h);
     this.labels.setSize(w, h);
     const a = w / h;
     this.camera.left = (-this.#frustum * a) / 2;
@@ -339,11 +352,11 @@ export class PaperTown {
       const t = p.t0 ? Math.min(1, (now - p.t0) / WALK_MS) : 1;
       p.group.position.lerpVectors(p.from, p.to, t * t * (3 - 2 * t));
       // A paper puppet hops when it walks.
-      p.group.position.y = 0.1 + (t < 1 ? Math.abs(Math.sin(t * Math.PI * 5)) * 0.12 : 0);
+      p.group.position.y = GROUND + (t < 1 ? Math.abs(Math.sin(t * Math.PI * 5)) * 0.12 : 0);
     }
     if (this.#ring?.visible) {
       const p = this.#pawns.get(this.#ring.userData.handle);
-      if (p) this.#ring.position.set(p.group.position.x, 0.115, p.group.position.z);
+      if (p) this.#ring.position.set(p.group.position.x, GROUND + 0.015, p.group.position.z);
     }
     const rocket = this.#static.getObjectByName("rocket");
     if (rocket?.userData.t0) {
@@ -352,7 +365,7 @@ export class PaperTown {
       if (t >= 1) rocket.userData.t0 = 0;
     }
     this.#static.traverse((o) => { if (o.name === "jib") o.rotation.y = Math.sin(now / 2600) * 0.6; });
-    this.renderer.render(this.scene, this.camera);
+    this.lens.render();
     this.labels.render(this.scene, this.camera);
   };
 
@@ -363,6 +376,7 @@ export class PaperTown {
     for (const p of this.#pawns.values()) disposeTree(p.group, false);
     this.paper.dispose();
     this.printer.dispose();
+    this.lens.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.labels.domElement.remove();

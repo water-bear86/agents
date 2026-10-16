@@ -5,12 +5,19 @@
 
 import * as THREE from "three";
 import type { BotProps } from "../../../lib/sprite";
+import { PaperLens } from "./lens";
 import { PALETTE, Paper } from "./materials";
 import { Kit, PX } from "./models";
 import { StandeePrinter, makeStandee } from "./standee";
 
 export const ROOM = 7;
 export const WALL_H = 196 * PX;
+/** Where the track spotlights hang (on the wall tops) and where each one points. */
+const SPOTS: { at: [number, number, number]; aim: [number, number, number] }[] = [
+  { at: [1.6, 4.7, 0.35], aim: [2.2, 0, 3.6] },
+  { at: [4.9, 4.7, 0.35], aim: [4.6, 0, 3.9] },
+  { at: [0.35, 4.7, 4.4], aim: [3.4, 0, 5.0] },
+];
 
 export type Tone = "ok" | "no" | "who" | "dim";
 export interface BoardLine { text: string; tone?: Tone }
@@ -136,7 +143,23 @@ export class PaperRoom {
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
   readonly sun = new THREE.DirectionalLight(0xffffff, 2);
   readonly hemi = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
-  readonly paper = new Paper();
+  /** A soft light from the camera's side, so faces lit from behind stay readable. No shadow. */
+  readonly fill = new THREE.DirectionalLight(0xfff8ee, 0.8);
+  /** Track spotlights along the tops of the walls, like a shop: each throws its own soft shadow. */
+  readonly spots = SPOTS.map((s) => {
+    const l = new THREE.SpotLight(0xffe2b8, 18, 0, 0.8, 0.75, 1.4);
+    l.position.set(...s.at);
+    l.target.position.set(...s.aim);
+    l.castShadow = true;
+    l.shadow.mapSize.set(1024, 1024);
+    l.shadow.bias = -0.0006;
+    l.shadow.normalBias = 0.02;
+    l.shadow.camera.near = 0.5;
+    l.shadow.camera.far = 14;
+    return l;
+  });
+  readonly paper = new Paper(2.4);
+  readonly lens: PaperLens;
   readonly printer = new StandeePrinter();
   #room = new THREE.Group();
   #key = "";
@@ -151,16 +174,16 @@ export class PaperRoom {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     host.appendChild(this.renderer.domElement);
-    // A low window light from the front left: shadows fall back and to the right, onto the walls.
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.bias = -0.0008;
-    this.sun.shadow.normalBias = 0.02;
-    const cam = this.sun.shadow.camera;
-    cam.left = -8; cam.right = 8; cam.top = 8; cam.bottom = -8; cam.near = 0.5; cam.far = 40;
-    this.sun.position.set(ROOM + 3, 9, ROOM + 7);
+    this.lens = new PaperLens(this.renderer, this.scene, this.camera, { aoRadius: 0.5, blur: 2 });
+    // Lit like a shop: the spotlights on the wall tracks do the work, each with its own soft shadow,
+    // so an agent standing in the middle throws a few overlapping shadows. A faint daylight from
+    // above and a fill from the front keep the corners from going black.
+    this.sun.position.set(ROOM * 0.4, 12, ROOM * 0.2);
     this.sun.target.position.set(ROOM / 2, 0, ROOM / 2);
-    this.scene.add(this.sun, this.sun.target, this.hemi, this.#room);
+    for (const l of this.spots) this.scene.add(l, l.target);
+    this.fill.position.set(ROOM + 8, 6, ROOM + 8);
+    this.fill.target.position.set(ROOM / 2, 0, ROOM / 2);
+    this.scene.add(this.sun, this.sun.target, this.fill, this.fill.target, this.hemi, this.#room);
     // The cut-away corner, seen from the front like the town.
     const d = 60, elev = Math.PI / 6, az = Math.PI / 4;
     const t = new THREE.Vector3(ROOM / 2 - 0.2, 1.7, ROOM / 2 - 0.2);
@@ -169,17 +192,18 @@ export class PaperRoom {
     this.#ro = new ResizeObserver(() => this.#resize());
     this.#ro.observe(host);
     this.#resize();
-    this.renderer.setAnimationLoop(() => this.renderer.render(this.scene, this.camera));
+    this.renderer.setAnimationLoop(() => this.lens.render());
   }
 
   #resize() {
     const w = this.host.clientWidth, h = this.host.clientHeight;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
+    this.lens.setSize(w, h);
     const a = w / h, H = 9.4;
     this.camera.left = (-H * a) / 2; this.camera.right = (H * a) / 2; this.camera.top = H / 2; this.camera.bottom = -H / 2;
     this.camera.updateProjectionMatrix();
-    this.renderer.render(this.scene, this.camera);
+    this.lens.render();
   }
 
   update(spec: RoomSpec, night: boolean) {
@@ -192,18 +216,37 @@ export class PaperRoom {
     const pal = night ? PALETTE.night : PALETTE.day;
     const kit = new Kit(this.paper, pal, night);
     this.scene.background = new THREE.Color(pal.sky);
-    this.sun.color.set(night ? 0xffd9a0 : 0xfff4e0);
-    this.sun.intensity = night ? 1.3 : 2.2;
+    this.sun.color.set(night ? 0xffd9a0 : 0xffe6c4);
+    this.sun.intensity = night ? 0.15 : 0.6;
+    this.fill.intensity = night ? 0.25 : 0.55;
+    for (const l of this.spots) l.intensity = night ? 28 : 24;
     this.hemi.color.set(pal.hemiSky); this.hemi.groundColor.set(pal.hemiGround); this.hemi.intensity = pal.hemiIntensity;
 
-    // Shell: a floor slab and two back walls, all card stock, with a skirting strip.
     const wall = spec.starry ? new THREE.Color(night ? 0x141c33 : 0x2a2f5a) : new THREE.Color().setHSL(spec.wallHue / 360, night ? 0.18 : 0.3, night ? 0.32 : 0.86);
     const floor = spec.floor === "wood" ? pal.wood : spec.floor === "dark" ? 0x2a3142 : pal.paving;
-    this.#room.add(kit.box(0, 0, ROOM, ROOM, 0.18, floor, -0.18));
-    this.#room.add(kit.box(-0.18, -0.18, 0.18, ROOM + 0.18, WALL_H, wall));
-    this.#room.add(kit.box(0, -0.18, ROOM, 0.18, WALL_H, wall));
-    this.#room.add(kit.box(0, 0, 0.06, ROOM, 0.12, pal.wallShade));
-    this.#room.add(kit.box(0, 0, ROOM, 0.06, 0.12, pal.wallShade));
+    // Shell: a cardboard floor and two cardboard walls, papered on the inside, flutes showing on top.
+    this.#room.add(kit.box(0, 0, ROOM, ROOM, 0.18, floor, -0.18, { cardboard: true, square: true, wobble: 0.015 }));
+    this.#room.add(kit.cardWall(0, 0, ROOM, WALL_H, 0.18, wall, "x"));
+    this.#room.add(kit.cardWall(-0.18, -0.18, ROOM + 0.18, WALL_H, 0.18, wall, "z"));
+    // The lighting track along both wall tops, and a can on it for every spotlight, aimed where it shines.
+    this.#room.add(kit.box(0.1, 0.12, ROOM - 0.2, 0.08, 0.06, 0x2b2f38, WALL_H - 0.12, { square: true }));
+    this.#room.add(kit.box(0.12, 0.1, 0.08, ROOM - 0.2, 0.06, 0x2b2f38, WALL_H - 0.12, { square: true }));
+    for (const sp of SPOTS) {
+      const can = new THREE.Group();
+      const body = kit.cyl(0, 0, 0.13, 0.36, 0x2b2f38, -0.18, { top: 0.09 });
+      body.rotation.x = Math.PI / 2;
+      body.position.set(0, 0, 0);
+      const lens = kit.cyl(0, 0, 0.12, 0.02, 0xfff1c9, 0, { glow: true });
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(0, 0, 0.19);
+      lens.material = this.paper.get(0xfff1c9, { glow: 0xffe2b8, glowIntensity: 1.2 });
+      can.add(body, lens);
+      can.position.set(...sp.at);
+      can.lookAt(new THREE.Vector3(...sp.aim));
+      this.#room.add(can);
+    }
+    this.#room.add(kit.box(0, 0, 0.06, ROOM, 0.12, pal.wallShade, 0, { square: true }));
+    this.#room.add(kit.box(0, 0, ROOM, 0.06, 0.12, pal.wallShade, 0, { square: true }));
     if (spec.starry) for (let i = 0; i < 60; i++) {
       const s = new THREE.Mesh(new THREE.CircleGeometry(0.025 + (i % 3) * 0.012, 6), new THREE.MeshBasicMaterial({ color: 0xfff6d8 }));
       if (i % 2) s.position.set(((i * 0.37) % 6.6) + 0.2, 1 + ((i * 53) % 150) / 40, 0.005); else { s.rotation.y = Math.PI / 2; s.position.set(0.005, 1 + ((i * 37) % 150) / 40, ((i * 0.41) % 6.6) + 0.2); }
@@ -211,7 +254,7 @@ export class PaperRoom {
     }
     if (spec.window) {
       // A window on the right wall, with the sky for the time of day.
-      const frame = kit.box(4.3, -0.05, 1.9, 0.1, 1.6, pal.wallShade, 2.2);
+      const frame = kit.box(4.3, -0.05, 1.9, 0.1, 1.6, pal.wallShade, 2.2, { square: true });
       const sky = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.4), new THREE.MeshBasicMaterial({ color: night ? 0x1d2a4a : 0xbfe0f5 }));
       sky.position.set(5.25, 3.0, 0.06);
       this.#room.add(frame, sky);
@@ -325,6 +368,7 @@ export class PaperRoom {
     this.#ro.disconnect();
     for (const t of this.#textures) t.dispose();
     this.paper.dispose();
+    this.lens.dispose();
     this.printer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

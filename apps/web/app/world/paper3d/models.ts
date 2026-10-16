@@ -1,14 +1,58 @@
 // Paper models for the 3D town. Grid (x, y) maps to world (x, z) with y up; one tile is one unit
-// and SVG pixel heights become units at PX. Every piece casts and receives soft shadows, and edges
-// get a faint cut line so boxes read as folded card rather than plastic.
+// and SVG pixel heights become units at PX.
+//
+// What makes it read as paper rather than plastic:
+// - Flat pieces are cut sheets: hand-cut outlines that wobble a little, a coloured face and a pale
+//   cut edge where the paper's core shows (see `sheet`).
+// - Solid pieces are folded card: crisp folds and faceted curves, never smooth CG cylinders, with a
+//   pale line along every fold where the colour has cracked and the white paper shows through.
+// - Nothing is quite square: every piece sits a fraction of a degree off, the way a hand glues it.
+// - Windows, signs and notes are separate scraps glued on, a little crooked.
+// - Trees are cut-out silhouettes slotted together, so their shadows are paper shapes too.
 
 import * as THREE from "three";
 import type { Project } from "../../../lib/api";
 import { CAFE_TABLES, HOUSE, LOT, type Place, type Tier } from "../../../lib/world";
-import type { Paper, Palette } from "./materials";
+import { cutEdge, type Paper, type Palette } from "./materials";
 
 /** SVG pixel heights to world units. */
 export const PX = 1 / 40;
+
+/** Anything this thin or thinner is a cut sheet rather than a folded box. */
+const SHEET = 0.13;
+
+/** Repeatable noise in [0, 1) from a few numbers, so a piece's wobble stays put between rebuilds. */
+export function hash(...n: number[]) {
+  let h = 2166136261;
+  for (const v of n) { h ^= Math.round(v * 997); h = Math.imul(h, 16777619); h ^= h >>> 13; }
+  return ((h >>> 0) % 100003) / 100003;
+}
+
+/** A hand-cut outline round a w x d rectangle centred on the origin: softened corners, edges that wander. */
+export function cutRect(w: number, d: number, seed: number, wobble = 0.01): THREE.Vector2[] {
+  const rc = Math.min(0.05, w / 4, d / 4);
+  const pts: THREE.Vector2[] = [];
+  const corners = [[w / 2, d / 2, 0], [-w / 2, d / 2, 1], [-w / 2, -d / 2, 2], [w / 2, -d / 2, 3]] as const;
+  for (const [cx, cz, k] of corners) {
+    const sx = Math.sign(cx), sz = Math.sign(cz);
+    // Corner, as three points on a small arc.
+    for (let a = 0; a <= 2; a++) {
+      const t = (a / 2) * (Math.PI / 2) + (k * Math.PI) / 2;
+      pts.push(new THREE.Vector2(cx - sx * rc + Math.cos(t) * rc, cz - sz * rc + Math.sin(t) * rc));
+    }
+    // The edge to the next corner, nudged in and out.
+    const [nx, nz] = corners[(k + 1) % 4]!;
+    const len = Math.hypot(nx - cx, nz - cz) - 2 * rc;
+    const steps = Math.max(1, Math.floor(len / 0.35));
+    const ux = (nx - cx) / (len + 2 * rc), uz = (nz - cz) / (len + 2 * rc);
+    for (let i = 1; i < steps; i++) {
+      const f = rc + (i / steps) * len, j = (hash(seed, k, i) - 0.5) * 2 * wobble;
+      pts.push(new THREE.Vector2(cx + ux * f - uz * j, cz + uz * f + ux * j));
+    }
+  }
+  // Shape space is (x, -z): the sheet is laid flat by rotating it about x.
+  return pts.map((p) => new THREE.Vector2(p.x, -p.y));
+}
 
 export class Kit {
   constructor(readonly paper: Paper, readonly pal: Palette, readonly night: boolean) {}
@@ -16,63 +60,127 @@ export class Kit {
   /** Paper colour by hue (oklch-ish via HSL), for houses and buildings that wear their owner's colour. */
   hueColor(h: number, l = 0.66, s = 0.5) { return new THREE.Color().setHSL(h / 360, s, l); }
 
-  #mesh(geo: THREE.BufferGeometry, mat: THREE.Material, edges = true) {
+  #mesh(geo: THREE.BufferGeometry, mat: THREE.Material | THREE.Material[], fold?: THREE.ColorRepresentation) {
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = true;
     m.receiveShadow = true;
-    if (edges) {
-      const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: this.night ? 0x8a93a8 : 0xfffaf0, transparent: true, opacity: this.night ? 0.25 : 0.55 }));
+    if (fold !== undefined) {
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), this.#foldMat(fold));
       e.raycast = () => {};
       m.add(e);
     }
     return m;
   }
 
-  /** A box by its grid corner, footprint and height (units), raised to y0. */
-  box(gx: number, gz: number, sx: number, sz: number, h: number, color: THREE.ColorRepresentation, y0 = 0, opts: { glow?: boolean; edges?: boolean } = {}) {
-    const m = this.#mesh(new THREE.BoxGeometry(sx, h, sz), this.mat(color, opts.glow), opts.edges ?? true);
-    m.position.set(gx + sx / 2, y0 + h / 2, gz + sz / 2);
+  /** Fold lines: the paper's white core showing through cracked colour along a crease. */
+  #folds = new Map<string, THREE.LineBasicMaterial>();
+  #foldMat(color: THREE.ColorRepresentation) {
+    const c = cutEdge(color, this.night).lerp(new THREE.Color(this.night ? 0x9aa6c0 : 0xffffff), 0.4);
+    const key = c.getHexString();
+    let m = this.#folds.get(key);
+    if (!m) { m = new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: this.night ? 0.45 : 0.85 }); this.#folds.set(key, m); }
     return m;
   }
 
+  /** How far off square a hand puts a piece this big: a fraction of a degree, less for big pieces. */
+  #skew(seed: number, size: number) { return (hash(seed, 3) - 0.5) * 2 * Math.min(0.022, 0.012 / Math.max(0.5, size)); }
+
+  /**
+   * A cut sheet: `outline` (shape space, see cutRect) extruded `h` thick and laid flat, its top in
+   * `color` and its cut edges in the paper's paler core.
+   */
+  sheet(outline: THREE.Vector2[], h: number, color: THREE.ColorRepresentation, opts: { glow?: boolean; edge?: THREE.ColorRepresentation; cardboard?: boolean } = {}) {
+    const geo = new THREE.ExtrudeGeometry(new THREE.Shape(outline), { depth: h, bevelEnabled: false, curveSegments: 2 });
+    geo.rotateX(-Math.PI / 2);
+    if (opts.cardboard) return this.#mesh(geo, [this.mat(color), this.paper.flute(h, this.night)]);
+    // The outline traces the cut, so the pale edge still shows when the sheet is too thin to see side on.
+    return this.#mesh(geo, [this.mat(color, opts.glow), this.paper.get(opts.edge ?? cutEdge(color, this.night))], opts.edge ?? color);
+  }
+
+  /**
+   * A box by its grid corner, footprint and height (units), raised to y0. Thin ones are cut sheets;
+   * thicker ones are folded card boxes. `square` keeps it dead straight
+   * (room shells, where a skew would open a gap at the corners); `sheet` forces a cut sheet.
+   */
+  box(gx: number, gz: number, sx: number, sz: number, h: number, color: THREE.ColorRepresentation, y0 = 0, opts: { glow?: boolean; edges?: boolean; square?: boolean; sheet?: boolean; cardboard?: boolean; edge?: THREE.ColorRepresentation; wobble?: number } = {}) {
+    const seed = gx * 31.7 + gz * 17.3 + y0 * 7.1 + sx * 3.3 + h;
+    let m: THREE.Mesh;
+    if ((h <= SHEET || opts.sheet || opts.cardboard) && Math.min(sx, sz) > 0.03) {
+      m = this.sheet(cutRect(sx, sz, seed, opts.wobble ?? Math.min(0.012, Math.min(sx, sz) * 0.04)), h, color, { glow: opts.glow, edge: opts.edge, cardboard: opts.cardboard });
+      m.position.set(gx + sx / 2, y0, gz + sz / 2);
+    } else {
+      m = this.#mesh(new THREE.BoxGeometry(sx, h, sz), this.mat(color, opts.glow), opts.glow && this.night ? undefined : color);
+      m.position.set(gx + sx / 2, y0 + h / 2, gz + sz / 2);
+    }
+    if (!opts.square) m.rotation.y = this.#skew(seed, Math.max(sx, sz));
+    return m;
+  }
+
+  /**
+   * A standing wall of corrugated cardboard, `len` long and `h` tall, `thick` through, running from
+   * (gx, gz) along +x or +z. Along x it sits behind gz; along z it sits in front of gx. Paper is glued over both faces in
+   * `color`; the top and the open end show the flutes.
+   */
+  cardWall(gx: number, gz: number, len: number, h: number, thick: number, color: THREE.ColorRepresentation, along: "x" | "z") {
+    const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(len, 0), new THREE.Vector2(len, h), new THREE.Vector2(0, h)]);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
+    // Shape x runs along the wall and y up; the extrusion is the thickness, behind the inner face.
+    geo.translate(0, 0, -thick);
+    const m = this.#mesh(geo, [this.mat(color), this.paper.flute(thick, this.night)]);
+    // Turned to run along +z, the thickness runs from gx towards +x, so pass gx one thickness behind the inner face.
+    if (along === "z") m.rotation.y = -Math.PI / 2;
+    m.position.set(gx, 0, gz);
+    return m;
+  }
+
+  /** A rolled or folded tube: faceted, so it reads as card bent round, not a lathe-turned rod. */
   cyl(cx: number, cz: number, r: number, h: number, color: THREE.ColorRepresentation, y0 = 0, opts: { top?: number; seg?: number; glow?: boolean } = {}) {
-    const m = this.#mesh(new THREE.CylinderGeometry(opts.top ?? r, r, h, opts.seg ?? 28), this.mat(color, opts.glow), false);
+    const seg = opts.seg ?? (r < 0.12 ? 7 : r < 0.5 ? 10 : 14);
+    const m = this.#mesh(new THREE.CylinderGeometry(opts.top ?? r, r, h, seg), this.mat(color, opts.glow, true), r > 0.06 && !(opts.glow && this.night) ? color : undefined);
     m.position.set(cx, y0 + h / 2, cz);
+    m.rotation.y = hash(cx, cz, y0) * Math.PI;
     return m;
   }
 
   cone(cx: number, cz: number, r: number, h: number, color: THREE.ColorRepresentation, y0 = 0, seg = 7) {
-    const m = this.#mesh(new THREE.ConeGeometry(r, h, seg), this.mat(color), false);
-    (m.material as THREE.MeshStandardMaterial).flatShading = true;
+    const m = this.#mesh(new THREE.ConeGeometry(r, h, Math.min(seg, 12)), this.mat(color, false, true), color);
     m.position.set(cx, y0 + h / 2, cz);
     return m;
   }
 
+  /** A dome folded from gores, like a paper lantern cut in half. */
   dome(cx: number, cz: number, r: number, y0: number, color: THREE.ColorRepresentation, squash = 1) {
-    const m = this.#mesh(new THREE.SphereGeometry(r, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), this.mat(color), false);
+    const m = this.#mesh(new THREE.SphereGeometry(r, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2), this.mat(color, false, true), color);
     m.scale.y = squash;
     m.position.set(cx, y0, cz);
     return m;
   }
 
-  /** A flat panel (window, sign, note) facing +z or +x, centred at a point. */
+  /**
+   * A scrap of paper glued flat onto a wall (window, sign, note) facing +z or +x, centred at a point:
+   * it has a little thickness and a pale cut edge, stands just proud of the wall and sits a touch crooked.
+   */
   panel(cx: number, cy: number, cz: number, w: number, h: number, color: THREE.ColorRepresentation, facing: "z" | "x", glow = false) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), this.mat(color, glow));
+    const t = 0.012;
+    const face = this.mat(color, glow), edge = this.paper.get(cutEdge(color, this.night));
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, t), [edge, edge, edge, edge, face, face]);
+    m.castShadow = true;
     m.receiveShadow = true;
     if (facing === "x") m.rotation.y = Math.PI / 2;
-    m.position.set(cx, cy, cz);
+    m.rotation.z = (hash(cx, cy, cz) - 0.5) * 0.07;
+    m.position.set(cx + (facing === "x" ? t : 0), cy, cz + (facing === "z" ? t : 0));
     return m;
   }
 
-  mat(color: THREE.ColorRepresentation, glow = false) {
-    return glow && this.night ? this.paper.get(this.pal.window, { glow: this.pal.glow, glowIntensity: this.pal.glowIntensity }) : this.paper.get(color);
+  mat(color: THREE.ColorRepresentation, glow = false, flat = false) {
+    return glow && this.night ? this.paper.get(this.pal.window, { glow: this.pal.glow, glowIntensity: this.pal.glowIntensity, flat }) : this.paper.get(color, { flat });
   }
 
   /** Windows in rows on the two faces the camera sees (+z and +x), for a box at (gx, gz, sx, sz). */
   windows(g: THREE.Group, gx: number, gz: number, sx: number, sz: number, storeys: number[], lit: boolean) {
     for (const y of storeys) {
-      for (let a = gx + 0.25; a < gx + sx - 0.15; a += 0.42) g.add(this.panel(a + 0.1, y, gz + sz + 0.003, 0.2, 0.18, this.pal.window, "z", lit));
-      for (let b = gz + 0.25; b < gz + sz - 0.15; b += 0.42) g.add(this.panel(gx + sx + 0.003, y, b + 0.1, 0.2, 0.18, this.pal.window, "x", lit));
+      for (let a = gx + 0.25; a < gx + sx - 0.15; a += 0.42) g.add(this.panel(a + 0.1, y, gz + sz + 0.006, 0.2, 0.18, this.pal.window, "z", lit));
+      for (let b = gz + 0.25; b < gz + sz - 0.15; b += 0.42) g.add(this.panel(gx + sx + 0.006, y, b + 0.1, 0.2, 0.18, this.pal.window, "x", lit));
     }
   }
 
@@ -180,9 +288,8 @@ export class Kit {
     } else {
       // A gable roof: a triangular prism along x.
       const shape = new THREE.Shape([new THREE.Vector2(-n / 2 - 0.06, 0), new THREE.Vector2(n / 2 + 0.06, 0), new THREE.Vector2(0, roofH)]);
-      const roof = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: n + 0.12, bevelEnabled: false }), this.paper.get(tone));
-      (roof.material as THREE.MeshStandardMaterial).flatShading = true;
-      roof.castShadow = roof.receiveShadow = true;
+      // Gable ends are wall card; the slopes are one sheet of coloured card folded over the ridge.
+      const roof = this.#mesh(new THREE.ExtrudeGeometry(shape, { depth: n + 0.12, bevelEnabled: false }), [this.paper.get(cutEdge(tone, this.night)), this.paper.get(tone, { flat: true })], tone);
       roof.rotation.y = Math.PI / 2;
       roof.position.set(gx - 0.06, wall, gz + n / 2);
       g.add(roof);
@@ -279,13 +386,41 @@ export class Kit {
 
   // ---------------------------------------------------------------- scenery
 
+  /**
+   * A paper tree: two cut-out silhouettes slotted into each other at right angles, one a shade darker,
+   * standing on a short trunk. Some are round and leafy, some are pines.
+   */
   tree(x: number, z: number, s: number) {
     const g = new THREE.Group();
-    // A paper tree: a short trunk and two folded tiers of leaves.
-    g.add(this.cyl(x, z, 0.05 * s, 0.26 * s, this.pal.trunk, 0, { seg: 6 }));
-    g.add(this.cone(x, z, 0.4 * s, 0.42 * s, this.pal.leaf, 0.2 * s, 8));
-    g.add(this.cone(x, z, 0.3 * s, 0.36 * s, this.pal.leafDark, 0.46 * s, 8));
+    const pine = hash(x, z, 1) > 0.55;
+    const key = pine ? "pine" : "round";
+    const canopy = this.#cut(key, () => pine ? pineOutline() : blobOutline(hash(x, z, 2)));
+    const trunk = this.#cut("trunk", () => [new THREE.Vector2(-0.035, 0), new THREE.Vector2(0.035, 0), new THREE.Vector2(0.028, 0.3), new THREE.Vector2(-0.028, 0.3)]);
+    const turn = (hash(x, z, 3) - 0.5) * 0.5;
+    [this.pal.leaf, this.pal.leafDark].forEach((col, k) => {
+      const card = new THREE.Group();
+      card.add(this.#mesh(trunk, [this.paper.get(this.pal.trunk), this.paper.get(cutEdge(this.pal.trunk, this.night))]));
+      const leaves = this.#mesh(canopy, [this.paper.get(col), this.paper.get(cutEdge(col, this.night))]);
+      leaves.position.y = pine ? 0.12 : 0.2;
+      card.add(leaves);
+      card.rotation.y = turn + (k * Math.PI) / 2;
+      g.add(card);
+    });
+    g.scale.setScalar(s);
+    g.position.set(x, 0, z);
     return g;
+  }
+
+  /** A cut-out silhouette, extruded paper-thin and centred on its own thickness; built once per kind. */
+  #cuts = new Map<string, THREE.BufferGeometry>();
+  #cut(key: string, outline: () => THREE.Vector2[]) {
+    let geo = this.#cuts.get(key);
+    if (!geo) {
+      geo = new THREE.ExtrudeGeometry(new THREE.Shape(outline()), { depth: 0.014, bevelEnabled: false, curveSegments: 3 });
+      geo.translate(0, 0, -0.007);
+      this.#cuts.set(key, geo);
+    }
+    return geo;
   }
 
   lamp(x: number, z: number) {
@@ -294,4 +429,29 @@ export class Kit {
     g.add(this.cyl(x, z, 0.08, 0.08, 0xfff1c9, 0.85, { seg: 10, glow: true }));
     return g;
   }
+}
+
+/** A leafy canopy outline: a lumpy circle, scissor-cut in short straight snips. */
+function blobOutline(seed: number): THREE.Vector2[] {
+  const pts: THREE.Vector2[] = [];
+  const n = 22, R = 0.34;
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * Math.PI * 2;
+    const r = R * (1 + 0.1 * Math.sin(t * 5 + seed * 6) + 0.05 * Math.sin(t * 3 + seed * 11));
+    pts.push(new THREE.Vector2(Math.cos(t) * r * 0.9, R + 0.02 + Math.sin(t) * r));
+  }
+  return pts;
+}
+
+/** A pine outline: three zigzag tiers to a point. */
+function pineOutline(): THREE.Vector2[] {
+  const tiers = [[0.36, 0], [0.28, 0.24], [0.2, 0.46]] as const;
+  const right: THREE.Vector2[] = [];
+  tiers.forEach(([w, y], i) => {
+    right.push(new THREE.Vector2(w, y));
+    const next = tiers[i + 1];
+    right.push(new THREE.Vector2(next ? next[0] * 0.55 : 0, next ? next[1] : 0.78));
+  });
+  const left = right.slice(0, -1).reverse().map((p) => new THREE.Vector2(-p.x, p.y));
+  return [new THREE.Vector2(0, 0), ...right, ...left];
 }
