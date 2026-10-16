@@ -1,5 +1,5 @@
 // Agents as paper standees: the same robot the 2D town draws (face, mood, gear, level, emote) is
-// printed onto a card with a white cut edge, and the card's alpha shapes its shadow.
+// printed onto a card cut right on its outline, and the card's alpha shapes its shadow.
 
 import * as THREE from "three";
 import { createElement } from "react";
@@ -12,7 +12,6 @@ const SCALE = 5;
 /** Card height in world units. */
 export const CARD_H = 1.5;
 export const CARD_W = (CARD_H * VIEW.w) / VIEW.h;
-const EDGE = 2.6;
 
 /** Styles that make a sprite look right when its SVG is drawn outside the page (classes don't travel). */
 const PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-linecap", "stroke-dasharray", "opacity", "display"] as const;
@@ -60,19 +59,11 @@ export class StandeePrinter {
     img.src = url;
     await img.decode();
 
-    // A white cut edge: the silhouette, dilated, under the sprite.
+    // Cut right on the line: the card is the sprite's own silhouette, no border.
     const W = VIEW.w * SCALE, H = VIEW.h * SCALE;
     const canvas = document.createElement("canvas");
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d")!;
-    const sil = document.createElement("canvas");
-    sil.width = W; sil.height = H;
-    const s = sil.getContext("2d")!;
-    s.drawImage(img, 0, 0);
-    s.globalCompositeOperation = "source-in";
-    s.fillStyle = "#fffdf7";
-    s.fillRect(0, 0, W, H);
-    for (let a = 0; a < 16; a++) ctx.drawImage(sil, Math.cos((a / 16) * Math.PI * 2) * EDGE * SCALE, Math.sin((a / 16) * Math.PI * 2) * EDGE * SCALE);
     ctx.drawImage(img, 0, 0);
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -91,7 +82,10 @@ export function makeStandee(): THREE.Group {
   const g = new THREE.Group();
   const card = new THREE.Mesh(
     new THREE.PlaneGeometry(CARD_W, CARD_H),
-    new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, alphaTest: 0.5, side: THREE.DoubleSide, transparent: false }),
+    new THREE.MeshPhysicalMaterial({
+      roughness: 0.88, metalness: 0, alphaTest: 0.5, side: THREE.DoubleSide, transparent: false,
+      sheen: 0.4, sheenRoughness: 0.75, sheenColor: new THREE.Color(0xf7f1e6), specularIntensity: 0.22,
+    }),
   );
   card.name = "card";
   card.castShadow = true;
@@ -99,7 +93,9 @@ export function makeStandee(): THREE.Group {
   // The robot's feet sit at sprite y = 0, which is 10/82 of the way up from the card's bottom.
   card.position.y = CARD_H / 2 - (CARD_H * (VIEW.y + VIEW.h)) / VIEW.h;
   g.add(card);
-  const stand = new THREE.Mesh(new THREE.BoxGeometry(CARD_W * 0.45, 0.02, 0.22), new THREE.MeshStandardMaterial({ color: 0xfffaf0, roughness: 1 }));
+  const stand = new THREE.Mesh(new THREE.BoxGeometry(CARD_W * 0.45, 0.02, 0.22), new THREE.MeshPhysicalMaterial({
+    color: 0xfffaf0, roughness: 0.9, metalness: 0, sheen: 0.35, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xf7f1e6), specularIntensity: 0.18,
+  }));
   stand.position.y = 0.01;
   stand.castShadow = stand.receiveShadow = true;
   g.add(stand);

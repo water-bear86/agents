@@ -78,7 +78,7 @@ export class Kit {
     const c = cutEdge(color, this.night).lerp(new THREE.Color(this.night ? 0x9aa6c0 : 0xffffff), 0.4);
     const key = c.getHexString();
     let m = this.#folds.get(key);
-    if (!m) { m = new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: this.night ? 0.45 : 0.85 }); this.#folds.set(key, m); }
+    if (!m) { m = new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: this.night ? 0.5 : 0.92 }); this.#folds.set(key, m); }
     return m;
   }
 
@@ -89,10 +89,11 @@ export class Kit {
    * A cut sheet: `outline` (shape space, see cutRect) extruded `h` thick and laid flat, its top in
    * `color` and its cut edges in the paper's paler core.
    */
-  sheet(outline: THREE.Vector2[], h: number, color: THREE.ColorRepresentation, opts: { glow?: boolean; edge?: THREE.ColorRepresentation; cardboard?: boolean } = {}) {
+  sheet(outline: THREE.Vector2[], h: number, color: THREE.ColorRepresentation, opts: { glow?: boolean; edge?: THREE.ColorRepresentation; cardboard?: boolean; liner?: boolean } = {}) {
     const geo = new THREE.ExtrudeGeometry(new THREE.Shape(outline), { depth: h, bevelEnabled: false, curveSegments: 2 });
     geo.rotateX(-Math.PI / 2);
-    if (opts.cardboard) return this.#mesh(geo, [this.mat(color), this.paper.flute(h, this.night)]);
+    // `liner`: raw kraft faces (the town board). Papered cardboard (room floors) keeps the sheet colour.
+    if (opts.cardboard) return this.#mesh(geo, [this.paper.get(color, opts.liner ? { cardboard: true } : { corrugated: true }), this.paper.flute(h, this.night)]);
     // The outline traces the cut, so the pale edge still shows when the sheet is too thin to see side on.
     return this.#mesh(geo, [this.mat(color, opts.glow), this.paper.get(opts.edge ?? cutEdge(color, this.night))], opts.edge ?? color);
   }
@@ -102,14 +103,15 @@ export class Kit {
    * thicker ones are folded card boxes. `square` keeps it dead straight
    * (room shells, where a skew would open a gap at the corners); `sheet` forces a cut sheet.
    */
-  box(gx: number, gz: number, sx: number, sz: number, h: number, color: THREE.ColorRepresentation, y0 = 0, opts: { glow?: boolean; edges?: boolean; square?: boolean; sheet?: boolean; cardboard?: boolean; edge?: THREE.ColorRepresentation; wobble?: number } = {}) {
+  box(gx: number, gz: number, sx: number, sz: number, h: number, color: THREE.ColorRepresentation, y0 = 0, opts: { glow?: boolean; edges?: boolean; square?: boolean; sheet?: boolean; cardboard?: boolean; liner?: boolean; edge?: THREE.ColorRepresentation; wobble?: number } = {}) {
     const seed = gx * 31.7 + gz * 17.3 + y0 * 7.1 + sx * 3.3 + h;
     let m: THREE.Mesh;
     if ((h <= SHEET || opts.sheet || opts.cardboard) && Math.min(sx, sz) > 0.03) {
-      m = this.sheet(cutRect(sx, sz, seed, opts.wobble ?? Math.min(0.012, Math.min(sx, sz) * 0.04)), h, color, { glow: opts.glow, edge: opts.edge, cardboard: opts.cardboard });
+      m = this.sheet(cutRect(sx, sz, seed, opts.wobble ?? Math.min(0.012, Math.min(sx, sz) * 0.04)), h, color, { glow: opts.glow, edge: opts.edge, cardboard: opts.cardboard, liner: opts.liner });
       m.position.set(gx + sx / 2, y0, gz + sz / 2);
     } else {
-      m = this.#mesh(new THREE.BoxGeometry(sx, h, sz), this.mat(color, opts.glow), opts.glow && this.night ? undefined : color);
+      // Solid pieces are boxes of corrugated card: the flutes press through their faces.
+      m = this.#mesh(new THREE.BoxGeometry(sx, h, sz), opts.glow ? this.mat(color, true) : this.paper.get(color, { corrugated: true }), opts.glow && this.night ? undefined : color);
       m.position.set(gx + sx / 2, y0 + h / 2, gz + sz / 2);
     }
     if (!opts.square) m.rotation.y = this.#skew(seed, Math.max(sx, sz));
@@ -126,7 +128,7 @@ export class Kit {
     const geo = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
     // Shape x runs along the wall and y up; the extrusion is the thickness, behind the inner face.
     geo.translate(0, 0, -thick);
-    const m = this.#mesh(geo, [this.mat(color), this.paper.flute(thick, this.night)]);
+    const m = this.#mesh(geo, [this.paper.get(color, { corrugated: true }), this.paper.flute(thick, this.night)]);
     // Turned to run along +z, the thickness runs from gx towards +x, so pass gx one thickness behind the inner face.
     if (along === "z") m.rotation.y = -Math.PI / 2;
     m.position.set(gx, 0, gz);

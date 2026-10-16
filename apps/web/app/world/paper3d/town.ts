@@ -1,12 +1,13 @@
-// The paper diorama: the whole town as matte paper models under a soft directional light, with
-// PCF soft shadows in a tightly fitted shadow box and a hemisphere light bouncing enough light back
-// that shadows stay soft and tinted, never black. Orthographic and isometric, like the 2D map.
+// The paper diorama: the whole town as matte paper models under a low raking sun, with PCF soft
+// shadows in a tightly fitted shadow box, a cool fill from the camera and a warm bounce off the
+// kraft board, so shadows stay soft and tinted, never black. Orthographic and isometric, like the 2D map.
 
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import type { Project } from "../../../lib/api";
 import type { BotProps } from "../../../lib/sprite";
 import { BLOCK, PITCH, quarterLot, townBounds, townLamps, townLots, townTrees, type Place, type Tier, housePlot } from "../../../lib/world";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { PALETTE, Paper } from "./materials";
 import { Kit } from "./models";
 import { PaperLens } from "./lens";
@@ -44,7 +45,9 @@ export class PaperTown {
   readonly hemi = new THREE.HemisphereLight(0xffffff, 0xbbbbbb, 1);
   /** A soft light from the camera's side, so fronts lit from behind stay readable. No shadow. */
   readonly fill = new THREE.DirectionalLight(0xfff8ee, 0.8);
-  readonly paper = new Paper(3);
+  /** Warm bounce off the kraft board, from the sun's opposite side. No shadow. */
+  readonly bounce = new THREE.DirectionalLight(0xd4a56a, 0.28);
+  readonly paper = new Paper(1.35);
   readonly lens: PaperLens;
   readonly printer = new StandeePrinter();
   readonly target = new THREE.Vector3();
@@ -68,8 +71,15 @@ export class PaperTown {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = PALETTE.day.exposure;
     host.appendChild(this.renderer.domElement);
-    this.lens = new PaperLens(this.renderer, this.scene, this.camera, { aoRadius: 0.35, blur: 3 });
+    this.lens = new PaperLens(this.renderer, this.scene, this.camera, { aoRadius: 0.42, blur: 4.5 });
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envScene = new RoomEnvironment();
+    this.scene.environment = pmrem.fromScene(envScene, 0.06).texture;
+    this.scene.environmentIntensity = PALETTE.day.env;
+    envScene.dispose();
+    pmrem.dispose();
     Object.assign(this.labels.domElement.style, { position: "absolute", inset: "0", pointerEvents: "none" });
     host.appendChild(this.labels.domElement);
 
@@ -79,7 +89,7 @@ export class PaperTown {
     this.sun.shadow.bias = -0.0008;
     this.sun.shadow.normalBias = 0.02;
     this.sun.shadow.radius = 4;
-    this.scene.add(this.sun, this.sun.target, this.fill, this.fill.target);
+    this.scene.add(this.sun, this.sun.target, this.fill, this.fill.target, this.bounce, this.bounce.target);
     // 6. Bounce light keeps the paper colours vibrant and the shadows grey-brown, not black.
     this.scene.add(this.hemi);
     this.scene.add(this.#static);
@@ -110,7 +120,12 @@ export class PaperTown {
     this.hemi.color.set(pal.hemiSky);
     this.hemi.groundColor.set(pal.hemiGround);
     this.hemi.intensity = pal.hemiIntensity;
-    this.fill.intensity = s.night ? 0.15 : 0.35;
+    this.fill.color.set(pal.fill);
+    this.fill.intensity = pal.fillIntensity;
+    this.bounce.color.set(pal.bounce);
+    this.bounce.intensity = pal.bounceIntensity;
+    this.renderer.toneMappingExposure = pal.exposure;
+    this.scene.environmentIntensity = pal.env;
 
     const key = JSON.stringify([s.night, s.rings, s.houseCount, s.places.map((p) => p.label), s.houses.map((h) => [h.i, h.hue, h.tier.tier, h.lit]), s.projects.map((p) => [p.p.id, p.p.status, p.p.lot, p.p.kind, Math.round(p.progress * 10), p.p.raised])]);
     if (key !== this.#staticKey) {
@@ -133,7 +148,7 @@ export class PaperTown {
     // The board is a sheet of corrugated cardboard, flutes showing along its cut edge. The roads are a grey sheet glued flat on it; every block
     // is a sheet of coloured paper raised on foam pads, so it floats a little above the road and throws
     // a thin shadow along its edge, and its pale cut edge shows.
-    this.#static.add(kit.box(min, min, size, size, 0.25, P.kraft, -0.25, { cardboard: true, square: true, wobble: 0.03 }));
+    this.#static.add(kit.box(min, min, size, size, 0.25, P.kraft, -0.25, { cardboard: true, liner: true, square: true, wobble: 0.03 }));
     this.#static.add(kit.box(min + 0.15, min + 0.15, size - 0.3, size - 0.3, 0.025, P.road, 0, { square: true, wobble: 0.02 }));
     for (let k = -s.rings; k <= 2 + s.rings; k++) {
       const c = k * PITCH - 0.5;
@@ -142,6 +157,8 @@ export class PaperTown {
     }
     for (const l of townLots(s.rings)) {
       const colour = l.kind === "homes" ? ((l.bx + l.by) % 2 ? P.grass : P.grassAlt) : P.paving;
+      // Foam pad under each block, inset a little so the pale foam core shows as a lip.
+      this.#static.add(kit.box(l.bx * PITCH + 0.07, l.by * PITCH + 0.07, BLOCK - 0.14, BLOCK - 0.14, GROUND - 0.05, P.foam, 0.025, { square: true, wobble: 0.006 }));
       this.#static.add(kit.box(l.bx * PITCH, l.by * PITCH, BLOCK, BLOCK, 0.025, colour, GROUND - 0.025));
     }
     const y0 = GROUND;
@@ -172,14 +189,17 @@ export class PaperTown {
 
     // Fit the light's shadow box tightly round the town: the smaller it is, the crisper the shadows.
     const cx = (min + max) / 2;
-    const half = size * 0.78;
-    this.sun.position.set(cx - size * 0.55, size * 0.62, cx + size * 0.3);
-    this.fill.position.set(cx + size, size * 0.6, cx + size);
+    const half = size * 0.88;
+    // A low raking sun, so the paper grain reads and shadows stretch the way a miniature's do.
+    this.sun.position.set(cx - size * 0.72, size * 0.34, cx + size * 0.18);
+    this.fill.position.set(cx + size * 0.95, size * 0.45, cx + size * 0.95);
     this.fill.target.position.set(cx, 0, cx);
+    this.bounce.position.set(cx + size * 0.65, size * 0.18, cx - size * 0.2);
+    this.bounce.target.position.set(cx, 0.6, cx);
     this.sun.target.position.set(cx, 0, cx);
     const cam = this.sun.shadow.camera;
     cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half;
-    cam.near = 0.5; cam.far = size * 3;
+    cam.near = 0.5; cam.far = size * 3.4;
     cam.updateProjectionMatrix();
     if (!this.#home.zoom || this.#home.target.lengthSq() === 0) {
       this.#home = { target: new THREE.Vector3(cx, 0, cx), zoom: Math.min(1.4, 16 / (size * 0.62)) };
@@ -221,7 +241,7 @@ export class PaperTown {
       const texKey = JSON.stringify([p.bot.mood, p.bot.emote, p.bot.level, p.bot.style, p.bot.talking, s.night]);
       if (texKey !== pawn.texKey) {
         pawn.texKey = texKey;
-        const card = pawn.group.getObjectByName("card") as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
+        const card = pawn.group.getObjectByName("card") as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
         void this.printer.print(p.bot).then((tex) => { if (pawn!.texKey === texKey) { card.material.map = tex; card.material.needsUpdate = true; } });
       }
       // Speech bubbles for whoever is talking or selected.
@@ -377,6 +397,7 @@ export class PaperTown {
     this.paper.dispose();
     this.printer.dispose();
     this.lens.dispose();
+    this.scene.environment?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.labels.domElement.remove();

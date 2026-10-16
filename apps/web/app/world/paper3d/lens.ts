@@ -29,8 +29,8 @@ export class PaperLens {
     this.composer = new EffectComposer(renderer);
     this.composer.addPass(new RenderPass(scene, camera));
     this.#ao = new GTAOPass(scene, camera, 512, 512);
-    this.#ao.updateGtaoMaterial({ radius: opts.aoRadius, distanceExponent: 1.4, thickness: 1, scale: 1.25, samples: 12 });
-    this.#ao.blendIntensity = 0.85;
+    this.#ao.updateGtaoMaterial({ radius: opts.aoRadius, distanceExponent: 1.35, thickness: 1.15, scale: 1.45, samples: 12 });
+    this.#ao.blendIntensity = 1.05;
     this.composer.addPass(this.#ao);
     if (opts.blur > 0) {
       this.#tiltH.uniforms.r!.value = 0.5;
@@ -60,21 +60,24 @@ export class PaperLens {
   }
 }
 
-/** Darkens the corners a touch, the falloff of a real lens (three's own vignette fades them to grey). */
+/** Darkens the corners a touch and lays a still grain over the frame, like a photograph of a model. */
 const Vignette = {
   name: "PaperVignette",
-  uniforms: { tDiffuse: { value: null }, amount: { value: 0.22 } },
+  uniforms: { tDiffuse: { value: null }, amount: { value: 0.26 }, grain: { value: 0.032 } },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float amount;
+    uniform float grain;
     varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
       float d = length((vUv - 0.5) * vec2(1.1, 1.0));
-      c.rgb *= 1.0 - amount * smoothstep(0.35, 0.8, d);
+      c.rgb *= 1.0 - amount * smoothstep(0.32, 0.82, d);
+      float n = fract(sin(dot(vUv * vec2(1647.3, 913.1), vec2(12.9898, 78.233))) * 43758.5453);
+      c.rgb += (n - 0.5) * grain;
       gl_FragColor = c;
     }`,
 };

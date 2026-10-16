@@ -166,6 +166,8 @@ export function placeSpec(id: Exclude<PlaceId, "home" | "site">, here: Agent[], 
         props: [
           { k: "box", x: 0.3, y: 0.6, sx: 0.7, sy: 4.6, h: 34, color: WOOD },
           { k: "box", x: 0.4, y: 1.2, sx: 0.5, sy: 0.7, h: 22, z0: 34, color: STEEL },
+          { k: "lamp", x: 0.65, y: 1.5 },
+          { k: "lamp", x: 0.65, y: 4.6 },
           ...TABLES.flatMap(([x, y]): Prop[] => [{ k: "cyl", x, y, r: 0.05, h: 18, color: STEEL }, { k: "cyl", x, y, r: 0.42, h: 2, z0: 18, color: WOOD }]),
         ],
         agents,
