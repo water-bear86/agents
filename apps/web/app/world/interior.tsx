@@ -8,7 +8,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Agent, Decision } from "../../lib/api";
 import { hue } from "../../lib/api";
 import { houseTier } from "../../lib/world";
-import { Bot, moodOf } from "../../lib/sprite";
+import { Bot, Portrait, moodOf } from "../../lib/sprite";
 
 export const W = 860;
 /** Room grid: floor is SIZE × SIZE units; one unit is 34 px wide on screen. */
@@ -141,6 +141,17 @@ export function HouseInterior({ a, home, where, last, symbols, onBack }: {
         <polygon points={onLeft(0.5, 5.0, 90, 93)} className="i-shelf" />
         {items}
         {earned.length === 0 && <g transform={leftWallText(4.6, 128)}><text className="i-plaque-sub">No trophies yet</text></g>}
+
+        {/* Friends: framed portraits above the desk, best friends in gold. */}
+        {(a.friends ?? []).slice(0, 4).map((f, i) => (
+          <g key={f.handle} transform={rightWallText(1.0 + i * 0.68, 168)} className={`i-photo ${f.level === "best friends" ? "best" : ""}`}>
+            <title>{`@${f.handle}, ${f.level}`}</title>
+            <rect x={-2.5} y={-2.5} width={31} height={31} rx={2} className="i-photo-frame" />
+            <Portrait handle={f.handle} x={0} y={0} size={26} mood="happy" />
+            <text x={13} y={37} textAnchor="middle" className="i-photo-name">@{f.handle}</text>
+          </g>
+        ))}
+        {(a.friends ?? []).length === 0 && <g transform={rightWallText(1.1, 150)}><text className="i-plaque-sub">No friends yet. They're made at the Café.</text></g>}
 
         {/* Desk and monitor with its last turn. */}
         <Block x={0.8} y={0.15} sx={3} sy={1.05} h={38} m="i-wood" />

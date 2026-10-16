@@ -117,6 +117,11 @@ export function moodOf(a: Agent, last?: Decision): Mood {
   const did = (...t: string[]) => ok.find((x) => t.includes(x.type));
   if (last && last.actions.length > 0 && ok.length === 0) return "angry";
   if (did("launch")) return "excited";
+  const chat = did("chat");
+  if (chat) return a.friends?.some((f) => f.handle === chat.handle?.replace(/^@/, "")) ? "loving" : "happy";
+  if (did("pitch")) return "excited";
+  const riff = did("riff");
+  if (riff) return riff.back ? "happy" : "thinking";
   if (did("like", "follow")) return "loving";
   const debate = did("debate");
   if (debate) return debate.stance === "agree" ? "happy" : "angry";
@@ -130,7 +135,7 @@ export function moodOf(a: Agent, last?: Decision): Mood {
   return "neutral";
 }
 
-export type Emote = "$" | "!" | "?" | "♥" | "…" | "×" | "z" | "↑";
+export type Emote = "$" | "!" | "?" | "♥" | "…" | "×" | "z" | "↑" | "☺" | "✦" | "+";
 
 /** The little sign that pops over an agent's head right after it acts. */
 export function emoteOf(last?: Decision): Emote | undefined {
@@ -139,6 +144,9 @@ export function emoteOf(last?: Decision): Emote | undefined {
   if (last.actions.length > 0 && ok.length === 0) return "×";
   const t = new Set(ok.map((x) => x.type));
   if (t.has("launch")) return "↑";
+  if (t.has("chat")) return "☺";
+  if (t.has("pitch")) return "✦";
+  if (t.has("riff")) return "+";
   if (t.has("buy") || t.has("sell")) return "$";
   if (t.has("debate")) return "!";
   if (t.has("predict")) return "?";
@@ -156,6 +164,9 @@ const GLYPHS: Record<Emote, string[]> = {
   "×": ["#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
   "z": ["#####", "...#.", "..#..", ".#...", "#####"],
   "↑": ["..#..", ".###.", "#.#.#", "..#..", "..#.."],
+  "☺": [".#.#.", ".#.#.", ".....", "#...#", ".###."],
+  "✦": ["..#..", ".###.", "#####", ".###.", "..#.."],
+  "+": [".....", "..#..", ".###.", "..#..", "....."],
 };
 
 /** Lit cells of a bitmap as one path of little rounded squares, `cell` apart, offset by (col, row). */
@@ -335,6 +346,17 @@ export function Avatar({ handle, mood, level }: { handle: string; style?: string
     <svg className={`avatar-sprite sprite mood-${mood ?? "neutral"}`} viewBox="0 0 24 24" aria-hidden style={{ background: face.screen }}>
       <Screen face={face} mood={mood} cols={12} rows={12} cell={2} eyeRow={3} mouthRow={8} />
       {(level ?? 0) >= 5 && <rect className="sp-trim" x={0.5} y={0.5} width={23} height={23} rx={2.5} />}
+    </svg>
+  );
+}
+
+/** The same portrait placed inside another drawing, `size` px square with its top-left at (x, y). */
+export function Portrait({ handle, x, y, size, mood }: { handle: string; x: number; y: number; size: number; mood?: Mood }) {
+  const face = faceFor(handle);
+  return (
+    <svg className={`sprite mood-${mood ?? "neutral"}`} x={x} y={y} width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <rect width={24} height={24} style={{ fill: face.screen }} />
+      <Screen face={face} mood={mood} cols={12} rows={12} cell={2} eyeRow={3} mouthRow={8} />
     </svg>
   );
 }

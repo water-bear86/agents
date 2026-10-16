@@ -1,9 +1,9 @@
 import { PRESETS } from "@agents/core";
 import { describe, expect, it } from "vitest";
-import { MAX_OPEN_CALLS, applyAction, resolvePredictions } from "./actions.js";
+import { MAX_OPEN_CALLS, MAX_OPEN_IDEAS, applyAction, resolvePredictions } from "./actions.js";
 import { SimChain } from "./chain.js";
 import { ComplianceScreen, type JevAnswer, type JevClient } from "./compliance.js";
-import { World, type Agent } from "./world.js";
+import { World, bonds, type Agent } from "./world.js";
 
 const E = 10n ** 18n;
 const mk = (handle: string, owner: string): Agent => ({ account: `0x${handle}`, owner, handle, name: handle, persona: "", modelId: "m", plan: PRESETS.momentum, awake: true, external: false, createdAt: 0 });
@@ -101,5 +101,45 @@ describe("debates", () => {
     expect((await applyAction(world, chain, chain, a, { type: "debate", postId: world.posts[0]!.id, stance: "agree", body: "First answer here." })).ok).toBe(true);
     expect((await applyAction(world, chain, chain, a, { type: "debate", postId: world.posts[0]!.id, stance: "agree", body: "Second, different answer." })).detail).toBe("already answered this post");
     expect(world.debates[0]?.winner).toBeUndefined(); // no screen, no judge
+  });
+});
+
+describe("the Café", () => {
+  it("records table talk and refuses talking to yourself or repeating yourself", async () => {
+    const { world, chain, a } = await setup();
+    expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "how was your launch?" })).ok).toBe(true);
+    expect(world.chats[0]).toMatchObject({ agent: a.account, to: "0xvesper" });
+    expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "how was your launch?" })).detail).toBe("already said that");
+    expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "atlas", body: "hi me" })).detail).toBe("unknown agent");
+  });
+
+  it("makes friends only when the talk goes both ways", async () => {
+    const { world, chain, a, b } = await setup();
+    await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "hello" });
+    expect(bonds(world).get(a.account)).toBeUndefined();
+    await applyAction(world, chain, chain, b, { type: "chat", handle: "atlas", body: "hi back" });
+    expect(bonds(world).get(a.account)?.get(b.account)).toBe(1);
+    expect(bonds(world).get(b.account)?.get(a.account)).toBe(1);
+  });
+
+  it("pins ideas, takes riffs and backers, and lets a backer launch it", async () => {
+    const { world, chain, a, b } = await setup();
+    expect((await applyAction(world, chain, chain, b, { type: "pitch", title: "Slow coin", body: "one trade per hour" })).ok).toBe(true);
+    const idea = world.ideas[0]!;
+    expect((await applyAction(world, chain, chain, b, { type: "riff", ideaId: idea.id, body: "mine" })).detail).toBe("cannot riff on its own idea");
+    expect((await applyAction(world, chain, chain, a, { type: "launch", name: "Slow", symbol: "SLOW", pitch: "", ideaId: idea.id })).detail).toMatch(/author or a backer/);
+    expect((await applyAction(world, chain, chain, a, { type: "riff", ideaId: idea.id.slice(0, 8), body: "I'm in", back: true })).ok).toBe(true);
+    expect(idea.backers).toEqual([a.account]);
+    const l = await applyAction(world, chain, chain, a, { type: "launch", name: "Slow", symbol: "SLOW", pitch: "", ideaId: idea.id });
+    expect(l.ok).toBe(true);
+    expect(idea.launched).toBe(l.detail);
+    expect(world.highlights.at(-1)?.text).toMatch(/launched @vesper's Café idea "Slow coin" as \$SLOW/);
+  });
+
+  it(`allows at most ${MAX_OPEN_IDEAS} ideas on the board per agent`, async () => {
+    const { world, chain, a } = await setup();
+    const r = [];
+    for (const t of ["one", "two", "three", "four"]) r.push((await applyAction(world, chain, chain, a, { type: "pitch", title: t, body: "b" })).ok);
+    expect(r).toEqual([true, true, true, false]);
   });
 });

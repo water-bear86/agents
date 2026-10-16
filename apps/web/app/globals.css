@@ -741,6 +741,38 @@ legend + * { clear: both; }
 .interior-svg .i-away text { font-size: 10px; font-weight: 650; fill: var(--ink); }
 .interior-svg .i-agent .pawn-shadow { fill: rgba(0, 0, 0, 0.18); }
 
+/* ---------------------------------------------------------------- the Café */
+.world-svg .terrace { fill: color-mix(in oklab, var(--w-wood) 35%, var(--w-paving)); }
+.world-svg .awning-a { fill: var(--tone); stroke: var(--w-edge); stroke-width: 0.4; }
+.world-svg .awning-b { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.4; }
+.world-svg .cafe-glass { fill: color-mix(in oklab, var(--w-glow) 45%, var(--w-pane)); }
+.world-svg .place .door { fill: color-mix(in oklab, var(--tone) 40%, #24324a); }
+.world-svg .idea-board { fill: #2f3d33; stroke: var(--w-wood); stroke-width: 1.2; }
+.world-svg .cafe-sign rect { fill: #1d1626; stroke: var(--tone); stroke-width: 1.2; }
+.world-svg .cafe-sign text { font-size: 10.5px; font-weight: 800; fill: color-mix(in oklab, var(--tone) 55%, #fff); letter-spacing: 0.04em; }
+.world-svg .cafe-table .cup { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.4; }
+.world-svg .cafe-table .steam { fill: none; stroke: var(--w-top); stroke-width: 1; stroke-linecap: round; opacity: 0.7; }
+.world-svg .cafe-lights .post { stroke: var(--w-steel); stroke-width: 1.4; }
+.world-svg .cafe-lights .wire { fill: none; stroke: color-mix(in oklab, var(--w-steel) 70%, #000); stroke-width: 0.6; }
+.world-svg .cafe-lights .bulb { fill: color-mix(in oklab, var(--w-glow) 60%, #fff); stroke: var(--w-edge); stroke-width: 0.3; }
+@media (prefers-color-scheme: dark) {
+  .world-svg .cafe-lights .bulb { fill: var(--w-glow); filter: drop-shadow(0 0 2.5px var(--w-glow)); }
+  .world-svg .cafe-lights .bulb.b1 { fill: #ff9ec1; filter: drop-shadow(0 0 2.5px #ff9ec1); }
+  .world-svg .cafe-lights .bulb.b2 { fill: #9fe8ff; filter: drop-shadow(0 0 2.5px #9fe8ff); }
+  .world-svg .cafe-sign text { fill: color-mix(in oklab, var(--tone) 35%, #fff); filter: drop-shadow(0 0 3px var(--tone)); }
+  .world-svg .cafe-glass { fill: var(--w-glow); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .cafe-table .steam { stroke-dasharray: 4 3; animation: steam 1.6s linear infinite; }
+  .world-svg .cafe-lights .bulb.b1 { animation: twinkle 2.4s ease-in-out infinite alternate; }
+  @keyframes steam { to { stroke-dashoffset: -14; } }
+  @keyframes twinkle { from { opacity: 1; } to { opacity: 0.55; } }
+}
+.ideas { list-style: none; margin: 0; padding: 0 18px 6px; }
+.ideas li { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px; }
+.ideas li:last-child { border-bottom: 0; }
+.ideas .why { color: var(--muted); font-size: 13px; }
+
 /* ---------------------------------------------------------------- agent sprites
    Robots with LED-screen faces (lib/sprite.tsx). The body carries the agent's colour (--h), the
    face its glow (--glow). Works on the map, inside buildings and as avatars, with fallbacks where
@@ -832,6 +864,10 @@ legend + * { clear: both; }
 .interior-svg .pi-console.t { fill: color-mix(in oklab, var(--signal) 60%, #0d1726); }
 .interior-svg .pi-console.l, .interior-svg .pi-console.r { fill: #1b2230; }
 @media (prefers-color-scheme: dark) { .interior-svg .pi-console.t, .interior-svg .pi-screen-block.t { filter: drop-shadow(0 0 3px var(--signal)); } }
+.interior-svg .i-photo-frame { fill: var(--w-wood); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-photo.best .i-photo-frame { fill: #e2b84e; stroke: #9c7a1e; }
+.interior-svg .i-photo-name { font-size: 6px; font-weight: 700; fill: var(--ink); }
+.interior-svg .pi-cup.t, .interior-svg .pi-cup.l, .interior-svg .pi-cup.r { fill: #f4efe6; stroke: var(--w-edge); stroke-width: 0.5; }
 .interior-svg .pi-rocket rect, .interior-svg .pi-rocket path { fill: var(--w-wall); stroke: var(--w-edge); stroke-width: 0.6; }
 .interior-svg .pi-rocket .tone { fill: var(--signal); }
 .interior-svg.place-observatory .i-wall.l, .interior-svg.place-observatory .i-wall.r { fill: color-mix(in oklab, var(--violet) 22%, #141c33); }

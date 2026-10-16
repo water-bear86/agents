@@ -115,6 +115,17 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
             )}
           </section>
 
+          <section className="panel" aria-labelledby="friends-h">
+            <div className="panel-head"><h2 id="friends-h">Friends</h2><span className="muted">{(a.friends ?? []).length === 0 ? "none yet" : `${a.friends!.length} at the Café`}</span></div>
+            {(a.friends ?? []).length === 0 ? <Empty title="No friends yet.">Friendships grow from talk at the Café that goes both ways.</Empty> : (
+              <ul className="rows panel-body">
+                {a.friends!.map((f) => (
+                  <li key={f.handle} className="roster-row"><Who handle={f.handle} /><span className="muted" style={{ fontSize: 13.5 }}>{f.level[0]!.toUpperCase() + f.level.slice(1)}</span></li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <section className="panel" aria-labelledby="hold-h">
             <div className="panel-head"><h2 id="hold-h">Holdings</h2><span className="muted">{a.positions.length} open</span></div>
             {a.positions.length === 0 ? <Empty title="Not holding anything.">Everything is in ETH right now.</Empty> : (

@@ -185,6 +185,8 @@ export interface Activity {
   papers: number;
   calling: boolean;
   debating: boolean;
+  /** Ideas pinned to the Café's board. */
+  ideas: number;
 }
 
 function Launchpad({ p, launch }: { p: Place; launch?: string }) {
@@ -330,6 +332,80 @@ function DebateHall({ p, debating }: { p: Place; debating: boolean }) {
   );
 }
 
+/** The Café: a corner shop with a striped awning, its neon sign on the roof and the idea board on its side wall. */
+function Cafe({ p, ideas }: { p: Place; ideas: number }) {
+  const { x, y, sx, sy, h } = p;
+  const front = y + sy, side = x + sx;
+  // Awning stripes along the front, sloping out over the terrace.
+  const stripes = [];
+  for (let k = 0, a = x + 0.1; a < side - 0.15; a += 0.3, k++) {
+    const b = Math.min(a + 0.3, side - 0.1);
+    stripes.push(<polygon key={k} points={[iso(a, front, 27), iso(b, front, 27), iso(b, front + 0.5, 19), iso(a, front + 0.5, 19)].map((q) => `${q.x},${q.y}`).join(" ")} className={k % 2 ? "awning-b" : "awning-a"} />);
+  }
+  const sign = iso(x + sx / 2, y + sy / 2, h + 10);
+  const notes = [[0.18, 0.5, 22], [0.62, 0.95, 24], [1.05, 1.38, 21], [0.25, 0.6, 12], [0.7, 1.05, 13], [1.1, 1.42, 11]].slice(0, Math.max(1, Math.min(6, ideas)));
+  return (
+    <>
+      <polygon points={diamond(10, 5, BLOCK, BLOCK)} className="terrace" />
+      {[0.8, 1.6, 2.4, 3.2].map((k) => { const a = iso(10 + k, 5), b = iso(10 + k, 9), c = iso(10, 5 + k), d = iso(14, 5 + k); return <g key={k}><line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="joint" /><line x1={c.x} y1={c.y} x2={d.x} y2={d.y} className="joint" /></g>; })}
+      <polygon points={shadowOf(x, y, sx, sy, h)} className="shadow" />
+      <Solid f={box(x, y, sx, sy, h)} m="m-card" />
+      <Solid f={box(x - 0.05, y - 0.05, sx + 0.1, sy + 0.1, 3, h)} m="m-tone" />
+      {/* Shopfront glazing, door, and the windows on the side street. */}
+      <polygon points={quadL(front, x + 0.15, x + 1.05, 4, 22)} className="win l cafe-glass" />
+      <polygon points={quadL(front, x + 1.55, side - 0.15, 4, 22)} className="win l cafe-glass" />
+      <polygon points={quadL(front, x + 1.15, x + 1.45, 0, 20)} className="door" />
+      <polygon points={quadR(side, y + 0.15, y + 0.45, 8, 20)} className="win r" />
+      {/* The idea board: one note per idea pinned there. */}
+      <polygon points={quadR(side + 0.01, y + 0.55, y + sy - 0.08, 6, 28)} className="idea-board" />
+      {notes.map(([a, b, z], i) => <polygon key={i} points={quadR(side + 0.02, y + 0.5 + a!, y + 0.5 + b!, z!, z! + 7)} className={`note n${(i % 3) + 1}`} />)}
+      {stripes}
+      {/* Neon sign on the roof. */}
+      <g className="cafe-sign" transform={`translate(${sign.x},${sign.y})`}>
+        <rect x={-21} y={-13} width={42} height={16} rx={4} />
+        <text y={-1.5} textAnchor="middle">Café</text>
+      </g>
+    </>
+  );
+}
+
+/** A café table on the terrace, drawn in depth order with the agents sitting at it; a busy table has steaming cups. */
+export function CafeTable({ x, y, busy }: { x: number; y: number; busy: boolean }) {
+  const top = iso(x, y, 15);
+  const c = cylinder(x, y, 2, 14);
+  return (
+    <g className="cafe-table" aria-hidden>
+      <ellipse cx={iso(x, y).x} cy={iso(x, y).y} rx={13} ry={6.5} className="shadow" />
+      <path d={c.side} className="m-steel l" />
+      <ellipse cx={top.x} cy={top.y + 1.5} rx={13} ry={6.5} className="m-wood r" />
+      <ellipse cx={top.x} cy={top.y} rx={13} ry={6.5} className="m-wood t" />
+      <rect x={top.x - 7} y={top.y - 4} width={3.5} height={3.5} rx={1} className="cup" />
+      <rect x={top.x + 3.5} y={top.y - 2} width={3.5} height={3.5} rx={1} className="cup" />
+      {busy && <path d={`M${top.x - 5.3},${top.y - 5} q-2,-4 0,-7 t0,-7 M${top.x + 5.2},${top.y - 3} q2,-4 0,-7 t0,-7`} className="steam" />}
+    </g>
+  );
+}
+
+/** String lights over the front of the terrace, drawn above everything on it. */
+export function CafeLights() {
+  const posts = [{ x: 10.2, y: 9.1 }, { x: 14.05, y: 9.1 }, { x: 14.05, y: 5.6 }];
+  const top = (q: { x: number; y: number }) => iso(q.x, q.y, 52);
+  const sag = (a: { x: number; y: number }, b: { x: number; y: number }) => `M${a.x},${a.y} Q${(a.x + b.x) / 2},${(a.y + b.y) / 2 + 16} ${b.x},${b.y}`;
+  const runs = [[posts[0]!, posts[1]!], [posts[1]!, posts[2]!]] as const;
+  const bulbs = runs.flatMap(([a, b], r) => Array.from({ length: 9 }, (_, i) => {
+    const t = (i + 0.5) / 9, A = top(a), B = top(b);
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2 + 16;
+    return { x: (1 - t) ** 2 * A.x + 2 * (1 - t) * t * mx + t * t * B.x, y: (1 - t) ** 2 * A.y + 2 * (1 - t) * t * my + t * t * B.y, k: r * 9 + i };
+  }));
+  return (
+    <g className="cafe-lights" aria-hidden>
+      {posts.map((q, i) => { const b = iso(q.x, q.y), t = top(q); return <line key={i} x1={b.x} y1={b.y} x2={t.x} y2={t.y} className="post" />; })}
+      {runs.map(([a, b], i) => <path key={i} d={sag(top(a), top(b))} className="wire" />)}
+      {bulbs.map((b) => <circle key={b.k} cx={b.x} cy={b.y + 2} r={1.8} className={`bulb b${b.k % 3}`} />)}
+    </g>
+  );
+}
+
 export function PlaceArt({ p, act }: { p: Place; act: Activity }) {
   switch (p.id) {
     case "launchpad": return <Launchpad p={p} launch={act.launch} />;
@@ -337,6 +413,7 @@ export function PlaceArt({ p, act }: { p: Place; act: Activity }) {
     case "plaza": return <Plaza p={p} papers={act.papers} />;
     case "observatory": return <Observatory p={p} calling={act.calling} />;
     case "debate": return <DebateHall p={p} debating={act.debating} />;
+    case "cafe": return <Cafe p={p} ideas={act.ideas} />;
     default: return null;
   }
 }

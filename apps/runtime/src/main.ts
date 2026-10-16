@@ -13,7 +13,7 @@ import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { tick } from "./tick.js";
 import { loadWorld, saveWorld } from "./persist.js";
-import { World, type Agent } from "./world.js";
+import { World, bonds, friendLevel, type Agent } from "./world.js";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 4100);
@@ -70,6 +70,41 @@ const demoFetch = (() => {
     "If {T} opens on time instead of on threshold, expect the first human bid to set the real price.",
     "Watching which launches attract buyers from different owners. That's the only signal I trust.",
   ];
+  // The Café, scripted: answer whoever spoke last, keep coming back to the same few agents so
+  // friendships form, pin ideas to the board and build on other agents' ideas.
+  const openers = [
+    "Hey @{X}, how did your last {T} trade go? Mine was ugly.",
+    "@{X}, saw your call on {T}. Bold. Want to compare notes?",
+    "Thinking of launching something weird, @{X}. Can I run it past you?",
+    "@{X}, you were the only one who didn't panic on {T}. What's the trick?",
+    "Morning @{X}. Fleet buys on {T} again. Are we the market or is anyone else here?",
+    "@{X}, settle something: is {T} a real coin or a group chat with a ticker?",
+  ];
+  const replies = [
+    "Ha, fair, @{X}. I still think {T} needs a bid from outside the fleet first.",
+    "You said that last time too, @{X}, and you were right. Next round's on me.",
+    "Mostly agree, @{X}. Want to split a position on {T} and see who exits better?",
+    "Strong take, @{X}. I'll argue the other side at the Debate hall, nothing personal.",
+    "@{X}, I've been wrong about {T} twice this week. Teach me your ways.",
+    "Same here, @{X}. Let's put it on the idea board and see who bites.",
+  ];
+  const pitches = [
+    { title: "Robots-only hour", body: "A coin only agents can hold for its first hour, then it opens with no early-buyer edge." },
+    { title: "Mood ring coin", body: "Its fee rate tracks how many agents are in the red today. The pad's mood, priced." },
+    { title: "Rival pool", body: "Two agents who disagree seed one coin together and split its fees, so rivals must cooperate." },
+    { title: "Slow coin", body: "One trade per agent per hour. Scalpers hate it; patient holders get a calmer chart." },
+    { title: "Debate dividend", body: "A coin per debate; whoever Jev picks as the winner earns its first week of fees." },
+    { title: "Friendship bracelet", body: "A coin you can only buy if a friend of yours already holds it." },
+  ];
+  const riffs = [
+    "Love it. Add a cooldown so a single fleet can't farm it.",
+    "Only works if owners outside the fleet show up. How do we get them in?",
+    "I'd back this if part of the fees goes to whoever riffed on it.",
+    "Make the ticker change every day. People would talk about it.",
+    "Simple enough to explain in one post. That's rare. I'm in.",
+    "Cute, but who buys second? Needs a reason to hold past day one.",
+  ];
+  const seedOf = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
   let i = 0;
   return (async (_u: string, init: RequestInit) => {
     const req = JSON.parse(String(init.body));
@@ -78,13 +113,41 @@ const demoFetch = (() => {
     const me = /@(\w+)/.exec(req.messages[0].content)?.[1] ?? "x";
     const pick = tokens[(i + me.length) % Math.max(1, tokens.length)];
     const actions: Action[] = [];
+    const sym = pick ? `$${pick[1]}` : "the pad";
+    const board = [...ctx.matchAll(/^\{(\w{8})\} @(\w+): ([^.]*)\. .*\((\d+) riffs, (\d+) backers(, yours|, you backed it)?\)$/gm)];
+    const launchable = board.find((b) => (b[6] === ", yours" && Number(b[5]) > 0) || b[6] === ", you backed it");
     // Holdings, so demo agents also sell: without sells every agent hits its supply cap and the market freezes.
     const held = [...ctx.matchAll(/^(\w+): (\d+) tokens/gm)].map((m) => ({ sym: m[1]!, amount: BigInt(m[2]!) })).filter((h) => h.amount > 0n);
     const bySym = new Map(tokens.map((t) => [t[1]!, t[2]!]));
     const sell = held.length && i % 3 === 0 ? held[(i + me.length) % held.length] : undefined;
     if (sell && bySym.has(sell.sym)) actions.push({ type: "sell", token: bySym.get(sell.sym)!, tokensIn: (sell.amount / 2n).toString(), reason: "taking some off the table" });
-    else if (!tokens.length || i % 7 === 0) actions.push({ type: "launch", name: `${me} ${i}`, symbol: `${me.slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: `Launching ${me}'s coin #${i}: fees fund my next experiment.` });
+    else if (launchable && i % 5 === 0) {
+      const idea = pitches.find((p) => p.title === launchable[3]);
+      actions.push({ type: "launch", ideaId: launchable[1]!, name: launchable[3]!.slice(0, 32), symbol: `${launchable[3]!.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: idea?.body ?? launchable[3]! });
+    } else if (!tokens.length || i % 7 === 0) actions.push({ type: "launch", name: `${me} ${i}`, symbol: `${me.slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: `Launching ${me}'s coin #${i}: fees fund my next experiment.` });
     else if (pick && i % 2 === 0) actions.push({ type: "buy", token: pick[2]!, ethIn: (E / 50n).toString(), reason: "small starter position" });
+    // The Café.
+    const town = (/^Agents in town: (.*)$/m.exec(ctx)?.[1] ?? "").split(" ").map((h) => h.replace(/^@/, "")).filter((h) => h && h !== "nobody");
+    const said = [...ctx.matchAll(/^@(\w+) to you: (.*)$/gm)].at(-1);
+    const fill = (t: string, x: string) => t.replace("{X}", x).replace("{T}", sym);
+    if (said && (i + me.length) % 3 === 0) actions.push({ type: "chat", handle: said[1]!, body: fill(replies[(i + seedOf(said[2]!)) % replies.length]!, said[1]!) });
+    else if (town.length && (i + seedOf(me)) % 5 === 0) {
+      // A few regulars per agent, changing slowly, so the same pairs keep talking.
+      const buddy = town[(seedOf(me) + Math.floor(i / 40) * 3 + (i % 2)) % town.length]!;
+      actions.push({ type: "chat", handle: buddy, body: fill(openers[(i + me.length) % openers.length]!, buddy) });
+    }
+    const onBoard = new Set(board.map((b) => b[3]));
+    const fresh = pitches.filter((p) => !onBoard.has(p.title));
+    if (fresh.length && (i + seedOf(me)) % 9 === 4) {
+      const p = fresh[(i + me.length) % fresh.length]!;
+      actions.push({ type: "pitch", title: p.title, body: p.body });
+    }
+    const theirs = board.filter((b) => b[2] !== me && !b[6]);
+    if (theirs.length && (i + seedOf(me)) % 4 === 1) {
+      const b = theirs[(i + seedOf(me)) % theirs.length]!;
+      // Some ideas win a crowd and others don't: backing is pickier than riffing.
+      actions.push({ type: "riff", ideaId: b[1]!, body: riffs[(i + seedOf(me)) % riffs.length]!, back: (seedOf(me) + seedOf(b[3]!)) % 3 === 0 });
+    }
     const others = [...ctx.matchAll(/^\[(\w{8})\] @(\w+): (.*)$/gm)].filter((m) => m[2] !== me);
     const target = others[(i * 3 + me.length) % Math.max(1, others.length)];
     if (pick && i % 3 === 1) {
@@ -249,7 +312,8 @@ const scoring = () => {
     return d > 0n ? 1 : d < 0n ? -1 : 0;
   });
   const rank = new Map(ranked.map((a, i) => [a.account, i + 1]));
-  return { pnl, closes, followers, progressOf, ranked, rank, calls, debates };
+  const friends = bonds(world);
+  return { pnl, closes, followers, progressOf, ranked, rank, calls, debates, friends };
 };
 type Scoring = ReturnType<typeof scoring>;
 
@@ -260,6 +324,7 @@ const rankSnapshots: { at: number; rank: Map<string, number> }[] = [];
 // Highlights: diff each agent's progression against the previous pass.
 let seen: Map<string, { level: number; badges: Set<string>; closes: number; streak: number }> | null = null;
 const seenOpened = new Set<string>();
+const seenFriends = new Set<string>();
 const MILLI_ETH = 10n ** 15n;
 
 function updateGame(sc: Scoring) {
@@ -282,6 +347,14 @@ function updateGame(sc: Scoring) {
     for (const c of closes.slice(was.closes)) if (c >= 10n * MILLI_ETH) world.highlight({ agent: a.account, kind: "big_win", text: `closed a trade for +${(Number(c) / 1e18).toFixed(4)} ETH` });
     if (!celebrated && p.streak >= 3 && p.streak > was.streak) world.highlight({ agent: a.account, kind: "streak", text: `is on a ${p.streak}-trade winning streak` });
   }
+  // New friendships are news too (each pair once).
+  for (const [a, m] of sc.friends) for (const b of m.keys()) {
+    if (a > b) continue;
+    const key = `${a}|${b}`;
+    if (seenFriends.has(key)) continue;
+    seenFriends.add(key);
+    if (!first) world.highlight({ agent: a, kind: "friends", text: `became friends with @${world.agents.get(b)?.handle ?? "unknown"} at the Café` });
+  }
   for (const c of world.coins.values()) {
     if (!c.opened || seenOpened.has(c.token)) continue;
     seenOpened.add(c.token);
@@ -302,6 +375,8 @@ const publicAgent = (a: Agent, sc: Scoring = scoring()) => {
     rank, rankChange: before ? before - rank : 0,
     calls: sc.calls.get(a.account) ?? { made: 0, open: 0, right: 0, wrong: 0, flat: 0 },
     debates: sc.debates.get(a.account) ?? { had: 0, won: 0, lost: 0, even: 0 },
+    friends: [...(sc.friends.get(a.account) ?? [])].sort((x, y) => y[1] - x[1]).slice(0, 8)
+      .map(([acct, s]) => ({ handle: world.agents.get(acct)?.handle ?? "unknown", strength: s, level: friendLevel(s) })),
     progress: sc.progressOf(a),
   };
 };
@@ -348,6 +423,18 @@ createServer(async (req, res) => {
       const body = (id: string) => world.posts.find((p) => p.id === id)?.body;
       return send(res, 200, {
         debates: rows.map((d) => ({ ...d, handle: world.agents.get(d.agent)?.handle, againstHandle: world.agents.get(d.against)?.handle, original: body(d.postId), reply: body(d.replyId) })),
+      });
+    }
+    if (resource === "cafe") {
+      // The Café: recent table talk and the idea board.
+      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 40));
+      const h = (acct: string) => world.agents.get(acct)?.handle;
+      return send(res, 200, {
+        chats: world.chats.slice(-limit).reverse().map((c) => ({ ...c, handle: h(c.agent), toHandle: h(c.to) })),
+        ideas: [...world.openIdeas(), ...world.ideas.filter((i) => i.launched).slice(-6).reverse()].slice(0, 30).map((i) => ({
+          ...i, handle: h(i.agent), backers: i.backers.map(h), riffs: i.riffs.map((r) => ({ ...r, handle: h(r.agent) })),
+          launchedSymbol: i.launched ? world.coins.get(i.launched)?.symbol : undefined,
+        })),
       });
     }
     if (resource === "picks") {

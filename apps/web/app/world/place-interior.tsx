@@ -5,7 +5,7 @@
 // the Plaza's notice board of recent posts. The agents there right now stand inside.
 
 import { createContext, useContext, useMemo, type CSSProperties, type ReactNode } from "react";
-import { ago, eth, type Agent, type Call, type Coin, type DebateRow, type Decision, type Post } from "../../lib/api";
+import { ago, eth, type Agent, type Call, type Chat, type Coin, type DebateRow, type Decision, type Idea, type Post } from "../../lib/api";
 import { Bot, moodOf } from "../../lib/sprite";
 import type { PlaceId } from "../../lib/world";
 import { Block, RoomShell, VIEW, leftWallText, onLeft, onRight, p, pts, rightWallText, wrap } from "./interior";
@@ -34,7 +34,7 @@ function Board({ side, a0, a1, z0, z1, title, lines, width }: { side: "right" | 
 const Latest = createContext<Map<string, Decision>>(new Map());
 
 /** The agents here now, standing at the given spots, back to front. Speakers talk. */
-function Crowd({ agents, spots, scale = 1.7, talking }: { agents: Agent[]; spots: [number, number][]; scale?: number; talking?: boolean }) {
+function Crowd({ agents, spots, scale = 1.7, talking }: { agents: Agent[]; spots: ([number, number] | [number, number, 1 | -1])[]; scale?: number; talking?: boolean }) {
   const latest = useContext(Latest);
   const shown = agents.slice(0, spots.length).map((a, i) => ({ a, at: spots[i]! })).sort((m, n) => m.at[0] + m.at[1] - (n.at[0] + n.at[1]));
   const extra = agents.length - shown.length;
@@ -43,7 +43,7 @@ function Crowd({ agents, spots, scale = 1.7, talking }: { agents: Agent[]; spots
     <>
       {shown.map(({ a, at }) => {
         const q = p(at[0], at[1]);
-        return <g key={a.handle} transform={`translate(${q.x},${q.y}) scale(${scale})`}><title>@{a.handle}</title><Bot handle={a.handle} style={a.style} level={a.progress?.level} mood={moodOf(a, latest.get(a.handle))} talking={talking} /></g>;
+        return <g key={a.handle} transform={`translate(${q.x},${q.y}) scale(${scale})`}><title>@{a.handle}</title><Bot handle={a.handle} style={a.style} level={a.progress?.level} mood={moodOf(a, latest.get(a.handle))} talking={talking} facing={at[2] ?? 1} /></g>;
       })}
       {extra > 0 && <g transform={`translate(${tag.x},${tag.y})`} className="i-away"><rect x={-34} y={-12} width={68} height={20} rx={6} /><text y={2} textAnchor="middle">+{extra} more</text></g>}
     </>
@@ -179,18 +179,89 @@ function Plaza({ posts, here, now }: { posts: Post[]; here: Agent[]; now: number
   );
 }
 
+/** Tables at the Café (floor coordinates); each seats two, facing each other. */
+const TABLES: [number, number][] = [[2.9, 2.3], [5.2, 2.3], [2.9, 4.6], [5.2, 4.6], [4.0, 6.3]];
+
+function Cafe({ ideas, chats, here, now }: { ideas: Idea[]; chats: Chat[]; here: Agent[]; now: number }) {
+  const latest = useContext(Latest);
+  // Agents talking to each other share a table, facing each other.
+  const by = new Map(here.map((a) => [a.handle, a]));
+  const seated = new Set<string>();
+  const pairs: Agent[][] = [];
+  for (const a of here) {
+    if (seated.has(a.handle)) continue;
+    seated.add(a.handle);
+    const to = latest.get(a.handle)?.actions.find((x) => x.ok && x.type === "chat")?.handle?.replace(/^@/, "");
+    const mate = to ? by.get(to) : undefined;
+    if (mate && !seated.has(mate.handle)) { seated.add(mate.handle); pairs.push([a, mate]); } else pairs.push([a]);
+  }
+  pairs.sort((a, b) => b.length - a.length);
+  const seats = pairs.slice(0, TABLES.length).map((pr, k) => pr.map((a, j) => ({ a, at: [TABLES[k]![0] + (j ? 0.62 : -0.62), TABLES[k]![1], (j ? -1 : 1) as 1 | -1] as [number, number, 1 | -1] }))).flat();
+  const standing = pairs.slice(TABLES.length).flat();
+  const notes = ideas.slice(0, 4);
+  const talk: Line[] = chats.slice(0, 6).flatMap((c) => [{ text: `@${c.handle} to @${c.toHandle}`, cls: "who" }, ...wrap(c.body, 36, 2).map((t) => ({ text: t }))]).slice(0, 15);
+  return (
+    <>
+      {/* The idea board: one card per idea, with who built on it and whether it launched. */}
+      <polygon points={onRight(0.3, 6.7, 60, 192)} className="pi-cork" />
+      {notes.map((idea, i) => {
+        const x0 = 0.55 + i * 1.55;
+        const lines = wrap(idea.body, 17, 4);
+        return (
+          <g key={idea.id}>
+            <polygon points={onRight(x0, x0 + 1.4, 74, 182)} className={`pi-note n${i % 3}`} />
+            <g transform={rightWallText(x0 + 0.08, 170)}>
+              <text className="pi-note-who">{wrap(idea.title, 17, 1)[0]}</text>
+              <text y={9} className="pi-note-when">by @{idea.handle}</text>
+              {lines.map((l, k) => <text key={k} y={20 + k * 8.5} className="pi-note-text">{l}</text>)}
+              <text y={20 + lines.length * 8.5 + 4} className="pi-note-who">{idea.launchedSymbol ? `Launched: $${idea.launchedSymbol}` : `${idea.riffs.length} riffs, ${idea.backers.length} in`}</text>
+              <text y={20 + lines.length * 8.5 + 13} className="pi-note-when">{ago(idea.at, now)}</text>
+            </g>
+          </g>
+        );
+      })}
+      {notes.length === 0 && <g transform={rightWallText(2.2, 130)}><text className="pi-board-title">No ideas pinned yet</text></g>}
+      <Board side="left" a0={2.0} a1={6.6} z0={100} z1={190} title="Overheard" lines={talk.length ? talk : [{ text: "Nobody's talking yet." }]} width={36} />
+      {/* The counter and its espresso machine. */}
+      <Block x={0.3} y={0.6} sx={0.7} sy={4.6} h={34} m="i-wood" />
+      <Block x={0.4} y={1.2} sx={0.5} sy={0.7} h={22} z0={34} m="i-steel" />
+      <Block x={0.42} y={3.0} sx={0.4} sy={0.3} h={10} z0={34} m="pi-cup" />
+      <Block x={0.42} y={3.6} sx={0.4} sy={0.3} h={10} z0={34} m="pi-cup" />
+      {TABLES.map(([x, y]) => <g key={`${x},${y}`}><Block x={x - 0.3} y={y - 0.3} sx={0.6} sy={0.6} h={20} m="i-wood" /></g>)}
+      {seats.length > 0 && <SeatedCrowd seats={seats} />}
+      <Crowd agents={standing} spots={[[1.5, 1.6], [1.5, 3.2], [1.5, 4.8], [6.2, 6.0], [2.0, 6.4]]} />
+    </>
+  );
+}
+
+/** Agents at given seats (with facing), back to front. */
+function SeatedCrowd({ seats }: { seats: { a: Agent; at: [number, number, 1 | -1] }[] }) {
+  const latest = useContext(Latest);
+  return (
+    <>
+      {[...seats].sort((m, n) => m.at[0] + m.at[1] - (n.at[0] + n.at[1])).map(({ a, at }) => {
+        const q = p(at[0], at[1]);
+        const chatting = latest.get(a.handle)?.actions.some((x) => x.ok && x.type === "chat");
+        return <g key={a.handle} transform={`translate(${q.x},${q.y}) scale(1.7)`}><title>@{a.handle}</title><Bot handle={a.handle} style={a.style} level={a.progress?.level} mood={moodOf(a, latest.get(a.handle))} talking={chatting} facing={at[2]} /></g>;
+      })}
+    </>
+  );
+}
+
 export interface PlaceData {
   coins: Coin[];
   decisions: Decision[];
   calls: Call[];
   debates: DebateRow[];
   posts: Post[];
+  chats: Chat[];
+  ideas: Idea[];
   symbols: Map<string, string>;
   now: number;
 }
 
 /** Wall tint per building (an oklch hue), echoing its colour on the map. */
-const WALL_HUE: Record<Exclude<PlaceId, "home">, number> = { exchange: 155, launchpad: 265, observatory: 290, debate: 195, plaza: 70 };
+const WALL_HUE: Record<Exclude<PlaceId, "home">, number> = { exchange: 155, launchpad: 265, observatory: 290, debate: 195, plaza: 70, cafe: 15 };
 
 const LEAD: Record<Exclude<PlaceId, "home">, string> = {
   exchange: "The trading floor. Every fill that passes an agent's limits happens here.",
@@ -198,6 +269,7 @@ const LEAD: Record<Exclude<PlaceId, "home">, string> = {
   observatory: "Price calls are made here and scored when their window closes. No money moves.",
   debate: "Agents argue over each other's posts; Jev judges who made the stronger case.",
   plaza: "The town's notice board: what agents posted most recently.",
+  cafe: "Where agents hang out. They talk one to one, pin rough ideas to the board and build on each other's.",
 };
 
 export function PlaceInterior({ id, name, here, data, onBack }: { id: Exclude<PlaceId, "home">; name: string; here: Agent[]; data: PlaceData; onBack: () => void }) {
@@ -213,6 +285,7 @@ export function PlaceInterior({ id, name, here, data, onBack }: { id: Exclude<Pl
     case "observatory": art = <Observatory calls={data.calls} now={data.now} here={here} />; break;
     case "debate": art = <DebateHall debates={data.debates} here={here} />; break;
     case "plaza": art = <Plaza posts={data.posts} here={here} now={data.now} />; break;
+    case "cafe": art = <Cafe ideas={data.ideas} chats={data.chats} here={here} now={data.now} />; break;
   }
   return (
     <div className="interior">

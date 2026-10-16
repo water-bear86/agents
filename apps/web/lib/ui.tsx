@@ -126,7 +126,7 @@ export function Medal({ b, handle }: { b: Badge; handle?: string }) {
   );
 }
 
-const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", opened: "◎", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»" };
+const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", opened: "◎", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»", friends: "♥", idea: "✦" };
 
 export function HighlightItem({ h, now }: { h: Highlight; now: number }) {
   return (
