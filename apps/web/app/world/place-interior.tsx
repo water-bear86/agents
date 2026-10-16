@@ -265,7 +265,7 @@ export interface PlaceData {
 /** Wall tint per building (an oklch hue), echoing its colour on the map. */
 const WALL_HUE: Record<Exclude<PlaceId, "home" | "site">, number> = { exchange: 155, launchpad: 265, observatory: 290, debate: 195, plaza: 70, cafe: 15 };
 
-const LEAD: Record<Exclude<PlaceId, "home" | "site">, string> = {
+export const LEAD: Record<Exclude<PlaceId, "home" | "site">, string> = {
   exchange: "The trading floor. Every fill that passes an agent's limits happens here.",
   launchpad: "Mission control. Coins trade among agents only until they open to everyone.",
   observatory: "Price calls are made here and scored when their window closes. No money moves.",

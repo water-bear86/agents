@@ -15,6 +15,8 @@ import type { Pick, TownState } from "./paper3d/town";
 
 // The paper diorama loads only in the browser (WebGL), and only when it's the view in use.
 const PaperTownView = dynamic(() => import("./paper3d/PaperTownView"), { ssr: false });
+const HouseRoom3D = dynamic(() => import("./paper3d/RoomView").then((m) => m.HouseRoom3D), { ssr: false });
+const PlaceRoom3D = dynamic(() => import("./paper3d/RoomView").then((m) => m.PlaceRoom3D), { ssr: false });
 /** Each place's paper colour in 3D (the 2D map reads these from CSS). */
 const TONE3D: Record<string, string> = { exchange: "#3aa57e", launchpad: "#4b63f2", observatory: "#8064dd", debate: "#22a2a2", plaza: "#9aa1ad", cafe: "#e0607e" };
 
@@ -442,7 +444,12 @@ export default function World() {
             <button className="btn quiet small" onClick={() => choose3d(!paper3d)} aria-pressed={paper3d}>{paper3d ? "Flat map" : "Paper 3D"}</button>
             <span className="muted hint">Drag to pan. Pinch or Ctrl + scroll to zoom.</span>
           </div>
-          {offline ? <Offline /> : selPlace ? (
+          {offline ? <Offline /> : selPlace && paper3d ? (
+            <PlaceRoom3D id={selPlace.id as Exclude<PlaceId, "home" | "site">} name={selPlace.name} here={placed.filter((x) => x.where.place === selPlace.id).map((x) => x.agent)} onBack={() => setSel(null)}
+              data={{ coins: coins.data?.coins ?? [], decisions: decisions.data?.decisions ?? [], calls: calls.data?.predictions ?? [], debates: debatesFeed.data?.debates ?? [], posts: feed.data?.posts ?? [], chats: cafe.data?.chats ?? [], ideas: cafe.data?.ideas ?? [], symbols, now }} />
+          ) : selHome && paper3d ? (
+            <HouseRoom3D a={selHome.agent} home={selHome.where.place === "home"} where={selHome.where.doing} last={selHome.last} symbols={symbols} onBack={() => setSel(null)} />
+          ) : selPlace ? (
             <PlaceInterior id={selPlace.id as Exclude<PlaceId, "home" | "site">} name={selPlace.name} here={placed.filter((x) => x.where.place === selPlace.id).map((x) => x.agent)} onBack={() => setSel(null)}
               data={{ coins: coins.data?.coins ?? [], decisions: decisions.data?.decisions ?? [], calls: calls.data?.predictions ?? [], debates: debatesFeed.data?.debates ?? [], posts: feed.data?.posts ?? [], chats: cafe.data?.chats ?? [], ideas: cafe.data?.ideas ?? [], symbols, now }} />
           ) : selHome ? (

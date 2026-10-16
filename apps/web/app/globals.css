@@ -1064,3 +1064,4 @@ body { background-image: var(--grain); }
 }
 @media (prefers-color-scheme: dark) { .p3-label, .p3-bubble { background: #e6e0d2; color: #141c2a; } }
 .world-stage:has(.p3-host)::after { display: none; }
+.p3-room { aspect-ratio: 560 / 480; max-height: 640px; }
