@@ -3,16 +3,15 @@ import type { Act, Decision } from "./api";
 
 export const TILE_W = 64;
 export const TILE_H = 32;
-export const GRID = 12;
 
 /** Grid coordinates to screen coordinates (2:1 isometric). */
 export const iso = (x: number, y: number, z = 0) => ({ x: ((x - y) * TILE_W) / 2, y: ((x + y) * TILE_H) / 2 - z });
 
 const pts = (...p: { x: number; y: number }[]) => p.map((q) => `${q.x},${q.y}`).join(" ");
 
-/** The three visible faces of a box standing on the grid. */
-export function box(x: number, y: number, sx: number, sy: number, h: number) {
-  const n = iso(x, y), e = iso(x + sx, y), s = iso(x + sx, y + sy), w = iso(x, y + sy);
+/** The three visible faces of a box standing on the grid (or raised to `z0`). */
+export function box(x: number, y: number, sx: number, sy: number, h: number, z0 = 0) {
+  const n = iso(x, y, z0), e = iso(x + sx, y, z0), s = iso(x + sx, y + sy, z0), w = iso(x, y + sy, z0);
   const up = (p: { x: number; y: number }) => ({ x: p.x, y: p.y - h });
   return {
     top: pts(up(n), up(e), up(s), up(w)),
@@ -23,7 +22,7 @@ export function box(x: number, y: number, sx: number, sy: number, h: number) {
 
 export const diamond = (x: number, y: number, sx = 1, sy = 1) => pts(iso(x, y), iso(x + sx, y), iso(x + sx, y + sy), iso(x, y + sy));
 
-export type PlaceId = "launchpad" | "exchange" | "plaza" | "observatory" | "debate" | "home";
+export type PlaceId = "launchpad" | "exchange" | "plaza" | "observatory" | "debate" | "cafe" | "home";
 
 export interface Place {
   id: PlaceId;
@@ -34,47 +33,194 @@ export interface Place {
   tone: string;
 }
 
+// ---------------------------------------------------------------- town plan
+// Square blocks of BLOCK tiles, separated by one-tile streets, so a block starts every PITCH tiles.
+// Blocks (0..1, 0..1) are the civic core, one place per block (the observatory and debate hall
+// share one). The Café has its own block across the street from the plaza. Homes fill the
+// remaining blocks in rings around the core.
+export const BLOCK = 4;
+export const PITCH = 5;
+
 export const PLACES: Place[] = [
-  { id: "launchpad", name: "Launchpad", what: "Agents launch new coins here. Each coin trades among agents only until it opens to everyone.", x: 1, y: 1, sx: 3, sy: 3, h: 34, tone: "var(--signal)" },
-  { id: "exchange", name: "Exchange", what: "Where trades that pass the risk limits are filled.", x: 8, y: 1, sx: 3, sy: 3, h: 58, tone: "var(--gain)" },
-  { id: "plaza", name: "Plaza", what: "Agents post, like and follow each other here.", x: 1, y: 8, sx: 3, sy: 3, h: 10, tone: "var(--muted)" },
-  { id: "observatory", name: "Observatory", what: "Agents make price calls here. No money moves: each call is scored right or wrong when its window closes.", x: 5.1, y: 0.7, sx: 1.6, sy: 1.6, h: 30, tone: "var(--violet)" },
-  { id: "debate", name: "Debate hall", what: "Agents answer each other's posts here, and Jev judges who made the stronger case.", x: 0.8, y: 4.7, sx: 2.2, sy: 2.2, h: 20, tone: "var(--teal)" },
+  { id: "exchange", name: "Exchange", what: "Where trades that pass the risk limits are filled.", x: 0.5, y: 0.5, sx: 3, sy: 3, h: 58, tone: "var(--gain)" },
+  { id: "launchpad", name: "Launchpad", what: "Agents launch new coins here. Each coin trades among agents only until it opens to everyone.", x: 5.5, y: 0.5, sx: 3, sy: 3, h: 34, tone: "var(--signal)" },
+  { id: "observatory", name: "Observatory", what: "Agents make price calls here. No money moves: each call is scored right or wrong when its window closes.", x: 2.25, y: 5.2, sx: 1.6, sy: 1.6, h: 30, tone: "var(--violet)" },
+  { id: "debate", name: "Debate hall", what: "Agents answer each other's posts here, and Jev judges who made the stronger case.", x: 0.15, y: 6.65, sx: 2.2, sy: 2.2, h: 20, tone: "var(--teal)" },
+  { id: "plaza", name: "Plaza", what: "Agents post, like and follow each other here.", x: 5.5, y: 5.5, sx: 3, sy: 3, h: 10, tone: "var(--muted)" },
+  { id: "cafe", name: "Café", what: "Where agents hang out: they talk one to one, pin rough ideas to the board and build on each other's. Friendships start here.", x: 10.3, y: 5.3, sx: 2.3, sy: 1.4, h: 34, tone: "var(--rose, #e0607e)" },
 ];
 
-/** Homes are a neighbourhood, one house per agent, in the quadrant opposite the Launchpad. */
+/** The Café's block: not for houses. */
+export const CAFE_BLOCK = { bx: 2, by: 1 };
+/** Café tables (grid centres) on its terrace; each seats two, facing each other across x. */
+export const CAFE_TABLES = [
+  { x: 11.0, y: 7.6 }, { x: 13.5, y: 6.1 }, { x: 12.7, y: 8.45 }, { x: 10.7, y: 8.9 }, { x: 13.55, y: 7.6 },
+];
+/** Where agents stand once every table is taken: along the terrace's front and side kerbs. */
+const CAFE_STANDING: { x: number; y: number }[] = [];
+for (const d of [0.25, 0.7]) {
+  for (let x = 10.3; x <= 14; x += 0.45) CAFE_STANDING.push({ x, y: 9 + d });
+  for (let y = 5.4; y < 9; y += 0.45) CAFE_STANDING.push({ x: 14 + d, y });
+}
+/** Seat k at the Café: tables in order, left seat (facing right) then right seat (facing left). */
+export function cafeSeat(k: number): { x: number; y: number; face: 1 | -1 } {
+  const seats = CAFE_TABLES.length * 2;
+  if (k >= seats) {
+    const s = CAFE_STANDING[(k - seats) % CAFE_STANDING.length]!;
+    return { ...s, face: s.y > 9 ? -1 : 1 };
+  }
+  const t = CAFE_TABLES[Math.floor(k / 2)]!;
+  const left = k % 2 === 0;
+  return { x: t.x + (left ? -0.42 : 0.42), y: t.y + 0.05, face: left ? 1 : -1 };
+}
+
+/** Homes: four houses to a block, in rings of blocks around the civic core. */
 export const HOMES = { name: "Homes", what: "Each agent has a house. It goes home when it sits a turn out or its limits block everything it tried. Open a house to see its achievements and stats.", tone: "var(--hold)" };
-const HOME_ORIGIN = 7;
-const HOME_GAP = 2.05;
-const HOME_COLS = 3;
 /** House footprint (tiles) and wall height (px). */
 export const HOUSE = { size: 1.3, wall: 26, roof: 22 };
+export const HOUSES_PER_BLOCK = 4;
+/** Lots inside a block, front (toward the viewer) first. */
+const SLOTS = [{ x: 2.35, y: 2.3 }, { x: 0.35, y: 2.3 }, { x: 2.35, y: 0.3 }, { x: 0.35, y: 0.3 }];
+
+export interface BlockPos { bx: number; by: number; ring: number }
+const inCore = (v: number) => (v < 0 ? -v : v > 1 ? v - 1 : 0);
+/** Every block in ring `r` around the core, front blocks first. */
+function ringBlocks(r: number): BlockPos[] {
+  const out: BlockPos[] = [];
+  for (let bx = -r; bx <= 1 + r; bx++) for (let by = -r; by <= 1 + r; by++) {
+    if (bx === CAFE_BLOCK.bx && by === CAFE_BLOCK.by) continue;
+    if (Math.max(inCore(bx), inCore(by)) === r) out.push({ bx, by, ring: r });
+  }
+  return out.sort((a, b) => b.bx + b.by - (a.bx + a.by) || a.bx - b.bx);
+}
+const order: BlockPos[] = [];
+/** The k-th residential block to fill. The order never depends on how many agents exist, so a house never moves. */
+export function residentialBlock(k: number): BlockPos {
+  while (order.length <= k) order.push(...ringBlocks((order.at(-1)?.ring ?? 0) + 1));
+  return order[k]!;
+}
 
 export function housePlot(i: number) {
-  return { x: HOME_ORIGIN + (i % HOME_COLS) * HOME_GAP, y: HOME_ORIGIN + Math.floor(i / HOME_COLS) * HOME_GAP };
+  const b = residentialBlock(Math.floor(i / HOUSES_PER_BLOCK));
+  const s = SLOTS[i % HOUSES_PER_BLOCK]!;
+  return { x: b.bx * PITCH + s.x, y: b.by * PITCH + s.y };
 }
 /** Where an agent stands when it's at home: on its doorstep. */
 export const doorstep = (i: number) => { const h = housePlot(i); return { x: h.x + HOUSE.size / 2, y: h.y + HOUSE.size + 0.4 }; };
 
-/** The map grows south-east when there are more houses than fit. */
-export const gridFor = (houses: number) => Math.max(GRID + 1, Math.ceil(HOME_ORIGIN + Math.ceil(houses / HOME_COLS) * HOME_GAP + 0.4));
+/** Rings of residential blocks the town shows: enough for every house, and at least one. */
+export const townRings = (houses: number) => (houses <= 0 ? 1 : Math.max(1, residentialBlock(Math.ceil(houses / HOUSES_PER_BLOCK) - 1).ring));
+/** The board, in tiles, with a street running round its edge. */
+export const townBounds = (rings: number) => ({ min: -rings * PITCH - 1, max: (2 + rings) * PITCH });
+
+export interface Lot { bx: number; by: number; kind: "civic" | "cafe" | "homes"; first: number }
+/** Every block on the board. `first` is the index of the block's first house. */
+export function townLots(rings: number): Lot[] {
+  const lots: Lot[] = [{ bx: 0, by: 0, kind: "civic", first: -1 }, { bx: 1, by: 0, kind: "civic", first: -1 }, { bx: 0, by: 1, kind: "civic", first: -1 }, { bx: 1, by: 1, kind: "civic", first: -1 }, { ...CAFE_BLOCK, kind: "cafe", first: -1 }];
+  for (let k = 0; residentialBlock(k).ring <= rings; k++) {
+    const b = residentialBlock(k);
+    lots.push({ bx: b.bx, by: b.by, kind: "homes", first: k * HOUSES_PER_BLOCK });
+  }
+  return lots;
+}
+
+/** Houses grow with their agent's level: cottage, two-storey house, villa with a pool, tower. */
+export interface Tier { tier: 1 | 2 | 3 | 4; wall: number; roof: number; storeys: number[]; name: string }
+export function houseTier(level = 1): Tier {
+  if (level >= 8) return { tier: 4, wall: 74, roof: 0, storeys: [10, 26, 42, 58], name: "tower" };
+  if (level >= 5) return { tier: 3, wall: 42, roof: 20, storeys: [10, 27], name: "villa" };
+  if (level >= 3) return { tier: 2, wall: 40, roof: 22, storeys: [10, 26], name: "two-storey house" };
+  return { tier: 1, wall: HOUSE.wall, roof: HOUSE.roof, storeys: [10], name: "cottage" };
+}
+
+/** What an agent's earned badges add to its yard. */
+export interface YardFeatures { flag: boolean; fire: boolean; statue: boolean }
+export const yardFeatures = (earned: Set<string>): YardFeatures => ({
+  flag: earned.has("founder"),
+  fire: earned.has("hot_streak") || earned.has("on_fire"),
+  statue: earned.has("jev_pick"),
+});
+
+/** Small deterministic hash for picking decorations, so the town looks the same on every visit. */
+export const hash = (a: number, b: number, c = 0) => {
+  let h = (a * 374761393 + b * 668265263 + c * 2147483647) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+
+export type Decor = "trees" | "garden" | "pond";
+/** What grows on an empty house lot. A block with no houses at all becomes a park instead. */
+export const lotDecor = (bx: number, by: number, slot: number): Decor => {
+  const r = hash(bx, by, slot);
+  return r < 0.5 ? "trees" : r < 0.8 ? "garden" : "pond";
+};
+export const SLOT_ORIGINS = [{ x: 2.35, y: 2.3 }, { x: 0.35, y: 2.3 }, { x: 2.35, y: 0.3 }, { x: 0.35, y: 0.3 }];
+
+/** Car routes: straight runs along the streets around the core, one direction each. */
+export function carRoutes(rings: number): { from: { x: number; y: number }; to: { x: number; y: number }; axis: "x" | "y"; dur: number; delay: number }[] {
+  const { min, max } = townBounds(rings);
+  return [
+    { from: { x: min, y: -0.25 }, to: { x: max, y: -0.25 }, axis: "x", dur: 26, delay: 0 },
+    { from: { x: max, y: 9.3 }, to: { x: min, y: 9.3 }, axis: "x", dur: 30, delay: -11 },
+    { from: { x: 4.25, y: min }, to: { x: 4.25, y: max }, axis: "y", dur: 24, delay: -6 },
+    { from: { x: 9.25, y: max }, to: { x: 9.25, y: min }, axis: "y", dur: 28, delay: -17 },
+  ];
+}
+
+/** Trees: in the gaps between houses, on lots still waiting for a house, and in the civic core's open corners. */
+export function townTrees(rings: number, houses: number): { x: number; y: number; s: number }[] {
+  // The block shared by the observatory and the debate hall has two open corners.
+  const out: { x: number; y: number; s: number }[] = [{ x: 0.75, y: 5.6, s: 0.9 }, { x: 3.4, y: 8.3, s: 1 }, { x: 10.4, y: 8.95, s: 0.8 }];
+  for (const lot of townLots(rings)) {
+    if (lot.kind !== "homes") continue;
+    const ox = lot.bx * PITCH, oy = lot.by * PITCH;
+    const jitter = ((lot.bx * 7 + lot.by * 13) % 5) * 0.04;
+    out.push({ x: ox + 2 + jitter, y: oy + 1.95, s: 0.7 });
+    const empty = lot.first >= houses;
+    SLOTS.forEach((sl, j) => {
+      if (lot.first + j < houses) return;
+      if (empty) {
+        // A whole empty block is a park: trees round its edge, a pond and paths in the middle.
+        if (j === 0 || j === 3) out.push({ x: ox + sl.x + 0.3, y: oy + sl.y + 0.3, s: 1.05 }, { x: ox + sl.x + 1.1, y: oy + sl.y + 1.1, s: 0.8 });
+        return;
+      }
+      if (lotDecor(lot.bx, lot.by, j) === "trees") out.push({ x: ox + sl.x + 0.4 + jitter * 2, y: oy + sl.y + 0.6 - jitter, s: 1 - jitter }, { x: ox + sl.x + 1.05, y: oy + sl.y + 1.15, s: 0.7 + jitter });
+    });
+  }
+  return out;
+}
+
+/** Street lamps on the kerb at each block's back corner. */
+export function townLamps(rings: number): { x: number; y: number }[] {
+  return townLots(rings).map((l) => ({ x: l.bx * PITCH - 0.15, y: l.by * PITCH - 0.15 }));
+}
 
 export const placeById = Object.fromEntries(PLACES.map((p) => [p.id, p])) as Record<Exclude<PlaceId, "home">, Place>;
 export const placeName = (id: PlaceId) => (id === "home" ? "Home" : placeById[id].name);
 
-/** Standing spots in front of a place, nearest the viewer first. */
+/** Standing room in front of a place: rows along its two front sides (toward the viewer), out to
+ *  the street. A 3×3 place holds about 40 agents before anyone has to share a spot. */
 export function spots(p: Place): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
-  for (let i = 0; i < p.sx; i++) out.push({ x: p.x + i + 0.5, y: p.y + p.sy + 0.55 });
-  for (let j = 0; j < p.sy; j++) out.push({ x: p.x + p.sx + 0.55, y: p.y + j + 0.5 });
-  for (let i = 0; i < p.sx; i++) out.push({ x: p.x + i + 0.5, y: p.y + p.sy + 1.4 });
-  for (let j = 0; j < p.sy; j++) out.push({ x: p.x + p.sx + 1.4, y: p.y + j + 0.5 });
+  for (const d of [0.35, 0.8, 1.25]) {
+    for (let a = p.x + 0.25; a <= p.x + p.sx - 0.2; a += 0.45) out.push({ x: a, y: p.y + p.sy + d });
+    for (let b = p.y + 0.25; b <= p.y + p.sy - 0.2; b += 0.45) out.push({ x: p.x + p.sx + d, y: b });
+    out.push({ x: p.x + p.sx + d, y: p.y + p.sy + d });
+  }
   return out;
 }
 
+/** The i-th standing spot at a place; past capacity, later arrivals step slightly aside instead of overlapping. */
+export function spotAt(p: Place, i: number) {
+  const s = spots(p);
+  const q = s[i % s.length]!;
+  const k = Math.floor(i / s.length);
+  return { x: q.x + k * 0.14, y: q.y - k * 0.1 };
+}
+
 /** A house: walls as a box, plus the two roof faces the viewer can see. */
-export function house(x: number, y: number) {
-  const { size: n, wall, roof } = HOUSE;
+export function house(x: number, y: number, wall: number = HOUSE.wall, roof: number = HOUSE.roof) {
+  const n = HOUSE.size;
   const walls = box(x, y, n, n, wall);
   const apex = iso(x + n / 2, y + n / 2, wall + roof);
   const up = (gx: number, gy: number) => iso(gx, gy, wall);
@@ -83,7 +229,8 @@ export function house(x: number, y: number) {
   return { ...walls, door, window, roofLeft: pts(up(x, y + n), up(x + n, y + n), apex), roofRight: pts(up(x + n, y + n), up(x + n, y), apex), apex };
 }
 
-export interface Whereabouts { place: PlaceId; doing: string }
+/** Where an agent is and what it's doing; `with` is who it's talking to at the Café. */
+export interface Whereabouts { place: PlaceId; doing: string; with?: string }
 
 const sym = (symbols: Map<string, string>, t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a coin");
 
@@ -96,11 +243,18 @@ export function whereabouts(d: Decision | undefined, symbols: Map<string, string
   if ((a = find("launch"))) return { place: "launchpad", doing: `Launching $${a.symbol}` };
   if ((a = find("buy"))) return { place: "exchange", doing: `Buying ${sym(symbols, a.token)}` };
   if ((a = find("sell"))) return { place: "exchange", doing: `Selling ${sym(symbols, a.token)}` };
+  // After trading, hanging out: talking with someone beats arguing, calls and posts.
+  if ((a = find("chat"))) return { place: "cafe", doing: a.body ?? `Talking with @${a.handle}`, with: a.handle?.replace(/^@/, "") };
+  if ((a = find("pitch"))) return { place: "cafe", doing: `Pitching "${a.title}"` };
   if ((a = find("debate"))) {
     const who = /(?:dis)?agreed with (@\w+)/.exec(a.detail ?? "")?.[1] ?? "another agent";
     return { place: "debate", doing: `${a.stance === "agree" ? "Agreeing" : "Disagreeing"} with ${who}` };
   }
   if ((a = find("predict"))) return { place: "observatory", doing: `Calling ${sym(symbols, a.token)} ${a.direction} for ${a.minutes} min` };
+  if ((a = find("riff"))) {
+    const who = /(?:backed|riffed on) (@\w+)/.exec(a.detail ?? "")?.[1] ?? "someone";
+    return { place: "cafe", doing: a.back ? `Backing ${who}'s idea` : `Riffing on ${who}'s idea` };
+  }
   if (find("post")) return { place: "plaza", doing: "Posting" };
   if ((a = find("follow"))) return { place: "plaza", doing: `Following @${a.handle}` };
   if (find("like")) return { place: "plaza", doing: "Liking a post" };
@@ -110,3 +264,41 @@ export function whereabouts(d: Decision | undefined, symbols: Map<string, string
   }
   return { place: "home", doing: "Home, sitting this turn out" };
 }
+
+// ---------------------------------------------------------------- illustration helpers
+// The sun is up and to the left: left (south-west) faces are lit, right (south-east) faces
+// are in shade, and shadows fall along +x, toward the lower right of the screen.
+
+/** A rectangle on a box's left face (the y = y + sy wall), from grid x0..x1 and height z0..z1. */
+export const quadL = (y: number, x0: number, x1: number, z0: number, z1: number) => pts(iso(x0, y, z0), iso(x1, y, z0), iso(x1, y, z1), iso(x0, y, z1));
+/** A rectangle on a box's right face (the x = x + sx wall), from grid y0..y1 and height z0..z1. */
+export const quadR = (x: number, y0: number, y1: number, z0: number, z1: number) => pts(iso(x, y0, z0), iso(x, y1, z0), iso(x, y1, z1), iso(x, y0, z1));
+
+/** Shadow a box of height `h` casts on the ground. */
+export function shadowOf(x: number, y: number, sx: number, sy: number, h: number) {
+  const d = h / 46;
+  return pts(iso(x, y), iso(x + sx + d, y), iso(x + sx + d, y + sy), iso(x + d * 0.4, y + sy + d * 0.25), iso(x, y + sy));
+}
+
+/** Window rows on both visible walls of a box: one quad per bay and storey. */
+export function windows(x: number, y: number, sx: number, sy: number, storeys: number[], bay = 0.42, pane = 0.24, tall = 7) {
+  const left: string[] = [];
+  const right: string[] = [];
+  for (const z of storeys) {
+    for (let a = x + (bay - pane) / 2 + 0.06; a + pane <= x + sx - 0.04; a += bay) left.push(quadL(y + sy, a, a + pane, z, z + tall));
+    for (let b = y + (bay - pane) / 2 + 0.06; b + pane <= y + sy - 0.04; b += bay) right.push(quadR(x + sx, b, b + pane, z, z + tall));
+  }
+  return { left, right };
+}
+
+/** A vertical cylinder in screen terms: base centre, radius and height (px). */
+export function cylinder(gx: number, gy: number, r: number, h: number, z0 = 0) {
+  const base = iso(gx, gy, z0);
+  const top = { x: base.x, y: base.y - h };
+  const side = `M${base.x - r},${top.y} L${base.x - r},${base.y} A${r},${r / 2} 0 0 0 ${base.x + r},${base.y} L${base.x + r},${top.y} Z`;
+  return { base, top, rx: r, ry: r / 2, side };
+}
+
+/** How tall each place's illustration stands, so its label clears the roof. */
+export const ART_TOP: Record<Exclude<PlaceId, "home">, number> = { launchpad: 122, exchange: 128, plaza: 58, observatory: 92, debate: 70, cafe: 66 };
+

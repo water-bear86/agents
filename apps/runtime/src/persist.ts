@@ -23,6 +23,8 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     reviews: world.reviews.slice(-2000),
     predictions: world.predictions.slice(-5000),
     debates: world.debates.slice(-5000),
+    chats: world.chats.slice(-5000),
+    ideas: world.ideas.slice(-1000),
     compliance: world.compliance,
     ...extra,
   };
@@ -46,6 +48,8 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.reviews = s.reviews ?? [];
   world.predictions = s.predictions ?? [];
   world.debates = s.debates ?? [];
+  world.chats = s.chats ?? [];
+  world.ideas = s.ideas ?? [];
   if (s.compliance) world.compliance = s.compliance;
   return s;
 }

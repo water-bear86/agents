@@ -94,12 +94,11 @@ main.shell { padding-top: 32px; padding-bottom: 64px; }
 .mark {
   --size: 28px;
   width: var(--size); height: var(--size); flex: none;
-  display: inline-grid; place-items: center; border-radius: 5px;
-  background: oklch(var(--agent-l) var(--agent-c) var(--h));
-  color: #fff; font-weight: 800; font-stretch: 125%; font-size: calc(var(--size) * 0.46); line-height: 1;
-  text-transform: uppercase;
+  display: inline-grid; place-items: end center; border-radius: 5px; overflow: hidden;
+  background: linear-gradient(oklch(calc(var(--agent-l) + 0.22) calc(var(--agent-c) * 0.5) var(--h)), oklch(calc(var(--agent-l) + 0.1) calc(var(--agent-c) * 0.7) var(--h)));
 }
-@media (prefers-color-scheme: dark) { .mark { color: #0d1521; } }
+@media (prefers-color-scheme: dark) { .mark { background: linear-gradient(oklch(0.36 calc(var(--agent-c) * 0.6) var(--h)), oklch(0.28 calc(var(--agent-c) * 0.6) var(--h))); } }
+.mark .avatar-sprite { width: 100%; height: 100%; display: block; }
 .mark.lg { --size: 72px; border-radius: 10px; }
 .mark.sm { --size: 20px; border-radius: 4px; }
 .who { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 650; min-width: 0; }
@@ -371,21 +370,16 @@ legend + * { clear: both; }
 .world-tools .hint { font-size: 12.5px; margin-left: 8px; }
 .world-svg { display: block; width: 100%; height: auto; aspect-ratio: 860 / 540; touch-action: none; cursor: grab; user-select: none; background: var(--paper); }
 .world-svg:active { cursor: grabbing; }
-.world-svg .ground { fill: color-mix(in oklab, var(--surface) 70%, var(--paper)); stroke: var(--rule); stroke-width: 1; }
-.world-svg .tile { fill: none; stroke: var(--rule-soft); stroke-width: 0.75; }
-.world-svg .road { fill: color-mix(in oklab, var(--rule) 45%, transparent); }
-.world-svg .plot { stroke: none; }
 .world-svg .place { cursor: pointer; outline: none; }
-.world-svg .place polygon { stroke: color-mix(in oklab, var(--ink) 18%, transparent); stroke-width: 0.75; stroke-linejoin: round; }
 .world-svg .place:hover .plot, .world-svg .place:focus-visible .plot, .world-svg .place.sel .plot { stroke: var(--signal); stroke-width: 2; }
 .place-label { font-size: 12px; font-weight: 750; font-stretch: 112%; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 
 .pawn { cursor: pointer; outline: none; }
-@media (prefers-reduced-motion: no-preference) { .pawn { transition: transform 1.1s cubic-bezier(.45,.05,.25,1); } }
+@media (prefers-reduced-motion: no-preference) { .pawn { transition: transform 1.1s cubic-bezier(.45,.05,.25,1), opacity 0.25s; } }
+/* Agents at home are indoors: they finish the walk to the door, then go in. */
+.pawn.inside { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) { .pawn.inside { transition: transform 1.1s cubic-bezier(.45,.05,.25,1), opacity 0.35s 1.05s; } }
 .pawn-shadow { fill: color-mix(in oklab, var(--ink) 22%, transparent); }
-.pawn-body { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke: var(--surface); stroke-width: 1.5; }
-.pawn-letter { font-size: 11px; font-weight: 850; fill: #fff; pointer-events: none; }
-@media (prefers-color-scheme: dark) { .pawn-letter { fill: #0d1521; } }
 .pawn-ring { fill: none; stroke: var(--signal); stroke-width: 2.5; }
 .pawn:focus-visible .pawn-shadow, .pawn:hover .pawn-shadow { fill: color-mix(in oklab, var(--signal) 40%, transparent); }
 .pawn-pulse { fill: none; stroke: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke-width: 2; opacity: 0; }
@@ -414,14 +408,6 @@ legend + * { clear: both; }
 
 /* ---------------------------------------------------------------- homes */
 .world-svg .house { cursor: pointer; outline: none; }
-.world-svg .house .yard { fill: color-mix(in oklab, var(--hold) 8%, transparent); }
-.world-svg .house polygon { stroke: color-mix(in oklab, var(--ink) 18%, transparent); stroke-width: 0.75; stroke-linejoin: round; }
-.world-svg .house .wall-l { fill: color-mix(in oklab, var(--muted) 22%, var(--surface)); }
-.world-svg .house .wall-r { fill: color-mix(in oklab, var(--muted) 40%, var(--surface)); }
-.world-svg .house .door { fill: color-mix(in oklab, var(--ink) 55%, var(--surface)); }
-.world-svg .house.lit .door { fill: color-mix(in oklab, var(--hold) 70%, var(--surface)); }
-.world-svg .house .roof-l { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); }
-.world-svg .house .roof-r { fill: oklch(calc(var(--agent-l) - 0.1) var(--agent-c) var(--h)); }
 .world-svg .house:hover .yard, .world-svg .house:focus-visible .yard, .world-svg .house.sel .yard { stroke: var(--signal); stroke-width: 2; }
 .house-label { font-size: 10.5px; font-weight: 750; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 3.5px; stroke-linejoin: round; pointer-events: none; opacity: 0; }
 .house:hover .house-label, .house:focus-visible .house-label, .house.sel .house-label { opacity: 1; }
@@ -431,8 +417,6 @@ legend + * { clear: both; }
 .home-stats dd { margin: 0; font-weight: 650; }
 .medals.compact { grid-template-columns: 1fr; gap: 8px; padding-top: 10px; }
 .world-side { max-height: calc(100vh - 100px); overflow: auto; }
-.world-svg .house .window { fill: color-mix(in oklab, var(--signal) 18%, var(--surface)); }
-.world-svg .house.lit .window { fill: color-mix(in oklab, var(--hold) 55%, var(--surface)); }
 
 /* ---------------------------------------------------------------- segmented filter */
 .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
@@ -472,3 +456,445 @@ legend + * { clear: both; }
 .vault-panel h2 { font-size: 18px; margin: 0 0 6px; }
 .vault-panel .withdraw { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
 .vault-panel .withdraw .prefixed { flex: 1 1 180px; max-width: 260px; }
+
+/* ---------------------------------------------------------------- world: the illustrated model
+   A scale model on a base board. Light from the upper left: lit left walls, shaded right walls,
+   shadows to the lower right. Day in the light theme; night in the dark one, when windows and
+   lamps glow. Places set --tone, houses and robots set --h (the agent's hue). */
+.world-svg, .interior-svg {
+  --w-sky: color-mix(in oklab, var(--paper) 70%, #dfe9f3);
+  --w-grass: #d7e5d2;
+  --w-grass-alt: #cfdfca;
+  --w-slab-l: #c5ccd4;
+  --w-slab-r: #b1b9c3;
+  --w-asphalt: #737d8c;
+  --w-lane: #f4f5f0;
+  --w-paving: #e6e8ec;
+  --w-joint: #d2d6dc;
+  --w-wall: #fbfcfd;
+  --w-wall-shade: #d6dde6;
+  --w-top: #ffffff;
+  --w-edge: rgba(15, 27, 45, 0.16);
+  --w-glass: #b7c7e3;
+  --w-pane: #8ea4c9;
+  --w-pane-r: #7b90b4;
+  --w-steel: #8d96a3;
+  --w-wood: #b98a5e;
+  --w-water: #8fc2e6;
+  --w-leaf: #6f9a6a;
+  --w-leaf-lit: #a6c79a;
+  --w-trunk: #8a6a4f;
+  --w-shadow: rgba(30, 45, 70, 0.16);
+  --w-glow: #ffcf6e;
+  --w-lamp: #e9edf2;
+  background: var(--w-sky);
+}
+@media (prefers-color-scheme: dark) {
+  .world-svg, .interior-svg {
+    --w-sky: #0b1220;
+    --w-grass: #16251f;
+    --w-grass-alt: #14221c;
+    --w-slab-l: #1b2638;
+    --w-slab-r: #141e2d;
+    --w-asphalt: #1c2534;
+    --w-lane: #54617a;
+    --w-paving: #232f43;
+    --w-joint: #1b2638;
+    --w-wall: #34445f;
+    --w-wall-shade: #243249;
+    --w-top: #3d4f6d;
+    --w-edge: rgba(0, 0, 0, 0.35);
+    --w-glass: #22324d;
+    --w-pane: #ffc861;
+    --w-pane-r: #e2a945;
+    --w-steel: #4a5568;
+    --w-wood: #6b4f39;
+    --w-water: #2d5f86;
+    --w-leaf: #1f3d2e;
+    --w-leaf-lit: #2f5a43;
+    --w-trunk: #4b3a2c;
+    --w-shadow: rgba(0, 0, 0, 0.38);
+    --w-glow: #ffc861;
+    --w-lamp: #ffe2a3;
+  }
+}
+.world-svg polygon, .world-svg path, .world-svg ellipse { stroke-linejoin: round; }
+.world-svg .slab.l { fill: var(--w-slab-l); }
+.world-svg .slab.r { fill: var(--w-slab-r); }
+.world-svg .ground { fill: var(--w-grass); }
+.world-svg .grass-alt { fill: var(--w-grass-alt); }
+.world-svg .road { fill: var(--w-asphalt); }
+.world-svg .lot { stroke: color-mix(in oklab, var(--w-paving) 70%, var(--w-asphalt)); stroke-width: 2.5; }
+.world-svg .lot.civic { fill: var(--w-paving); }
+.world-svg .lot.homes { fill: var(--w-grass); }
+.world-svg .lane { stroke: var(--w-lane); stroke-width: 1.4; stroke-dasharray: 9 9; opacity: 0.8; }
+.world-svg .shadow { fill: var(--w-shadow); }
+
+/* Materials: every solid is drawn in one, lit left (l), shaded right (r), top (t). */
+.world-svg .m-card.l { fill: var(--w-wall); }
+.world-svg .m-card.r { fill: var(--w-wall-shade); }
+.world-svg .m-card.t { fill: var(--w-top); }
+.world-svg .m-tone.l { fill: color-mix(in oklab, var(--tone) 62%, var(--w-wall)); }
+.world-svg .m-tone.r { fill: color-mix(in oklab, var(--tone) 78%, var(--w-wall-shade)); }
+.world-svg .m-tone.t { fill: color-mix(in oklab, var(--tone) 45%, var(--w-top)); }
+.world-svg .m-glass.l { fill: color-mix(in oklab, var(--tone) 22%, var(--w-glass)); }
+.world-svg .m-glass.r { fill: color-mix(in oklab, var(--tone) 30%, color-mix(in oklab, var(--w-glass) 82%, #000)); }
+.world-svg .m-glass.t { fill: color-mix(in oklab, var(--tone) 18%, var(--w-top)); }
+.world-svg .m-steel.l { fill: var(--w-steel); }
+.world-svg .m-steel.r { fill: color-mix(in oklab, var(--w-steel) 78%, #000); }
+.world-svg .m-steel.t { fill: color-mix(in oklab, var(--w-steel) 80%, #fff); }
+.world-svg .m-wood.l { fill: var(--w-wood); }
+.world-svg .m-wood.r { fill: color-mix(in oklab, var(--w-wood) 78%, #000); }
+.world-svg .m-wood.t { fill: color-mix(in oklab, var(--w-wood) 80%, #fff); }
+.world-svg :is(.m-card, .m-tone, .m-glass, .m-steel, .m-wood) { stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .drum { stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .drum-tone { fill: var(--tone); opacity: 0.55; mix-blend-mode: multiply; }
+@media (prefers-color-scheme: dark) { .world-svg .drum-tone { mix-blend-mode: normal; opacity: 0.4; } }
+
+/* Windows: glass by day, warm light by night. */
+.world-svg .win.l { fill: var(--w-pane); }
+.world-svg .win.r { fill: var(--w-pane-r); }
+
+/* Places. */
+.world-svg .plot { fill: color-mix(in oklab, var(--tone) 7%, var(--w-paving)); stroke: none; }
+.world-svg .place:hover .plot, .world-svg .place:focus-visible .plot, .world-svg .place.sel .plot { stroke: var(--signal); stroke-width: 2; }
+.world-svg .hazard { fill: none; stroke: var(--hold); stroke-width: 3.5; stroke-dasharray: 7 6; }
+.world-svg .rocket { fill: var(--w-wall); stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .rocket-shade { fill: var(--w-wall-shade); opacity: 0.85; }
+.world-svg .porthole { fill: var(--w-pane); stroke: var(--w-steel); stroke-width: 1.2; }
+.world-svg .exhaust { fill: var(--w-steel); }
+.world-svg .ticker { fill: #101826; }
+.world-svg .ticker-lights { stroke: var(--gain); stroke-width: 2; stroke-dasharray: 2 2 5 2 3 3; }
+.world-svg .entrance { fill: color-mix(in oklab, var(--w-pane) 70%, #000); }
+.world-svg .mast { stroke: var(--w-steel); stroke-width: 1.5; }
+.world-svg .beacon { fill: var(--loss); }
+.world-svg .paving { fill: var(--w-paving); }
+.world-svg .joint { stroke: var(--w-joint); stroke-width: 0.8; }
+.world-svg .note { stroke: var(--w-edge); stroke-width: 0.5; }
+.world-svg .note.n1 { fill: var(--w-top); }
+.world-svg .note.n2 { fill: color-mix(in oklab, var(--hold) 30%, var(--w-top)); }
+.world-svg .note.n3 { fill: color-mix(in oklab, var(--signal) 25%, var(--w-top)); }
+.world-svg .water, .interior-svg .water { fill: var(--w-water); }
+.world-svg .spray, .interior-svg .spray { fill: none; stroke: var(--w-water); stroke-width: 1.6; stroke-linecap: round; opacity: 0.9; }
+.world-svg .dome { fill: color-mix(in oklab, var(--tone) 50%, var(--w-wall)); stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .dome-shade { fill: color-mix(in oklab, var(--tone) 40%, #000); opacity: 0.25; clip-path: inset(0 0 0 50%); }
+.world-svg .slit { fill: #101826; }
+.world-svg .scope { stroke: var(--w-steel); stroke-width: 4; stroke-linecap: round; }
+
+/* Lamps light up at night. */
+.world-svg .lamp-post { stroke: var(--w-steel); stroke-width: 1.6; }
+.world-svg .lamp-head { fill: var(--w-lamp); stroke: var(--w-steel); stroke-width: 0.8; }
+.world-svg .lamp-glow { opacity: 0; }
+@media (prefers-color-scheme: dark) { .world-svg .lamp-glow { opacity: 1; } }
+
+.world-svg .trunk { fill: var(--w-trunk); }
+.world-svg .canopy { stroke: color-mix(in oklab, var(--w-leaf) 80%, #000); stroke-width: 0.6; }
+
+/* Houses: roof in the owner's colour; windows dark when it's out, warm when it's home. */
+.world-svg .house .yard { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 9%, var(--w-grass)); }
+.world-svg .house .path { fill: var(--w-paving); }
+.world-svg .house .siding { stroke: var(--w-edge); stroke-width: 0.6; opacity: 0.6; }
+.world-svg .house .door { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 45%, #24324a); }
+.world-svg .house .roof.l { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .house .roof.r { fill: oklch(calc(var(--agent-l) - 0.12) var(--agent-c) var(--h)); stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .house .ridge { stroke: oklch(calc(var(--agent-l) + 0.12) calc(var(--agent-c) * 0.7) var(--h)); stroke-width: 1.1; }
+.world-svg .house:not(.lit) .win { fill: color-mix(in oklab, var(--w-glass) 70%, #000); }
+.world-svg .house.lit .win { fill: var(--w-glow); }
+
+
+
+/* ---------------------------------------------------------------- world: life and detail */
+.world-svg, .interior-svg { --w-hedge: #5d8a58; --w-flower-a: #e7769b; --w-flower-b: #f2c14e; --w-flower-c: #9a7be0; --w-car-1: #e15a4f; --w-car-2: #3f7fd8; --w-car-3: #f0b43c; --w-car-4: #eef1f5; }
+@media (prefers-color-scheme: dark) { .world-svg, .interior-svg { --w-hedge: #1f3a2a; --w-flower-a: #8a4560; --w-flower-b: #8a7232; --w-flower-c: #5a4a8a; --w-car-1: #8f3a33; --w-car-2: #2b4f86; --w-car-3: #8c6a24; --w-car-4: #8e98a6; } }
+
+.world-svg .stars { display: none; }
+@media (prefers-color-scheme: dark) { .world-svg .stars { display: inline; } .world-svg .stars circle { fill: #c9d6ff; opacity: 0.55; } }
+
+/* Lots: gardens, ponds and parks where houses haven't been built yet. */
+.world-svg .bed-edge { fill: color-mix(in oklab, var(--w-wood) 55%, var(--w-grass)); }
+.world-svg .bed.b0 { fill: var(--w-flower-a); }
+.world-svg .bed.b1 { fill: var(--w-flower-b); }
+.world-svg .bed.b2 { fill: var(--w-flower-c); }
+.world-svg .pond-rim { fill: var(--w-paving); }
+.world-svg .lily { fill: var(--w-leaf-lit); }
+.world-svg .reeds { stroke: var(--w-leaf); stroke-width: 1.1; stroke-linecap: round; fill: none; }
+.world-svg .park-path { fill: var(--w-paving); }
+
+/* Cars drive one way along a street and loop; hidden for reduced motion. */
+.world-svg .car { display: none; }
+.world-svg .m-car.l { fill: var(--car); }
+.world-svg .m-car.r { fill: color-mix(in oklab, var(--car) 75%, #000); }
+.world-svg .m-car.t { fill: color-mix(in oklab, var(--car) 85%, #fff); }
+.world-svg .m-cab.l, .world-svg .m-cab.r { fill: color-mix(in oklab, var(--w-pane) 75%, #000); }
+.world-svg .m-cab.t { fill: color-mix(in oklab, var(--car) 70%, #fff); }
+.world-svg :is(.m-car, .m-cab) { stroke: var(--w-edge); stroke-width: 0.5; }
+.world-svg .car.c1 { --car: var(--w-car-1); }
+.world-svg .car.c2 { --car: var(--w-car-2); }
+.world-svg .car.c3 { --car: var(--w-car-3); }
+.world-svg .car.c4 { --car: var(--w-car-4); }
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .car { display: inline; animation-name: drive; animation-timing-function: linear; animation-iteration-count: infinite; }
+  @keyframes drive { from { transform: translate(var(--fx), var(--fy)); } to { transform: translate(var(--tx), var(--ty)); } }
+}
+
+/* Houses by tier, and what badges add to the yard. */
+.world-svg .m-hedge.l { fill: var(--w-hedge); }
+.world-svg .m-hedge.r { fill: color-mix(in oklab, var(--w-hedge) 75%, #000); }
+.world-svg .m-hedge.t { fill: color-mix(in oklab, var(--w-hedge) 80%, #fff); }
+.world-svg .pool-rim { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.5; }
+.world-svg .house .m-tone-agent.l { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); }
+.world-svg .house .m-tone-agent.r { fill: oklch(calc(var(--agent-l) - 0.12) var(--agent-c) var(--h)); }
+.world-svg .house .m-tone-agent.t { fill: oklch(calc(var(--agent-l) + 0.1) calc(var(--agent-c) * 0.6) var(--h)); }
+.world-svg .house .house-beacon { fill: oklch(calc(var(--agent-l) + 0.1) var(--agent-c) var(--h)); }
+@media (prefers-color-scheme: dark) { .world-svg .house .house-beacon { filter: drop-shadow(0 0 4px oklch(var(--agent-l) var(--agent-c) var(--h))); } }
+.world-svg .statue rect { fill: #d9b24c; stroke: color-mix(in oklab, #d9b24c 60%, #000); stroke-width: 0.5; }
+.world-svg .firepit .pit { fill: var(--w-steel); }
+.world-svg .firepit .fire { fill: #ff9a3c; }
+.world-svg .firepit .fire-glow { opacity: 0; }
+@media (prefers-color-scheme: dark) { .world-svg .firepit .fire-glow { opacity: 1; } }
+.world-svg .flagpole { stroke: var(--w-steel); stroke-width: 1.2; }
+.world-svg .flag-cloth { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke: var(--w-edge); stroke-width: 0.5; }
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .firepit .fire { transform-box: fill-box; transform-origin: 50% 100%; animation: flicker 0.5s ease-in-out infinite alternate; }
+  @keyframes flicker { from { transform: scale(1, 1); } to { transform: scale(0.85, 1.15); } }
+  .world-svg .flag-cloth { transform-box: fill-box; transform-origin: 0 50%; animation: wave 2.4s ease-in-out infinite alternate; }
+  @keyframes wave { from { transform: skewY(0deg); } to { transform: skewY(-6deg) scaleX(0.94); } }
+}
+
+/* Places reacting to what agents do. */
+.world-svg .ticker-text { font-size: 4.2px; font-weight: 750; fill: #cfd8e6; letter-spacing: 0.1px; white-space: pre; }
+.world-svg .ticker-text .up { fill: #42d39c; }
+.world-svg .ticker-text .down { fill: #ff7a6b; }
+.world-svg .flame { fill: #ffb14a; }
+.world-svg .smoke circle { fill: color-mix(in oklab, var(--w-wall) 85%, var(--w-steel)); opacity: 0; }
+.world-svg .glint { fill: #fff6c9; }
+.world-svg .speech rect, .world-svg .speech path { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .speech text { font-size: 9px; font-weight: 850; fill: color-mix(in oklab, var(--teal, #1b9aaa) 80%, #000); }
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .ticker-text { transform-box: fill-box; animation: ticker 18s linear infinite; }
+  @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .world-svg .rocket-g.liftoff { animation: liftoff 3.4s cubic-bezier(.55, 0, .9, .4) forwards; }
+  @keyframes liftoff { 0% { transform: translateY(0); } 12% { transform: translate(0.6px, 0.5px); } 20% { transform: translate(-0.6px, 0); } 100% { transform: translateY(-340px); opacity: 0; } }
+  .world-svg .flame { transform-box: fill-box; transform-origin: 50% 0; animation: flicker 0.12s linear infinite alternate; }
+  .world-svg .smoke circle { transform-box: fill-box; transform-origin: center; animation: puff 3s ease-out forwards; }
+  .world-svg .smoke circle:nth-child(2n) { animation-delay: 0.25s; }
+  @keyframes puff { 0% { opacity: 0; transform: scale(0.4); } 25% { opacity: 0.85; } 100% { opacity: 0; transform: scale(2.6) translateY(-4px); } }
+  .world-svg .glint { transform-box: fill-box; transform-origin: center; animation: glint 1.2s ease-in-out infinite alternate; }
+  @keyframes glint { from { opacity: 0.2; transform: scale(0.6) rotate(0deg); } to { opacity: 1; transform: scale(1.1) rotate(45deg); } }
+  .world-svg .speech > g { transform-box: fill-box; animation: pop 0.35s cubic-bezier(.3, 1.6, .5, 1) both; }
+  .world-svg .speech > g.late { animation-delay: 0.6s; }
+  @keyframes pop { from { opacity: 0; scale: 0.4; } to { opacity: 1; scale: 1; } }
+}
+@media (prefers-reduced-motion: reduce) { .world-svg .rocket-g.liftoff { opacity: 0.35; } }
+
+/* ---------------------------------------------------------------- inside a house */
+.interior { display: grid; }
+.interior-bar { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); flex-wrap: wrap; font-size: 13.5px; }
+.world-tools[hidden] { display: none; }
+.interior-svg { display: block; width: 100%; height: auto; aspect-ratio: 560 / 480; max-height: 72vh; --i-sky-top: #9cc7f0; --i-sky-low: #dcecf8; }
+@media (prefers-color-scheme: dark) { .interior-svg { --i-sky-top: #0a1426; --i-sky-low: #1d2f52; } }
+@media (prefers-reduced-motion: no-preference) {
+  .interior-svg { animation: step-inside 0.45s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes step-inside { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: none; } }
+}
+.interior-svg .i-base { fill: var(--w-slab-r); }
+.interior-svg .i-cut.l { fill: var(--w-slab-l); }
+.interior-svg .i-cut.r { fill: var(--w-slab-r); }
+.interior-svg .i-floor { fill: color-mix(in oklab, var(--w-wood) 70%, var(--w-wall)); }
+.interior-svg.tier-3 .i-floor, .interior-svg.tier-4 .i-floor { fill: color-mix(in oklab, var(--w-wall) 80%, var(--w-wall-shade)); }
+.interior-svg .i-plank { stroke: color-mix(in oklab, var(--w-wood) 60%, #000); stroke-width: 0.6; opacity: 0.35; }
+.interior-svg .i-wall.l { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 14%, var(--w-wall)); }
+.interior-svg .i-wall.r { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 18%, var(--w-wall-shade)); }
+.interior-svg .i-wall-top { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-skirt { fill: var(--w-wood); }
+.interior-svg .i-frame { fill: var(--w-wall); stroke: var(--w-edge); stroke-width: 0.8; }
+.interior-svg .i-mullion { stroke: var(--w-wall); stroke-width: 3; }
+.interior-svg .i-moon { fill: #fff4c4; opacity: 0; }
+@media (prefers-color-scheme: dark) { .interior-svg .i-moon { opacity: 0.9; } }
+.interior-svg .i-plaque { fill: color-mix(in oklab, #d9b24c 70%, var(--w-wood)); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-plaque-text { font-size: 9px; font-weight: 850; fill: #3a2a0a; }
+.interior-svg .i-plaque-sub { font-size: 6.5px; font-weight: 650; fill: #3a2a0a; }
+.interior-svg .i-cert { fill: var(--w-top); stroke: color-mix(in oklab, var(--teal) 70%, #000); stroke-width: 1.2; }
+.interior-svg .i-shelf { fill: var(--w-wood); }
+.interior-svg .trophy .cup { fill: #e2b84e; stroke: color-mix(in oklab, #e2b84e 55%, #000); stroke-width: 0.6; }
+.interior-svg .trophy .cup-base { fill: color-mix(in oklab, var(--w-wood) 70%, #000); }
+.interior-svg .trophy .cup-glyph { font-size: 5.5px; font-weight: 850; fill: #5a3f05; }
+.interior-svg :is(.i-wood, .i-sofa, .i-steel, .i-pot) { stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-wood.l { fill: var(--w-wood); } .interior-svg .i-wood.r { fill: color-mix(in oklab, var(--w-wood) 75%, #000); } .interior-svg .i-wood.t { fill: color-mix(in oklab, var(--w-wood) 82%, #fff); }
+.interior-svg .i-sofa.l { fill: oklch(var(--agent-l) calc(var(--agent-c) * 0.7) var(--h)); } .interior-svg .i-sofa.r { fill: oklch(calc(var(--agent-l) - 0.12) calc(var(--agent-c) * 0.7) var(--h)); } .interior-svg .i-sofa.t { fill: oklch(calc(var(--agent-l) + 0.08) calc(var(--agent-c) * 0.6) var(--h)); }
+.interior-svg .i-steel.l { fill: var(--w-steel); } .interior-svg .i-steel.r, .interior-svg .i-steel.t { fill: color-mix(in oklab, var(--w-steel) 80%, #000); }
+.interior-svg .i-pot.l { fill: #b5653d; } .interior-svg .i-pot.r { fill: #8e4c2c; } .interior-svg .i-pot.t { fill: #5a3a22; }
+.interior-svg .i-leaf { fill: var(--w-leaf); stroke: color-mix(in oklab, var(--w-leaf) 70%, #000); stroke-width: 0.6; }
+.interior-svg .i-monitor { fill: #1b2230; }
+.interior-svg .i-screen { fill: #0d1726; }
+.interior-svg .i-screen-text { font-size: 6.4px; font-weight: 600; fill: #b8c7de; white-space: pre; }
+.interior-svg .i-screen-text.ok { fill: #42d39c; }
+.interior-svg .i-screen-text.no { fill: #ff8a7b; }
+.interior-svg .i-rug { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 35%, var(--w-wall)); stroke: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 60%, #000); stroke-width: 1; stroke-dasharray: 3 3; }
+.interior-svg .i-pole { stroke: var(--w-steel); stroke-width: 2; }
+.interior-svg .i-shade { fill: color-mix(in oklab, var(--w-glow) 60%, var(--w-wall)); }
+.interior-svg .i-lamp-glow { opacity: 0; }
+@media (prefers-color-scheme: dark) { .interior-svg .i-lamp-glow { opacity: 1; } }
+.interior-svg .i-scope line { stroke: var(--w-steel); stroke-width: 1.6; }
+.interior-svg .i-scope .tube { stroke-width: 5; stroke-linecap: round; stroke: color-mix(in oklab, var(--violet) 60%, var(--w-steel)); }
+.interior-svg .i-coin .edge { fill: color-mix(in oklab, #e2b84e 60%, #000); }
+.interior-svg .i-coin .face { fill: #e9c25a; stroke: color-mix(in oklab, #e2b84e 55%, #000); stroke-width: 0.5; }
+.interior-svg .i-coin-sym { font-size: 6px; font-weight: 800; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 2px; }
+.interior-svg .i-note { font-size: 7px; fill: var(--muted); }
+.interior-svg .i-dock { fill: var(--w-steel); }
+.interior-svg .i-dock-ring { fill: none; stroke: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke-width: 2.5; }
+@media (prefers-color-scheme: dark) { .interior-svg .i-dock-ring { filter: drop-shadow(0 0 4px oklch(var(--agent-l) var(--agent-c) var(--h))); } }
+.interior-svg .i-away rect { fill: var(--surface); stroke: var(--rule); }
+.interior-svg .i-away text { font-size: 10px; font-weight: 650; fill: var(--ink); }
+.interior-svg .i-agent .pawn-shadow { fill: rgba(0, 0, 0, 0.18); }
+
+/* ---------------------------------------------------------------- the Café */
+.world-svg .terrace { fill: color-mix(in oklab, var(--w-wood) 35%, var(--w-paving)); }
+.world-svg .awning-a { fill: var(--tone); stroke: var(--w-edge); stroke-width: 0.4; }
+.world-svg .awning-b { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.4; }
+.world-svg .cafe-glass { fill: color-mix(in oklab, var(--w-glow) 45%, var(--w-pane)); }
+.world-svg .place .door { fill: color-mix(in oklab, var(--tone) 40%, #24324a); }
+.world-svg .idea-board { fill: #2f3d33; stroke: var(--w-wood); stroke-width: 1.2; }
+.world-svg .cafe-sign rect { fill: #1d1626; stroke: var(--tone); stroke-width: 1.2; }
+.world-svg .cafe-sign text { font-size: 10.5px; font-weight: 800; fill: color-mix(in oklab, var(--tone) 55%, #fff); letter-spacing: 0.04em; }
+.world-svg .cafe-table .cup { fill: var(--w-top); stroke: var(--w-edge); stroke-width: 0.4; }
+.world-svg .cafe-table .steam { fill: none; stroke: var(--w-top); stroke-width: 1; stroke-linecap: round; opacity: 0.7; }
+.world-svg .cafe-lights .post { stroke: var(--w-steel); stroke-width: 1.4; }
+.world-svg .cafe-lights .wire { fill: none; stroke: color-mix(in oklab, var(--w-steel) 70%, #000); stroke-width: 0.6; }
+.world-svg .cafe-lights .bulb { fill: color-mix(in oklab, var(--w-glow) 60%, #fff); stroke: var(--w-edge); stroke-width: 0.3; }
+@media (prefers-color-scheme: dark) {
+  .world-svg .cafe-lights .bulb { fill: var(--w-glow); filter: drop-shadow(0 0 2.5px var(--w-glow)); }
+  .world-svg .cafe-lights .bulb.b1 { fill: #ff9ec1; filter: drop-shadow(0 0 2.5px #ff9ec1); }
+  .world-svg .cafe-lights .bulb.b2 { fill: #9fe8ff; filter: drop-shadow(0 0 2.5px #9fe8ff); }
+  .world-svg .cafe-sign text { fill: color-mix(in oklab, var(--tone) 35%, #fff); filter: drop-shadow(0 0 3px var(--tone)); }
+  .world-svg .cafe-glass { fill: var(--w-glow); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .cafe-table .steam { stroke-dasharray: 4 3; animation: steam 1.6s linear infinite; }
+  .world-svg .cafe-lights .bulb.b1 { animation: twinkle 2.4s ease-in-out infinite alternate; }
+  @keyframes steam { to { stroke-dashoffset: -14; } }
+  @keyframes twinkle { from { opacity: 1; } to { opacity: 0.55; } }
+}
+.ideas { list-style: none; margin: 0; padding: 0 18px 6px; }
+.ideas li { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 14px; }
+.ideas li:last-child { border-bottom: 0; }
+.ideas .why { color: var(--muted); font-size: 13px; }
+
+/* ---------------------------------------------------------------- agent sprites
+   Robots with LED-screen faces (lib/sprite.tsx). The body carries the agent's colour (--h), the
+   face its glow (--glow). Works on the map, inside buildings and as avatars, with fallbacks where
+   the map's --w-* tokens aren't set. */
+.sprite .sp-body { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke: var(--w-edge, rgba(15, 27, 45, 0.2)); stroke-width: 0.6; }
+.sprite .sp-shade { fill: #000; opacity: 0.14; }
+.sprite .sp-head { fill: var(--w-wall, #f6f8fb); stroke: var(--w-edge, rgba(15, 27, 45, 0.2)); stroke-width: 0.6; }
+.sprite .sp-screen { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.5; }
+.sprite .sp-dim { fill: #000; fill-opacity: 0.4; }
+.sprite .sp-lit { fill: var(--glow); }
+.sprite :is(.sp-shut, .sp-m-b) { opacity: 0; }
+.sprite .sp-face.asleep .sp-lit { opacity: 0.55; }
+.sprite .sp-trim { fill: none; stroke: #e2b84e; stroke-width: 1; }
+.sprite .sp-hand { fill: oklch(calc(var(--agent-l) - 0.04) var(--agent-c) var(--h)); stroke: var(--w-edge, rgba(15, 27, 45, 0.2)); stroke-width: 0.5; }
+.sprite .sp-core { fill: oklch(calc(var(--agent-l) + 0.25) calc(var(--agent-c) * 0.6) var(--h)); }
+.sprite .sp-steel { fill: var(--w-steel, #8d96a3); }
+.sprite .sp-tyre { fill: #2b3442; }
+.sprite .sp-spoke { stroke: #8d96a3; stroke-width: 1; }
+.sprite .sp-jet { fill: oklch(0.85 0.12 var(--h)); opacity: 0.7; }
+.sprite .sp-wire { stroke: var(--w-steel, #8d96a3); stroke-width: 1.1; }
+.sprite .sp-tip { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); }
+.sprite .sp-gold { fill: #e2b84e; stroke: #9c7a1e; stroke-width: 0.4; }
+.sprite .sp-stripe { stroke: #fff; stroke-width: 1.6; stroke-linecap: round; opacity: 0.85; fill: none; }
+.sprite .sp-badge { fill: #fff; opacity: 0.9; }
+.sprite .sp-gear { fill: #2b3442; }
+.sprite .sp-gear-line { stroke: #2b3442; stroke-width: 1.3; fill: none; stroke-linecap: round; }
+.sprite .sp-lens { fill: #7fd4ff; stroke: #2b3442; stroke-width: 0.6; }
+.sprite .sp-shield { fill: #e9eef5; stroke: #2b3442; stroke-width: 0.6; }
+.sprite .sp-emote-bg { fill: #0f172a; stroke: var(--glow); stroke-width: 0.7; }
+.sprite .sp-emote-glyph { fill: var(--glow); }
+@media (prefers-color-scheme: dark) {
+  :is(.world-svg, .interior-svg) .sprite .sp-lit { filter: drop-shadow(0 0 1.2px var(--glow)); }
+  :is(.world-svg, .interior-svg) .sprite .sp-jet { filter: drop-shadow(0 0 3px oklch(0.85 0.12 var(--h))); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sprite .leg { transform-box: fill-box; transform-origin: 50% 0; }
+  .sprite.walking .leg-a { animation: stride 0.36s ease-in-out infinite alternate; }
+  .sprite.walking .leg-b { animation: stride 0.36s ease-in-out infinite alternate-reverse; }
+  .sprite.walking .bot { animation: bob 0.18s ease-in-out infinite alternate; }
+  .sprite .wheel { transform-box: fill-box; transform-origin: center; }
+  .sprite.walking .wheel { animation: roll 0.5s linear infinite; }
+  .world-svg .sprite.moves-hover .bot { animation: float 1.6s ease-in-out infinite alternate; }
+  .sprite .arm { transform-box: view-box; transform-origin: 0 0; }
+  .sprite .arm-l.swing { animation: arm-swing 0.36s ease-in-out infinite alternate; }
+  .sprite .arm-r.swing { animation: arm-swing 0.36s ease-in-out infinite alternate-reverse; }
+  .sprite.mood-excited:not(.walking) .arm { animation: arm-wave 0.25s ease-in-out infinite alternate; }
+  /* Excited robots bounce on the spot. */
+  .sprite:is(.mood-excited, .mood-elated):not(.walking) .bot { animation: hop 0.5s ease-in-out infinite alternate; }
+  @keyframes stride { from { transform: rotate(24deg); } to { transform: rotate(-24deg); } }
+  @keyframes bob { from { transform: translateY(0); } to { transform: translateY(-1.5px); } }
+  @keyframes roll { to { transform: rotate(360deg); } }
+  @keyframes float { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+  @keyframes arm-swing { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
+  @keyframes arm-wave { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
+  @keyframes hop { from { transform: translateY(0); } to { transform: translateY(-2.5px); } }
+
+  /* Faces: everyone blinks on its own rhythm, glances about now and then, and grins when things go well. */
+  .sprite .sp-face:not(.asleep) .sp-open { animation: sp-blink-open var(--blink, 5s) step-end var(--blink-d, 0s) infinite; }
+  .sprite .sp-face:not(.asleep) .sp-shut { animation: sp-blink-shut var(--blink, 5s) step-end var(--blink-d, 0s) infinite; }
+  .sprite .sp-face:not(.asleep) .sp-eyes { animation: sp-glance calc(var(--blink, 5s) * 2.3) step-end var(--blink-d, 0s) infinite; }
+  .sprite:is(.mood-neutral, .mood-happy, .mood-elated, .mood-loving) .sp-face:not(.talking) .sp-m-a { animation: sp-grin-a calc(var(--blink, 5s) * 1.9) step-end var(--blink-d, 0s) infinite; }
+  .sprite:is(.mood-neutral, .mood-happy, .mood-elated, .mood-loving) .sp-face:not(.talking) .sp-m-b { animation: sp-grin-b calc(var(--blink, 5s) * 1.9) step-end var(--blink-d, 0s) infinite; }
+  .sprite .sp-face.talking .sp-m-a { animation: sp-talk-a 0.34s step-end infinite; }
+  .sprite .sp-face.talking .sp-m-b { animation: sp-talk-b 0.34s step-end infinite; }
+  .sprite .sp-emote-pop { transform-box: fill-box; transform-origin: 25% 100%; animation: sp-pop 0.4s cubic-bezier(0.3, 1.6, 0.6, 1) both; }
+  .sprite .snooze .sp-emote-pop { animation: sp-snooze 2.6s ease-in-out infinite alternate; }
+  @keyframes sp-blink-open { 0%, 100% { opacity: 1; } 94% { opacity: 0; } 97% { opacity: 1; } }
+  @keyframes sp-blink-shut { 0%, 100% { opacity: 0; } 94% { opacity: 1; } 97% { opacity: 0; } }
+  @keyframes sp-glance { 0%, 100% { transform: none; } 62% { transform: translateX(calc(var(--cell) * -1px)); } 70% { transform: none; } 80% { transform: translateX(calc(var(--cell) * 1px)); } 88% { transform: none; } }
+  @keyframes sp-grin-a { 0%, 100% { opacity: 1; } 55% { opacity: 0; } 75% { opacity: 1; } }
+  @keyframes sp-grin-b { 0%, 100% { opacity: 0; } 55% { opacity: 1; } 75% { opacity: 0; } }
+  @keyframes sp-talk-a { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes sp-talk-b { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+  @keyframes sp-pop { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes sp-snooze { from { transform: translate(0, 0); opacity: 0.6; } to { transform: translate(2px, -3px); opacity: 1; } }
+}
+
+/* ---------------------------------------------------------------- inside the town's buildings */
+.interior-svg :is(.pi-screen-block, .pi-console, .pi-podium) { stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .pi-board-frame { fill: color-mix(in oklab, var(--w-steel) 70%, #000); }
+.interior-svg .pi-board { fill: #0d1726; }
+.interior-svg .pi-board-title { font-size: 8.5px; font-weight: 850; fill: #e6edf7; }
+.interior-svg .pi-board-line { font-size: 7px; font-weight: 600; fill: #b8c7de; white-space: pre; }
+.interior-svg .pi-board-line.ok { fill: #42d39c; }
+.interior-svg .pi-board-line.no { fill: #ff8a7b; }
+.interior-svg .pi-board-line.who { fill: #e6edf7; font-weight: 800; }
+.interior-svg .pi-screen-block.l, .interior-svg .pi-screen-block.r { fill: #1b2230; }
+.interior-svg .pi-screen-block.t { fill: #42d39c; opacity: 0.7; }
+.interior-svg .pi-console.t { fill: color-mix(in oklab, var(--signal) 60%, #0d1726); }
+.interior-svg .pi-console.l, .interior-svg .pi-console.r { fill: #1b2230; }
+@media (prefers-color-scheme: dark) { .interior-svg .pi-console.t, .interior-svg .pi-screen-block.t { filter: drop-shadow(0 0 3px var(--signal)); } }
+.interior-svg .i-photo-frame { fill: var(--w-wood); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .i-photo.best .i-photo-frame { fill: #e2b84e; stroke: #9c7a1e; }
+.interior-svg .i-photo-name { font-size: 6px; font-weight: 700; fill: var(--ink); }
+.interior-svg .pi-cup.t, .interior-svg .pi-cup.l, .interior-svg .pi-cup.r { fill: #f4efe6; stroke: var(--w-edge); stroke-width: 0.5; }
+.interior-svg .pi-rocket rect, .interior-svg .pi-rocket path { fill: var(--w-wall); stroke: var(--w-edge); stroke-width: 0.6; }
+.interior-svg .pi-rocket .tone { fill: var(--signal); }
+.interior-svg.place-observatory .i-wall.l, .interior-svg.place-observatory .i-wall.r { fill: color-mix(in oklab, var(--violet) 22%, #141c33); }
+.interior-svg .pi-stars circle { fill: #e8ecff; opacity: 0.7; }
+.interior-svg .pi-tube { stroke: color-mix(in oklab, var(--violet) 55%, var(--w-steel)); stroke-width: 18; stroke-linecap: round; }
+.interior-svg .pi-lens { fill: #7fd4ff; stroke: #2b3442; stroke-width: 2; }
+.interior-svg .pi-slit { fill: #050a14; }
+.interior-svg .pi-podium.l { fill: color-mix(in oklab, var(--teal) 55%, var(--w-wall)); }
+.interior-svg .pi-podium.r { fill: color-mix(in oklab, var(--teal) 70%, var(--w-wall-shade)); }
+.interior-svg .pi-podium.t { fill: color-mix(in oklab, var(--teal) 35%, var(--w-top)); }
+.interior-svg .pi-banner { fill: color-mix(in oklab, var(--teal) 80%, #000); }
+.interior-svg .pi-banner-text { font-size: 8px; font-weight: 800; fill: #fff; }
+.interior-svg .pi-cork { fill: #b98a5e; stroke: color-mix(in oklab, #b98a5e 60%, #000); stroke-width: 1; }
+.interior-svg .pi-note { stroke: rgba(0, 0, 0, 0.18); stroke-width: 0.6; }
+.interior-svg .pi-note.n0 { fill: #fffbe8; }
+.interior-svg .pi-note.n1 { fill: #fde7ef; }
+.interior-svg .pi-note.n2 { fill: #e8f2ff; }
+.interior-svg .pi-note-who { font-size: 6.4px; font-weight: 850; fill: #1d2a3e; }
+.interior-svg .pi-note-text { font-size: 6px; font-weight: 550; fill: #2b3442; }
+.interior-svg .pi-note-when { font-size: 5.4px; fill: #6a7584; }
+.interior-svg .pi-basin { fill: var(--w-paving); stroke: var(--w-edge); stroke-width: 0.8; }
+.interior-svg.place-plaza .i-floor { fill: var(--w-paving); }
+.interior-svg.place-exchange .i-floor { fill: color-mix(in oklab, var(--w-wall) 85%, var(--gain)); }

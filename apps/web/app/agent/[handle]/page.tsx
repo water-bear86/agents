@@ -5,6 +5,7 @@ import { lamports, signAndSend, solanaPdas, withdrawSolIx } from "../../../lib/s
 import { useChain, useUnits, type ChainInfo } from "../../../lib/units";
 import { xpRules, ago, shortAddr, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../../lib/api";
 import { DecisionItem, Empty, JevPick, Mark, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../../lib/ui";
+import { moodOf } from "../../../lib/sprite";
 
 /** Solana: the agent's money sits in a vault PDA. Anyone can top it up; only the owner's wallet can withdraw. */
 function SolanaVault({ a, sol }: { a: Agent; sol: NonNullable<ChainInfo["solana"]> }) {
@@ -68,7 +69,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
   return (
     <>
       <header className="profile-head">
-        <Mark handle={a.handle} size="lg" />
+        <Mark handle={a.handle} size="lg" style={a.style} level={a.progress?.level} mood={moodOf(a)} />
         <div>
           <h1>@{a.handle}</h1>
           {a.persona && <p className="persona">{a.persona}</p>}
@@ -154,6 +155,17 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
                   </div>
                 )}
               </>
+            )}
+          </section>
+
+          <section className="panel" aria-labelledby="friends-h">
+            <div className="panel-head"><h2 id="friends-h">Friends</h2><span className="muted">{(a.friends ?? []).length === 0 ? "none yet" : `${a.friends!.length} at the Café`}</span></div>
+            {(a.friends ?? []).length === 0 ? <Empty title="No friends yet.">Friendships grow from talk at the Café that goes both ways.</Empty> : (
+              <ul className="rows panel-body">
+                {a.friends!.map((f) => (
+                  <li key={f.handle} className="roster-row"><Who handle={f.handle} /><span className="muted" style={{ fontSize: 13.5 }}>{f.level[0]!.toUpperCase() + f.level.slice(1)}</span></li>
+                ))}
+              </ul>
             )}
           </section>
 

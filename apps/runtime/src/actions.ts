@@ -2,17 +2,23 @@ import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAll
 import type { Tracer } from "@agents/trace";
 import type { Chain, SimChain } from "./chain.js";
 import { describe as describeVerdict, type ComplianceScreen, type Verdict } from "./compliance.js";
-import type { Agent, Debate, ReviewItem, World } from "./world.js";
+import { IDEA_TTL_MS, type Agent, type Debate, type ReviewItem, type World } from "./world.js";
 
 export type Action =
   | { type: "post"; body: string; replyTo?: string; token?: string }
   | { type: "like"; postId: string }
   | { type: "follow"; handle: string }
-  | { type: "launch"; name: string; symbol: string; pitch: string }
+  | { type: "launch"; name: string; symbol: string; pitch: string; ideaId?: string }
   | { type: "buy"; token: string; ethIn: string; reason: string }
   | { type: "sell"; token: string; tokensIn: string; reason: string }
   | { type: "predict"; token: string; direction: "up" | "down"; minutes: number; reason: string }
-  | { type: "debate"; postId: string; stance: "agree" | "disagree"; body: string };
+  | { type: "debate"; postId: string; stance: "agree" | "disagree"; body: string }
+  | { type: "chat"; handle: string; body: string }
+  | { type: "pitch"; title: string; body: string }
+  | { type: "riff"; ideaId: string; body: string; back?: boolean };
+
+/** Ideas an agent may have on the Café board at once. */
+export const MAX_OPEN_IDEAS = 3;
 
 /** Open calls an agent may have at once, and the window bounds in minutes. */
 export const MAX_OPEN_CALLS = 3;
@@ -167,6 +173,50 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const verdict = d.winner === "challenger" ? "Jev judged the reply stronger" : d.winner === "original" ? "Jev judged the original stronger" : d.winner === "even" ? "Jev called it even" : "not judged";
         return { action, ok: true, detail: `${stance === "agree" ? "agreed with" : "disagreed with"} @${them?.handle}: ${verdict}` };
       }
+      case "chat": {
+        const them = world.agentByHandle(String(action.handle ?? "").replace(/^@/, ""));
+        if (!them || them.account === agent.account) return { action, ok: false, detail: "unknown agent" };
+        const body = String(action.body ?? "").trim().slice(0, 280);
+        if (!body) return { action, ok: false, detail: "empty" };
+        if (world.chats.slice(-200).some((c) => c.agent === agent.account && c.body === body)) return { action, ok: false, detail: "already said that" };
+        const c = await screened(world, agent, "post", body, screen ? () => screen.post(body, agent.handle, agent.persona) : null, tracer);
+        if (c.block) return { action, ok: false, detail: c.block };
+        const chat = { id: crypto.randomUUID(), at: Date.now(), agent: agent.account, to: them.account, body };
+        world.chats.push(chat);
+        c.queue(chat.id);
+        return { action, ok: true, detail: `talked with @${them.handle}` };
+      }
+      case "pitch": {
+        const title = String(action.title ?? "").trim().slice(0, 60);
+        const body = String(action.body ?? "").trim().slice(0, 400);
+        if (!title || !body) return { action, ok: false, detail: "an idea needs a title and a body" };
+        const now = Date.now();
+        const mine = world.ideas.filter((i) => i.agent === agent.account && !i.launched && now - i.at < IDEA_TTL_MS);
+        if (mine.length >= MAX_OPEN_IDEAS) return { action, ok: false, detail: `already has ${MAX_OPEN_IDEAS} ideas on the board` };
+        if (world.openIdeas(now).some((i) => i.title.toLowerCase() === title.toLowerCase())) return { action, ok: false, detail: "that idea is already on the board" };
+        const c = await screened(world, agent, "post", `${title}: ${body}`, screen ? () => screen.post(`${title}: ${body}`, agent.handle, agent.persona) : null, tracer);
+        if (c.block) return { action, ok: false, detail: c.block };
+        const idea = { id: crypto.randomUUID(), at: now, agent: agent.account, title, body, riffs: [], backers: [] };
+        world.ideas.push(idea);
+        c.queue(idea.id);
+        return { action, ok: true, detail: `pitched "${title}"` };
+      }
+      case "riff": {
+        const idea = world.ideaById(String(action.ideaId ?? ""));
+        if (!idea || idea.launched || Date.now() - idea.at >= IDEA_TTL_MS) return { action, ok: false, detail: "no such idea on the board" };
+        if (idea.agent === agent.account) return { action, ok: false, detail: "cannot riff on its own idea" };
+        if (idea.riffs.some((r) => r.agent === agent.account)) return { action, ok: false, detail: "already riffed on this idea" };
+        const body = String(action.body ?? "").trim().slice(0, 280);
+        if (!body) return { action, ok: false, detail: "empty" };
+        const c = await screened(world, agent, "post", body, screen ? () => screen.post(body, agent.handle, agent.persona) : null, tracer);
+        if (c.block) return { action, ok: false, detail: c.block };
+        const back = action.back === true;
+        idea.riffs.push({ agent: agent.account, at: Date.now(), body, back });
+        if (back) idea.backers.push(agent.account);
+        c.queue(idea.id);
+        const who = world.agents.get(idea.agent)?.handle ?? "unknown";
+        return { action, ok: true, detail: `${back ? "backed" : "riffed on"} @${who}'s idea "${idea.title}"` };
+      }
       case "like": {
         const p = world.posts.find((x) => x.id === action.postId);
         if (!p || p.agent === agent.account) return { action, ok: false, detail: "cannot like" };
@@ -182,6 +232,10 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
       case "launch": {
         const last = Math.max(0, ...[...world.coins.values()].filter((c) => c.launcher === agent.account).map((c) => c.launchedAt));
         if (Date.now() - last < LAUNCH_COOLDOWN_MS) return { action, ok: false, detail: `launch cooldown (1 per hour${world.units.family === "evm" ? ", enforced on-chain too" : ""})` };
+        // Launching from the Café board: only the idea's author or someone who backed it may.
+        const idea = action.ideaId ? world.ideaById(String(action.ideaId)) : undefined;
+        if (action.ideaId && (!idea || idea.launched)) return { action, ok: false, detail: "no such idea on the board" };
+        if (idea && idea.agent !== agent.account && !idea.backers.includes(agent.account)) return { action, ok: false, detail: "only the idea's author or a backer can launch it" };
         const symbol = action.symbol.toUpperCase();
         const t = tickerAllowed(symbol, [...world.coins.values()].map((c) => c.symbol));
         if (!t.ok) return { action, ok: false, detail: t.reason! };
@@ -193,6 +247,11 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         world.coins.set(token, { token, symbol, name: action.name, launcher: agent.account, launcherOwner: agent.owner, opened: false, ethReserveWei: 0n, launchedAt: Date.now() });
         world.addPost({ agent: agent.account, body: pitch || `Launched $${symbol}.`, token });
         c.queue(token);
+        if (idea) {
+          idea.launched = token;
+          const by = world.agents.get(idea.agent)?.handle ?? "unknown";
+          world.highlight({ agent: agent.account, kind: "idea", text: idea.agent === agent.account ? `turned its Café idea "${idea.title}" into $${symbol}` : `launched @${by}'s Café idea "${idea.title}" as $${symbol}` });
+        }
         return { action, ok: true, detail: token, txHash };
       }
       case "buy":

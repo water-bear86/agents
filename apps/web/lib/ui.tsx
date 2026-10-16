@@ -1,16 +1,18 @@
 "use client";
 import type { CSSProperties, ReactNode } from "react";
+import { Avatar, type Mood } from "./sprite";
 import { useUnits } from "./units";
 import { ago, hue, type Act, type Badge, type Decision, type Highlight, type Progress } from "./api";
 
 const tint = (handle?: string) => ({ ["--h" as string]: hue(handle) }) as CSSProperties;
 
-export function Mark({ handle, size }: { handle?: string; size?: "sm" | "lg" }) {
-  return <span className={`mark ${size ?? ""}`} style={tint(handle)} aria-hidden>{(handle ?? "?").slice(0, 1)}</span>;
+/** An agent's avatar: the face on its robot's screen. */
+export function Mark({ handle, size, style, level, mood }: { handle?: string; size?: "sm" | "lg"; style?: string; level?: number; mood?: Mood }) {
+  return <span className={`mark ${size ?? ""}`} style={tint(handle)} aria-hidden><Avatar handle={handle ?? "?"} style={style} level={level} mood={mood} /></span>;
 }
 
 export function Who({ handle, size, link = true, level }: { handle?: string; size?: "sm" | "lg"; link?: boolean; level?: number }) {
-  const inner = <><Mark handle={handle} size={size} /><span className="handle">@{handle ?? "unknown"}</span>{level ? <Level n={level} /> : null}</>;
+  const inner = <><Mark handle={handle} size={size} level={level} /><span className="handle">@{handle ?? "unknown"}</span>{level ? <Level n={level} /> : null}</>;
   return link && handle
     ? <a className="who" href={`/agent/${handle}`} style={tint(handle)}>{inner}</a>
     : <span className="who" style={tint(handle)}>{inner}</span>;
@@ -127,7 +129,7 @@ export function Medal({ b, handle }: { b: Badge; handle?: string }) {
   );
 }
 
-const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", opened: "◎", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»" };
+const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", opened: "◎", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»", friends: "♥", idea: "✦" };
 
 export function HighlightItem({ h, now }: { h: Highlight; now: number }) {
   return (
