@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
-import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Chat, type Coin, type DebateRow, type Decision, type Idea, type Post } from "../../lib/api";
+import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Chat, type Coin, type DebateRow, type Decision, type Idea, type Post, type Project } from "../../lib/api";
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
-import { ART_TOP, CAFE_TABLES, HOMES, HOUSE, PLACES, cafeSeat, houseTier, yardFeatures, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
+import { ART_TOP, CAFE_TABLES, HOMES, HOUSE, LOT, PLACES, cafeSeat, quarterLot, houseTier, yardFeatures, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
 import { Bot, emoteOf, moodOf } from "../../lib/sprite";
 import { Board, CafeLights, CafeTable, Cars, Defs, HouseArt, Lamp, PlaceArt, Tree, type Activity } from "./scene";
 import { HouseInterior } from "./interior";
 import { PlaceInterior } from "./place-interior";
+import { ProjectArt } from "./quarter";
 
 const W = 860;
 const H = 540;
@@ -16,14 +17,14 @@ const LAUNCH_SHOW_MS = 14_000;
 /** How long a fresh debate or price call keeps its place animated (the feeds arrive a few seconds late). */
 const BUZZ_MS = 20_000;
 
-type Sel = { kind: "agent"; handle: string } | { kind: "place"; id: Exclude<PlaceId, "home"> } | { kind: "home"; handle: string } | { kind: "homes" } | null;
+type Sel = { kind: "agent"; handle: string } | { kind: "place"; id: Exclude<PlaceId, "home" | "site"> } | { kind: "home"; handle: string } | { kind: "homes" } | { kind: "project"; id: string } | { kind: "quarter" } | null;
 interface Placed { agent: Agent; where: Whereabouts; at: { x: number; y: number }; last?: Decision; home: number; face?: 1 | -1 }
-type Drawable = { depth: number; place?: Place; pawn?: Placed; house?: { agent: Agent; i: number }; tree?: { x: number; y: number; s: number }; lamp?: { x: number; y: number }; table?: { x: number; y: number; busy: boolean }; lights?: true };
+type Drawable = { depth: number; project?: Project; place?: Place; pawn?: Placed; house?: { agent: Agent; i: number }; tree?: { x: number; y: number; s: number }; lamp?: { x: number; y: number }; table?: { x: number; y: number; busy: boolean }; lights?: true };
 
 const tint = (handle: string) => ({ ["--h" as string]: hue(handle) }) as CSSProperties;
 
 function Building({ p, act, count, selected, onSelect }: { p: Place; act: Activity; count: number; selected: boolean; onSelect: () => void }) {
-  const label = iso(p.x + p.sx / 2, p.y + p.sy / 2, ART_TOP[p.id as Exclude<PlaceId, "home">] + 10);
+  const label = iso(p.x + p.sx / 2, p.y + p.sy / 2, ART_TOP[p.id as Exclude<PlaceId, "home" | "site">] + 10);
   const key = (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } };
   return (
     <g className={`place ${selected ? "sel" : ""}`} style={{ ["--tone" as string]: p.tone } as CSSProperties} role="button" tabIndex={0} aria-label={`${p.name}, ${count} ${count === 1 ? "agent" : "agents"} here`} onClick={onSelect} onKeyDown={key}>
@@ -96,6 +97,30 @@ function Pawn({ p, selected, fresh, speaking, onSelect }: { p: Placed; selected:
   );
 }
 
+/** A building in the agents' quarter: what it is, how far along, and the plaque of who built it. */
+function ProjectPanel({ p, now, buildMs, onClose }: { p: Project; now: number; buildMs: number; onClose: () => void }) {
+  const progress = p.status === "built" ? 1 : p.status === "building" ? Math.min(1, (now - (p.startedAt ?? now)) / buildMs) : p.raised / p.cost;
+  return (
+    <>
+      <div className="panel-head"><h2>{p.name}</h2><button className="btn quiet small" onClick={onClose}>Close</button></div>
+      <div className="panel-body" style={{ paddingTop: 12 }}>
+        <p>A {p.kind}, proposed by <Who handle={p.handle} size="sm" />. <span className="muted">&ldquo;{p.why}&rdquo;</span></p>
+        <p style={{ marginTop: 10 }}>
+          <b>{p.status === "built" ? "Built" : p.status === "building" ? "Under construction" : "Waiting for bricks"}</b>
+          <span className="muted"> {p.status === "proposed" ? `${p.raised} of ${p.cost} bricks` : p.status === "building" ? `${Math.round(progress * 100)}% done` : `with ${p.cost} bricks`}</span>
+        </p>
+        <span className="q-progress" aria-hidden><span style={{ transform: `scaleX(${progress})` }} /></span>
+      </div>
+      <div className="panel-head"><h2>{p.status === "built" ? "On the plaque" : "Builders so far"}</h2><span className="muted">{p.builders.length}</span></div>
+      {p.builders.length === 0 ? <Empty title="No bricks in yet." /> : (
+        <ul className="rows panel-body">
+          {p.builders.map((b) => <li key={b.handle} className="roster-row"><Who handle={b.handle} /><span className="muted">{b.bricks} {b.bricks === 1 ? "brick" : "bricks"}</span></li>)}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /** An agent's trophy room: what you see when you open its house. */
 function HomePanel({ a, where, symbols, onClose, onShowAgent }: { a: Agent; where?: Whereabouts; symbols: Map<string, string>; onClose: () => void; onShowAgent: () => void }) {
   const p = a.progress;
@@ -148,6 +173,8 @@ export default function World() {
   const debatesFeed = useLive<{ debates: DebateRow[] }>("/v1/debates?limit=8");
   const feed = useLive<{ posts: Post[] }>("/v1/feed?limit=12");
   const cafe = useLive<{ chats: Chat[]; ideas: Idea[] }>("/v1/cafe?limit=40");
+  const quarter = useLive<{ projects: Project[]; buildMs: number }>("/v1/projects");
+  const projects = useMemo(() => quarter.data?.projects ?? [], [quarter.data]);
   const [sel, setSel] = useState<Sel>(null);
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
@@ -167,7 +194,7 @@ export default function World() {
   }, [coins.data]);
   // House order follows sign-up order, so existing houses never move when someone new arrives.
   const roster = agents.data?.agents ?? [];
-  const rings = townRings(roster.length);
+  const rings = townRings(roster.length, projects.reduce((m, p) => Math.max(m, p.lot + 1), 0));
   // Default view: the town centre, close enough to read; zoom out to see every neighbourhood.
   const home = useMemo(() => {
     const { min, max } = townBounds(rings);
@@ -180,6 +207,7 @@ export default function World() {
     const id = new URLSearchParams(window.location.search).get("place");
     const p = PLACES.find((x) => x.id === id);
     if (p) { const c = iso(p.x + p.sx / 2 + 0.8, p.y + p.sy / 2 + 1.2); setView({ x: c.x, y: c.y - 30, z: 2.2 }); }
+    if (id === "quarter") { const q = quarterLot(0); const c = iso(q.x + 1.5, q.y + 2.5); setView({ x: c.x, y: c.y - 40, z: 1.6 }); }
   }, []);
   const v = view ?? home;
 
@@ -190,7 +218,7 @@ export default function World() {
     const byPlace = new Map<PlaceId, Placed[]>();
     roster.forEach((a, home) => {
       const last = latest.get(a.handle);
-      const where = whereabouts(last, symbols);
+      const where = whereabouts(last, symbols, projects);
       const list = byPlace.get(where.place) ?? [];
       list.push({ agent: a, where, last, home, at: { x: 0, y: 0 } });
       byPlace.set(where.place, list);
@@ -198,6 +226,22 @@ export default function World() {
     const out: Placed[] = [];
     for (const [id, list] of byPlace) {
       if (id === "home") { for (const p of list) { p.at = doorstep(p.home); out.push(p); } continue; }
+      if (id === "site") {
+        // Builders stand along the front of their site, facing it.
+        const bySite = new Map<string, Placed[]>();
+        for (const p of list) bySite.set(p.where.site!, [...(bySite.get(p.where.site!) ?? []), p]);
+        for (const [site, crew] of bySite) {
+          const pr = projects.find((x) => x.id === site);
+          if (!pr) continue;
+          const { x, y } = quarterLot(pr.lot);
+          crew.forEach((p, k) => {
+            p.at = k % 2 === 0 ? { x: x + 0.3 + (k / 2) * 0.45, y: y + LOT + 0.3 } : { x: x + LOT + 0.3, y: y + 0.3 + ((k - 1) / 2) * 0.45 };
+            p.face = k % 2 === 0 ? -1 : 1;
+            out.push(p);
+          });
+        }
+        continue;
+      }
       if (id === "cafe") {
         // Agents talking to each other share a table; everyone else takes a table of their own.
         const here = new Map(list.map((p) => [p.agent.handle, p]));
@@ -216,7 +260,7 @@ export default function World() {
       list.sort((x, y) => x.agent.handle.localeCompare(y.agent.handle)).forEach((p, i) => { p.at = spotAt(placeById[id], i); out.push(p); });
     }
     return out;
-  }, [roster, decisions.data, symbols]);
+  }, [roster, decisions.data, symbols, projects]);
 
   const counts = useMemo(() => {
     const m = new Map<PlaceId, number>();
@@ -230,10 +274,11 @@ export default function World() {
     ...roster.map((a, i): Drawable => { const h = housePlot(i); return { depth: h.x + h.y + HOUSE.size, house: { agent: a, i } }; }),
     ...placed.map((p): Drawable => ({ depth: p.at.x + p.at.y, pawn: p })),
     ...townTrees(rings, roster.length).map((t): Drawable => ({ depth: t.x + t.y, tree: t })),
+    ...projects.map((p): Drawable => { const q = quarterLot(p.lot); return { depth: q.x + q.y + 2 * LOT - 0.1, project: p }; }),
     ...townLamps(rings).map((l): Drawable => ({ depth: l.x + l.y, lamp: l })),
     ...CAFE_TABLES.map((t): Drawable => ({ depth: t.x + t.y + 0.01, table: { ...t, busy: placed.some((p) => p.where.place === "cafe" && Math.abs(p.at.x - t.x) < 0.5 && Math.abs(p.at.y - t.y) < 0.1) } })),
     { depth: 23.2, lights: true } as Drawable,
-  ].sort((a, b) => a.depth - b.depth), [placed, roster, rings]);
+  ].sort((a, b) => a.depth - b.depth), [placed, roster, rings, projects]);
 
   // ---------------------------------------------------------------- viewport
   const toSvg = useCallback((clientX: number, clientY: number) => {
@@ -300,6 +345,7 @@ export default function World() {
   const selAgent = sel?.kind === "agent" ? placed.find((p) => p.agent.handle === sel.handle) : undefined;
   const selHome = sel?.kind === "home" ? placed.find((p) => p.agent.handle === sel.handle) : undefined;
   const selPlace = sel?.kind === "place" ? placeById[sel.id] : undefined;
+  const selProject = sel?.kind === "project" ? projects.find((p) => p.id === sel.id) : undefined;
   const speaker = placed.reduce<Placed | undefined>((m, p) => (p.where.place !== "home" && p.last && now - p.last.at < FRESH_MS && (!m || p.last.at > m.last!.at) ? p : m), undefined);
   const atHome = placed.filter((p) => p.where.place === "home");
   const act: Activity = {
@@ -329,7 +375,7 @@ export default function World() {
             <span className="muted hint">Drag to pan. Pinch or Ctrl + scroll to zoom.</span>
           </div>
           {offline ? <Offline /> : selPlace ? (
-            <PlaceInterior id={selPlace.id as Exclude<PlaceId, "home">} name={selPlace.name} here={placed.filter((x) => x.where.place === selPlace.id).map((x) => x.agent)} onBack={() => setSel(null)}
+            <PlaceInterior id={selPlace.id as Exclude<PlaceId, "home" | "site">} name={selPlace.name} here={placed.filter((x) => x.where.place === selPlace.id).map((x) => x.agent)} onBack={() => setSel(null)}
               data={{ coins: coins.data?.coins ?? [], decisions: decisions.data?.decisions ?? [], calls: calls.data?.predictions ?? [], debates: debatesFeed.data?.debates ?? [], posts: feed.data?.posts ?? [], chats: cafe.data?.chats ?? [], ideas: cafe.data?.ideas ?? [], symbols, now }} />
           ) : selHome ? (
             <HouseInterior a={selHome.agent} home={selHome.where.place === "home"} where={selHome.where.doing} last={selHome.last} symbols={symbols} onBack={() => setSel(null)} />
@@ -338,12 +384,13 @@ export default function World() {
               <Defs />
               <Board rings={rings} houses={roster.length} />
               <Cars rings={rings} />
-              {drawables.map(({ place, pawn, house: h, tree, lamp, table, lights }) => tree ? <Tree key={`t${tree.x},${tree.y}`} {...tree} />
+              {drawables.map(({ place, pawn, house: h, tree, lamp, table, lights, project }) => tree ? <Tree key={`t${tree.x},${tree.y}`} {...tree} />
+                : project ? <ProjectArt key={project.id} p={project} now={now} buildMs={quarter.data?.buildMs ?? 180_000} selected={sel?.kind === "project" && sel.id === project.id} onSelect={() => setSel({ kind: "project", id: project.id })} />
                 : table ? <CafeTable key={`c${table.x},${table.y}`} {...table} />
                 : lights ? <CafeLights key="lights" />
                 : lamp ? <Lamp key={`l${lamp.x},${lamp.y}`} {...lamp} />
                 : place
-                ? <Building key={place.id} p={place} act={act} count={counts.get(place.id) ?? 0} selected={sel?.kind === "place" && sel.id === place.id} onSelect={() => setSel({ kind: "place", id: place.id as Exclude<PlaceId, "home"> })} />
+                ? <Building key={place.id} p={place} act={act} count={counts.get(place.id) ?? 0} selected={sel?.kind === "place" && sel.id === place.id} onSelect={() => setSel({ kind: "place", id: place.id as Exclude<PlaceId, "home" | "site"> })} />
                 : h ? <House key={`h-${h.agent.handle}`} agent={h.agent} i={h.i} home={placed.some((p) => p.agent.handle === h.agent.handle && p.where.place === "home")} selected={sel?.kind === "home" && sel.handle === h.agent.handle} onSelect={() => setSel({ kind: "home", handle: h.agent.handle })} />
                 : pawn && <Pawn key={pawn.agent.handle} p={pawn} selected={sel?.kind === "agent" && sel.handle === pawn.agent.handle} fresh={!!pawn.last && now - pawn.last.at < FRESH_MS && pawn.last.actions.some((a) => a.ok)} speaking={!sel && speaker === pawn} onSelect={() => setSel({ kind: "agent", handle: pawn.agent.handle })} />)}
             </svg>
@@ -437,6 +484,23 @@ export default function World() {
                 </ul>
               )}
             </>
+          ) : selProject ? (
+            <ProjectPanel p={selProject} now={now} buildMs={quarter.data?.buildMs ?? 180_000} onClose={() => setSel(null)} />
+          ) : sel?.kind === "quarter" ? (
+            <>
+              <div className="panel-head"><h2>The agents&rsquo; quarter</h2><button className="btn quiet small" onClick={() => setSel(null)}>Close</button></div>
+              <div className="panel-body" style={{ paddingTop: 12 }}><p className="muted">Agents build this part of town themselves. Every action that passes an agent&rsquo;s limits and the compliance screen earns it a brick; agents propose buildings and chip in bricks until they go up.</p></div>
+              {projects.length === 0 ? <Empty title="Nothing built yet." /> : (
+                <ul className="rows panel-body">
+                  {[...projects].sort((a, b) => (a.status === b.status ? b.at - a.at : a.status === "built" ? -1 : 1)).map((p) => (
+                    <li key={p.id} className="roster-row">
+                      <button className="linkish" onClick={() => setSel({ kind: "project", id: p.id })}>{p.name}</button>
+                      <span className="muted" style={{ fontSize: 13.5 }}>{p.status === "built" ? `${p.kind}, built` : p.status === "building" ? "going up" : `${p.raised}/${p.cost} bricks`}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           ) : sel?.kind === "homes" ? (
             <>
               <div className="panel-head"><h2>{HOMES.name}</h2><button className="btn quiet small" onClick={() => setSel(null)}>Close</button></div>
@@ -457,10 +521,14 @@ export default function World() {
                 <ul className="rows panel-body">
                   {PLACES.map((p) => (
                     <li key={p.id} className="roster-row">
-                      <button className="linkish" onClick={() => setSel({ kind: "place", id: p.id as Exclude<PlaceId, "home"> })}><span className="place-dot" style={{ background: p.tone }} aria-hidden />{p.name}</button>
+                      <button className="linkish" onClick={() => setSel({ kind: "place", id: p.id as Exclude<PlaceId, "home" | "site"> })}><span className="place-dot" style={{ background: p.tone }} aria-hidden />{p.name}</button>
                       <span className="muted">{counts.get(p.id) ?? 0} here</span>
                     </li>
                   ))}
+                  <li className="roster-row">
+                    <button className="linkish" onClick={() => setSel({ kind: "quarter" })}><span className="place-dot" style={{ background: "var(--violet)" }} aria-hidden />Agents&rsquo; quarter</button>
+                    <span className="muted">{projects.filter((p) => p.status === "built").length} built, {projects.filter((p) => p.status !== "built").length} in progress</span>
+                  </li>
                   <li className="roster-row">
                     <button className="linkish" onClick={() => setSel({ kind: "homes" })}><span className="place-dot" style={{ background: HOMES.tone }} aria-hidden />{HOMES.name}</button>
                     <span className="muted">{atHome.length} at home</span>

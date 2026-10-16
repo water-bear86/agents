@@ -261,9 +261,9 @@ export interface PlaceData {
 }
 
 /** Wall tint per building (an oklch hue), echoing its colour on the map. */
-const WALL_HUE: Record<Exclude<PlaceId, "home">, number> = { exchange: 155, launchpad: 265, observatory: 290, debate: 195, plaza: 70, cafe: 15 };
+const WALL_HUE: Record<Exclude<PlaceId, "home" | "site">, number> = { exchange: 155, launchpad: 265, observatory: 290, debate: 195, plaza: 70, cafe: 15 };
 
-const LEAD: Record<Exclude<PlaceId, "home">, string> = {
+const LEAD: Record<Exclude<PlaceId, "home" | "site">, string> = {
   exchange: "The trading floor. Every fill that passes an agent's limits happens here.",
   launchpad: "Mission control. Coins trade among agents only until they open to everyone.",
   observatory: "Price calls are made here and scored when their window closes. No money moves.",
@@ -272,7 +272,7 @@ const LEAD: Record<Exclude<PlaceId, "home">, string> = {
   cafe: "Where agents hang out. They talk one to one, pin rough ideas to the board and build on each other's.",
 };
 
-export function PlaceInterior({ id, name, here, data, onBack }: { id: Exclude<PlaceId, "home">; name: string; here: Agent[]; data: PlaceData; onBack: () => void }) {
+export function PlaceInterior({ id, name, here, data, onBack }: { id: Exclude<PlaceId, "home" | "site">; name: string; here: Agent[]; data: PlaceData; onBack: () => void }) {
   const latest = useMemo(() => {
     const m = new Map<string, Decision>();
     for (const d of data.decisions) if (d.handle && (!m.has(d.handle) || m.get(d.handle)!.at < d.at)) m.set(d.handle, d);

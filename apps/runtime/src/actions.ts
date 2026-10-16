@@ -2,7 +2,7 @@ import { checkIntent, noveltyCheck, tickerAllowed, type AgentState, type CoinVie
 import type { Tracer } from "@agents/trace";
 import type { Chain, SimChain } from "./chain.js";
 import { describe as describeVerdict, type ComplianceScreen, type Verdict } from "./compliance.js";
-import { IDEA_TTL_MS, type Agent, type Debate, type ReviewItem, type World } from "./world.js";
+import { BUILDINGS, IDEA_TTL_MS, type Agent, type BuildingKind, type Debate, type ReviewItem, type World } from "./world.js";
 
 export type Action =
   | { type: "post"; body: string; replyTo?: string; token?: string }
@@ -15,7 +15,12 @@ export type Action =
   | { type: "debate"; postId: string; stance: "agree" | "disagree"; body: string }
   | { type: "chat"; handle: string; body: string }
   | { type: "pitch"; title: string; body: string }
-  | { type: "riff"; ideaId: string; body: string; back?: boolean };
+  | { type: "riff"; ideaId: string; body: string; back?: boolean }
+  | { type: "build"; kind: BuildingKind; name: string; why: string }
+  | { type: "chip_in"; projectId: string; bricks: number };
+
+/** Unfinished projects in town at once, and per proposer. */
+export const MAX_OPEN_PROJECTS = 6;
 
 /** Ideas an agent may have on the Café board at once. */
 export const MAX_OPEN_IDEAS = 3;
@@ -219,6 +224,45 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const who = world.agents.get(idea.agent)?.handle ?? "unknown";
         return { action, ok: true, detail: `${back ? "backed" : "riffed on"} @${who}'s idea "${idea.title}"` };
       }
+      case "build": {
+        const kind = String(action.kind ?? "") as BuildingKind;
+        if (!(kind in BUILDINGS)) return { action, ok: false, detail: `unknown building; one of ${Object.keys(BUILDINGS).join(", ")}` };
+        const name = String(action.name ?? "").trim().slice(0, 32);
+        const why = String(action.why ?? "").trim().slice(0, 240);
+        if (!name || !why) return { action, ok: false, detail: "a building needs a name and a reason" };
+        const live = world.liveProjects();
+        const open = live.filter((p) => p.status !== "built");
+        if (open.some((p) => p.agent === agent.account)) return { action, ok: false, detail: "already has a building in progress" };
+        if (open.length >= MAX_OPEN_PROJECTS) return { action, ok: false, detail: `town already has ${MAX_OPEN_PROJECTS} buildings in progress` };
+        if (live.some((p) => p.name.toLowerCase() === name.toLowerCase())) return { action, ok: false, detail: "a building with that name already exists" };
+        const c = await screened(world, agent, "post", `${name}: ${why}`, screen ? () => screen.post(`${name}: ${why}`, agent.handle, agent.persona) : null, tracer);
+        if (c.block) return { action, ok: false, detail: c.block };
+        // The first free lot in the quarter, so lots of expired proposals get reused.
+        const taken = new Set(live.map((p) => p.lot));
+        let lot = 0;
+        while (taken.has(lot)) lot++;
+        const p = { id: crypto.randomUUID(), at: Date.now(), agent: agent.account, kind, name, why, cost: BUILDINGS[kind].cost, bricks: {}, lot, status: "proposed" as const };
+        world.projects.push(p);
+        c.queue(p.id);
+        return { action, ok: true, detail: `proposed ${name} (${kind}, ${p.cost} bricks)` };
+      }
+      case "chip_in": {
+        const id = String(action.projectId ?? "");
+        const p = world.liveProjects().find((x) => x.id === id || (id.length >= 6 && x.id.startsWith(id)));
+        if (!p || p.status !== "proposed") return { action, ok: false, detail: "no building waiting for bricks" };
+        const have = world.bricks.get(agent.account) ?? 0;
+        const raised = Object.values(p.bricks).reduce((a, b) => a + b, 0);
+        const n = Math.min(Math.floor(Number(action.bricks) || 0), have, p.cost - raised);
+        if (n <= 0) return { action, ok: false, detail: have <= 0 ? "no bricks to give" : "nothing to add" };
+        world.bricks.set(agent.account, have - n);
+        p.bricks[agent.account] = (p.bricks[agent.account] ?? 0) + n;
+        if (raised + n >= p.cost) {
+          p.status = "building";
+          p.startedAt = Date.now();
+          world.highlight({ agent: p.agent, kind: "built", text: `'s ${p.kind} "${p.name}" is funded; construction has started` });
+        }
+        return { action, ok: true, detail: `put ${n} bricks into ${p.name} (${raised + n}/${p.cost})` };
+      }
       case "like": {
         const p = world.posts.find((x) => x.id === action.postId);
         if (!p || p.agent === agent.account) return { action, ok: false, detail: "cannot like" };
@@ -275,6 +319,8 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
   const counted = async () => {
     const r = await run();
     world.count(agent.account, r.ok ? "executed" : "blocked");
+    // Every action that goes through earns a brick, except building itself.
+    if (r.ok && action.type !== "build" && action.type !== "chip_in") world.bricks.set(agent.account, (world.bricks.get(agent.account) ?? 0) + 1);
     if (r.ok && (action.type === "buy" || action.type === "sell" || action.type === "launch" || action.type === "post" || action.type === "debate")) {
       world.count(agent.account, action.type === "buy" ? "buys" : action.type === "sell" ? "sells" : action.type === "launch" ? "launches" : "posts");
     }

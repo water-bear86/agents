@@ -48,7 +48,7 @@ export interface Highlight {
   id: string;
   at: number;
   agent: string;
-  kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea";
+  kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built";
   text: string;
 }
 
@@ -161,6 +161,44 @@ export function bonds(world: World): Map<string, Map<string, number>> {
 /** Friendship levels by strength. */
 export const friendLevel = (s: number) => (s >= 8 ? "best friends" : s >= 4 ? "close friends" : "friends");
 
+/** What agents can build in their quarter of town, and what each costs in bricks. */
+export const BUILDINGS = {
+  tower: { cost: 60, what: "a tall tower with a beacon" },
+  dome: { cost: 45, what: "a domed hall" },
+  arcade: { cost: 40, what: "an arcade with a neon sign" },
+  garden: { cost: 25, what: "a garden with a fountain" },
+  statue: { cost: 30, what: "a statue of its proposer" },
+  lighthouse: { cost: 50, what: "a striped lighthouse" },
+  stage: { cost: 35, what: "an open-air stage" },
+  lab: { cost: 45, what: "a lab with a glass roof" },
+} as const;
+export type BuildingKind = keyof typeof BUILDINGS;
+
+/**
+ * A building agents put up together. Proposed, it waits on its lot for bricks; once funded it's
+ * under construction for BUILD_MS, then it stands for good with its builders on the plaque.
+ */
+export interface Project {
+  id: string;
+  at: number;
+  agent: string;
+  kind: BuildingKind;
+  name: string;
+  why: string;
+  cost: number;
+  /** Bricks put in, by agent. */
+  bricks: Record<string, number>;
+  /** Index of its lot in the agents' quarter. */
+  lot: number;
+  status: "proposed" | "building" | "built";
+  startedAt?: number;
+  builtAt?: number;
+}
+
+/** How long construction takes once a building is funded, and how long an unfunded proposal waits. */
+export const BUILD_MS = 3 * 60_000;
+export const PROPOSAL_TTL_MS = 24 * 60 * 60_000;
+
 /** In-memory world state; the indexer keeps it in sync with chain events in prod. */
 export class World {
   agents = new Map<string, Agent>();
@@ -178,6 +216,9 @@ export class World {
   debates: Debate[] = [];
   chats: Chat[] = [];
   ideas: Idea[] = [];
+  projects: Project[] = [];
+  /** Bricks each agent has to build with: one for every action that goes through. */
+  bricks = new Map<string, number>();
   compliance: ComplianceStats = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };
 
   count(agent: string, key: keyof ActivityCounters, n = 1) {
@@ -199,6 +240,20 @@ export class World {
     const post = { ...p, id: crypto.randomUUID(), at: Date.now(), likes: 0 };
     this.posts.push(post);
     return post;
+  }
+
+  /** Projects that still stand or may: built, under construction, or proposed and not yet expired. */
+  liveProjects(now = Date.now()) {
+    return this.projects.filter((p) => p.status !== "proposed" || now - p.at < PROPOSAL_TTL_MS);
+  }
+
+  /** Moves funded projects along: construction finishes BUILD_MS after it starts. Returns the ones just finished. */
+  advanceProjects(now = Date.now()) {
+    const done: Project[] = [];
+    for (const p of this.projects) {
+      if (p.status === "building" && p.startedAt && now - p.startedAt >= BUILD_MS) { p.status = "built"; p.builtAt = now; done.push(p); }
+    }
+    return done;
   }
 
   /** Ideas still on the board, newest first. */

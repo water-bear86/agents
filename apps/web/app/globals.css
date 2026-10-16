@@ -773,6 +773,59 @@ legend + * { clear: both; }
 .ideas li:last-child { border-bottom: 0; }
 .ideas .why { color: var(--muted); font-size: 13px; }
 
+/* ---------------------------------------------------------------- the agents' quarter */
+.world-svg .lot.quarter { fill: color-mix(in oklab, var(--w-paving) 70%, var(--w-grass)); }
+.world-svg .project { cursor: pointer; outline: none; }
+.world-svg .project .plot { fill: transparent; stroke: transparent; }
+.world-svg .project:hover .plot, .world-svg .project:focus-visible .plot, .world-svg .project.sel .plot { stroke: var(--signal); stroke-width: 2; }
+.world-svg .project .q-label { font-size: 10.5px; }
+/* Finished buildings name themselves on hover or when selected; sites always show theirs. */
+.world-svg .project.built .q-label { opacity: 0; transition: opacity 0.15s; }
+.world-svg .project.built:is(:hover, :focus-visible, .sel) .q-label { opacity: 1; }
+.world-svg .project.proposed .q-label { fill: var(--muted); }
+.world-svg .q-dirt { fill: color-mix(in oklab, var(--w-wood) 45%, var(--w-grass)); }
+.world-svg .q-fence { fill: none; stroke: var(--w-wood); stroke-width: 1.4; stroke-dasharray: 3 2; }
+.world-svg .q-pile.l, .world-svg .q-pile.r, .world-svg .q-pile.t { fill: #c4643f; stroke: #7d3a21; stroke-width: 0.4; }
+.world-svg .q-pile.r { fill: #a5512f; }
+.world-svg .q-sign rect:first-of-type { fill: var(--w-top); stroke: var(--w-edge); }
+.world-svg .q-sign text { font-size: 7.5px; font-weight: 750; fill: var(--ink); }
+.world-svg .q-sign .q-post { stroke: var(--w-wood); stroke-width: 1.6; }
+.world-svg .q-sign .q-bar { fill: color-mix(in oklab, var(--w-steel) 35%, transparent); stroke: none; }
+.world-svg .q-sign .q-bar-fill { fill: #c4643f; stroke: none; }
+.world-svg .q-scaffold { fill: none; stroke: #d9a441; stroke-width: 1.1; }
+.world-svg .q-crane { stroke: #e2b84e; stroke-width: 2.2; stroke-linecap: round; }
+.world-svg .q-cable { stroke: var(--w-steel); stroke-width: 0.8; }
+.world-svg .q-brick { fill: #c4643f; }
+.world-svg .q-mast { stroke: var(--w-steel); stroke-width: 1.4; }
+.world-svg .q-beacon { fill: var(--tone); }
+.world-svg .q-dome { fill: var(--tone); stroke: var(--w-edge); stroke-width: 0.6; }
+.world-svg .q-neon-glass { fill: color-mix(in oklab, var(--tone) 30%, var(--w-pane)); }
+.world-svg .q-neon rect { fill: #1d1626; stroke: var(--tone); stroke-width: 1.2; }
+.world-svg .q-neon text { font-size: 8px; font-weight: 850; letter-spacing: 0.12em; fill: color-mix(in oklab, var(--tone) 50%, #fff); }
+.world-svg .q-lawn { fill: color-mix(in oklab, var(--w-leaf-lit) 70%, var(--w-grass)); }
+.world-svg .q-flower { fill: var(--tone); stroke: var(--w-edge); stroke-width: 0.5; }
+.world-svg .q-lamp { fill: color-mix(in oklab, var(--w-glow) 70%, #fff); stroke: var(--w-edge); }
+.world-svg .q-spot { fill: var(--w-glow); opacity: 0.25; }
+.world-svg .q-steam { fill: none; stroke: var(--w-top); stroke-width: 1.4; stroke-linecap: round; opacity: 0.7; }
+/* Statues: the proposer, cast in bronze. */
+.world-svg .q-statue .sprite :is(.sp-body, .sp-head, .sp-steel, .sp-hand, .sp-tip, .sp-gold, .sp-screen, .sp-core) { fill: #a87a45 !important; stroke: #6d4c27; }
+.world-svg .q-statue .sprite :is(.sp-shade) { opacity: 0.3; }
+.world-svg .q-statue .sprite :is(.sp-face, .sp-emote, .pawn-shadow) { display: none; }
+.world-svg .q-statue .sprite * { animation: none !important; }
+@media (prefers-color-scheme: dark) {
+  .world-svg .q-beacon, .world-svg .q-lamp { filter: drop-shadow(0 0 4px var(--w-glow)); }
+  .world-svg .q-neon text { filter: drop-shadow(0 0 3px var(--tone)); }
+  .world-svg .q-spot { opacity: 0.5; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .world-svg .q-hook { transform-box: fill-box; transform-origin: 50% 0; animation: hook 2.4s ease-in-out infinite alternate; }
+  .world-svg .q-beacon { animation: beacon 2.2s ease-in-out infinite; }
+  .world-svg .q-steam { stroke-dasharray: 4 3; animation: steam 1.8s linear infinite; }
+  @keyframes hook { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+}
+.q-progress { display: block; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--rule-soft); overflow: hidden; }
+.q-progress span { display: block; height: 100%; background: #c4643f; transform-origin: left; }
+
 /* ---------------------------------------------------------------- agent sprites
    Robots with LED-screen faces (lib/sprite.tsx). The body carries the agent's colour (--h), the
    face its glow (--glow). Works on the map, inside buildings and as avatars, with fallbacks where
