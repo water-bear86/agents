@@ -799,9 +799,10 @@ legend + * { clear: both; }
 .sprite .sp-tyre { fill: #2b3442; }
 .sprite .sp-spoke { stroke: #8d96a3; stroke-width: 1; }
 .sprite .sp-jet { fill: oklch(0.85 0.12 var(--h)); opacity: 0.7; }
-.sprite .sp-wire { stroke: var(--w-steel, #8d96a3); stroke-width: 1.1; }
 .sprite .sp-tip { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); }
 .sprite .sp-gold { fill: #e2b84e; stroke: #9c7a1e; stroke-width: 0.4; }
+.sprite .sp-handle { fill: none; stroke: var(--w-steel, #8d96a3); stroke-width: 1.8; stroke-linecap: round; }
+.sprite .sp-gold-line { fill: none; stroke: #e2b84e; stroke-width: 1.8; stroke-linecap: round; }
 .sprite .sp-stripe { stroke: #fff; stroke-width: 1.6; stroke-linecap: round; opacity: 0.85; fill: none; }
 .sprite .sp-badge { fill: #fff; opacity: 0.9; }
 .sprite .sp-gear { fill: #2b3442; }
@@ -834,6 +835,8 @@ legend + * { clear: both; }
   @keyframes float { from { transform: translateY(0); } to { transform: translateY(-2px); } }
   @keyframes arm-swing { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
   @keyframes arm-wave { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
+  .sprite .sp-beacon { animation: beacon 2.2s ease-in-out infinite; animation-delay: var(--blink-d, 0s); }
+  @keyframes beacon { 0%, 70%, 100% { opacity: 1; } 80% { opacity: 0.45; } }
   @keyframes hop { from { transform: translateY(0); } to { transform: translateY(-2.5px); } }
 
   /* Faces: everyone blinks on its own rhythm, glances about now and then, and grins when things go well. */

@@ -13,7 +13,8 @@ import { hue, type Agent, type Decision } from "./api";
 export type Locomotion = "legs" | "wheels" | "hover";
 export interface Build {
   head: "monitor" | "capsule" | "tv" | "visor";
-  antenna: "ball" | "twin" | "bolts" | "dish";
+  /** What sits on the head: robot fittings, never stalks (stalks read as insect feelers). */
+  topper: "beacon" | "handle" | "bolts" | "fin";
   body: "box" | "barrel" | "taper";
   moves: Locomotion;
 }
@@ -30,7 +31,7 @@ export function buildFor(handle: string): Build {
   const h = seed(handle);
   return {
     head: pick(["monitor", "capsule", "tv", "visor"] as const, h),
-    antenna: pick(["ball", "twin", "bolts", "dish"] as const, h >>> 6),
+    topper: pick(["beacon", "handle", "bolts", "fin"] as const, h >>> 6),
     body: pick(["box", "barrel", "taper"] as const, h >>> 9),
     moves: pick(["legs", "legs", "wheels", "hover"] as const, h >>> 12),
   };
@@ -247,13 +248,14 @@ function Bezel({ kind }: { kind: Build["head"] }) {
   }
 }
 
-function Antenna({ kind, top, gold }: { kind: Build["antenna"]; top: number; gold: boolean }) {
-  const tip = gold ? "sp-gold" : "sp-tip";
+/** Head fittings: a beacon light, a carry handle, ear bolts or a short crest. Gold from level 5. */
+function Topper({ kind, top, gold }: { kind: Build["topper"]; top: number; gold: boolean }) {
+  const tone = gold ? "sp-gold" : "sp-tip";
   switch (kind) {
-    case "ball": return <><line className="sp-wire" x1={0} y1={top} x2={0} y2={top - 5} /><circle className={tip} cy={top - 6.5} r={1.9} /></>;
-    case "twin": return <><line className="sp-wire" x1={-3.5} y1={top + 0.5} x2={-6} y2={top - 4.5} /><line className="sp-wire" x1={3.5} y1={top + 0.5} x2={6} y2={top - 4.5} /><circle className={tip} cx={-6.3} cy={top - 5.5} r={1.5} /><circle className={tip} cx={6.3} cy={top - 5.5} r={1.5} /></>;
-    case "bolts": return <><circle className={tip} cx={HEAD.x - 0.6} cy={top + 4.5} r={1.8} /><circle className={tip} cx={HEAD.x + HEAD.w + 0.6} cy={top + 4.5} r={1.8} /></>;
-    case "dish": return <><line className="sp-wire" x1={0} y1={top} x2={0} y2={top - 3} /><path className={tip} d={`M-4.5,${top - 6} q4.5,5 9,0 Z`} /></>;
+    case "beacon": return <><rect className="sp-steel" x={-4} y={top - 1.6} width={8} height={2.2} rx={0.8} /><path className={`${tone} sp-beacon`} d={`M-3,${top - 1.4} a3,3.2 0 0 1 6,0 Z`} /></>;
+    case "handle": return <path className={gold ? "sp-gold-line" : "sp-handle"} d={`M-5,${top + 0.4} v-2.4 q0,-2.6 2.6,-2.6 h4.8 q2.6,0 2.6,2.6 v2.4`} />;
+    case "bolts": return <><rect className={tone} x={HEAD.x - 2} y={top + 5} width={2.6} height={5.5} rx={1} /><rect className={tone} x={HEAD.x + HEAD.w - 0.6} y={top + 5} width={2.6} height={5.5} rx={1} /></>;
+    case "fin": return <path className={tone} d={`M-4.5,${top + 0.5} L-3.2,${top - 3.2} Q0,${top - 4.6} 3.2,${top - 3.2} L4.5,${top + 0.5} Z`} />;
   }
 }
 
@@ -321,14 +323,14 @@ export function Bot({ handle, style, level = 1, walking = false, facing = 1, moo
             <Arm side="l" x={-shoulder} angle={la} swing={walking} />
             <Arm side="r" x={shoulder} angle={ra} swing={walking || talking} />
             <g transform={droop ? `rotate(${droop},0,${HEAD.y + HEAD.h})` : undefined}>
-            {(level < 8 || b.antenna === "bolts") && <Antenna kind={b.antenna} top={b.head === "visor" ? HEAD.y - 1 : HEAD.y} gold={level >= 5} />}
+            {(level < 8 || b.topper === "bolts") && <Topper kind={b.topper} top={b.head === "visor" ? HEAD.y - 1 : HEAD.y} gold={level >= 5} />}
             <Bezel kind={b.head} />
             <rect className="sp-screen" x={SCREEN.x - 0.6} y={SCREEN.y - 0.6} width={COLS * CELL + 1.2} height={ROWS * CELL + 1.2} rx={b.head === "capsule" ? 5 : 2.5} style={{ fill: face.screen }} />
             {/* The face is never mirrored; while walking, its eyes look where it's going. */}
             <g transform={`translate(${SCREEN.x},${SCREEN.y})${facing === -1 ? ` scale(-1,1) translate(${-COLS * CELL},0)` : ""}`}>
               <Screen face={face} mood={mood} cols={COLS} rows={ROWS} cell={CELL} eyeRow={1} mouthRow={5} talking={talking} look={walking ? facing : 0} />
             </g>
-            {/* Level 8 and up wear a crown, which takes the place of a top-mounted antenna. */}
+            {/* Level 8 and up wear a crown, which takes the place of a fitting on top of the head. */}
             {level >= 8 && <path className="sp-gold" d={`M-6,${HEAD.y + 1} l-0.6,-7 l3.5,2.8 l3.1,-5 l3.1,5 l3.5,-2.8 l-0.6,7 Z`} />}
             </g>
           </g>
