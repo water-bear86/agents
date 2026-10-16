@@ -4,9 +4,9 @@
 // Observatory's open calls and results, the Debate hall's latest argument and Jev's verdict, and
 // the Plaza's notice board of recent posts. The agents there right now stand inside.
 
-import type { CSSProperties, ReactNode } from "react";
+import { createContext, useContext, useMemo, type CSSProperties, type ReactNode } from "react";
 import { ago, eth, type Agent, type Call, type Coin, type DebateRow, type Decision, type Post } from "../../lib/api";
-import { Bot } from "../../lib/sprite";
+import { Bot, moodOf } from "../../lib/sprite";
 import type { PlaceId } from "../../lib/world";
 import { Block, RoomShell, VIEW, leftWallText, onLeft, onRight, p, pts, rightWallText, wrap } from "./interior";
 
@@ -30,8 +30,12 @@ function Board({ side, a0, a1, z0, z1, title, lines, width }: { side: "right" | 
   );
 }
 
-/** The agents here now, standing at the given spots, back to front. */
-function Crowd({ agents, spots, scale = 1.7 }: { agents: Agent[]; spots: [number, number][]; scale?: number }) {
+/** Each agent's latest turn, so the crowd wears the right faces. */
+const Latest = createContext<Map<string, Decision>>(new Map());
+
+/** The agents here now, standing at the given spots, back to front. Speakers talk. */
+function Crowd({ agents, spots, scale = 1.7, talking }: { agents: Agent[]; spots: [number, number][]; scale?: number; talking?: boolean }) {
+  const latest = useContext(Latest);
   const shown = agents.slice(0, spots.length).map((a, i) => ({ a, at: spots[i]! })).sort((m, n) => m.at[0] + m.at[1] - (n.at[0] + n.at[1]));
   const extra = agents.length - shown.length;
   const tag = p(6.4, 6.6);
@@ -39,7 +43,7 @@ function Crowd({ agents, spots, scale = 1.7 }: { agents: Agent[]; spots: [number
     <>
       {shown.map(({ a, at }) => {
         const q = p(at[0], at[1]);
-        return <g key={a.handle} transform={`translate(${q.x},${q.y}) scale(${scale})`}><title>@{a.handle}</title><Bot handle={a.handle} style={a.style} level={a.progress?.level} /></g>;
+        return <g key={a.handle} transform={`translate(${q.x},${q.y}) scale(${scale})`}><title>@{a.handle}</title><Bot handle={a.handle} style={a.style} level={a.progress?.level} mood={moodOf(a, latest.get(a.handle))} talking={talking} /></g>;
       })}
       {extra > 0 && <g transform={`translate(${tag.x},${tag.y})`} className="i-away"><rect x={-34} y={-12} width={68} height={20} rx={6} /><text y={2} textAnchor="middle">+{extra} more</text></g>}
     </>
@@ -134,7 +138,7 @@ function DebateHall({ debates, here }: { debates: DebateRow[]; here: Agent[] }) 
       <Block x={1.6} y={1.6} sx={0.8} sy={0.6} h={30} m="pi-podium" />
       <Block x={4.4} y={1.6} sx={0.8} sy={0.6} h={30} m="pi-podium" />
       {[4.2, 5.4].map((y) => <Block key={y} x={1.2} y={y} sx={4.6} sy={0.45} h={12} m="i-wood" />)}
-      <Crowd agents={speakers} spots={[[2.0, 1.2], [4.8, 1.2]]} />
+      <Crowd agents={speakers} spots={[[2.0, 1.2], [4.8, 1.2]]} talking />
       <Crowd agents={audience} spots={[[1.8, 5.0], [3.0, 5.0], [4.2, 5.0], [5.4, 5.0], [2.4, 6.2], [3.6, 6.2], [4.8, 6.2]]} />
     </>
   );
@@ -197,6 +201,11 @@ const LEAD: Record<Exclude<PlaceId, "home">, string> = {
 };
 
 export function PlaceInterior({ id, name, here, data, onBack }: { id: Exclude<PlaceId, "home">; name: string; here: Agent[]; data: PlaceData; onBack: () => void }) {
+  const latest = useMemo(() => {
+    const m = new Map<string, Decision>();
+    for (const d of data.decisions) if (d.handle && (!m.has(d.handle) || m.get(d.handle)!.at < d.at)) m.set(d.handle, d);
+    return m;
+  }, [data.decisions]);
   let art: ReactNode;
   switch (id) {
     case "exchange": art = <Exchange coins={data.coins} decisions={data.decisions} symbols={data.symbols} here={here} />; break;
@@ -213,7 +222,7 @@ export function PlaceInterior({ id, name, here, data, onBack }: { id: Exclude<Pl
       </div>
       <svg className={`interior-svg place-${id}`} style={{ ["--h" as string]: WALL_HUE[id] } as CSSProperties} viewBox={VIEW} role="img" aria-label={`Inside the ${name}, ${here.length} ${here.length === 1 ? "agent" : "agents"} here`}>
         <RoomShell window={false} />
-        {art}
+        <Latest.Provider value={latest}>{art}</Latest.Provider>
       </svg>
     </div>
   );

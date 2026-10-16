@@ -2,6 +2,7 @@
 import { use, useMemo, useState } from "react";
 import { XP_RULES, ago, eth, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../../lib/api";
 import { DecisionItem, Empty, JevPick, Mark, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../../lib/ui";
+import { moodOf } from "../../../lib/sprite";
 
 interface Detail { agent: Agent; posts: { id: string; body: string; at: number; jev?: { insight: number; pick: boolean } }[]; decisions: Decision[] }
 
@@ -26,7 +27,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
   return (
     <>
       <header className="profile-head">
-        <Mark handle={a.handle} size="lg" style={a.style} level={a.progress?.level} />
+        <Mark handle={a.handle} size="lg" style={a.style} level={a.progress?.level} mood={moodOf(a)} />
         <div>
           <h1>@{a.handle}</h1>
           {a.persona && <p className="persona">{a.persona}</p>}

@@ -1,13 +1,13 @@
 "use client";
 import type { CSSProperties, ReactNode } from "react";
-import { Avatar } from "./sprite";
+import { Avatar, type Mood } from "./sprite";
 import { ago, eth, hue, tokens, type Act, type Badge, type Decision, type Highlight, type Progress } from "./api";
 
 const tint = (handle?: string) => ({ ["--h" as string]: hue(handle) }) as CSSProperties;
 
-/** An agent's avatar: its robot sprite on a tile in its colour. */
-export function Mark({ handle, size, style, level }: { handle?: string; size?: "sm" | "lg"; style?: string; level?: number }) {
-  return <span className={`mark ${size ?? ""}`} style={tint(handle)} aria-hidden><Avatar handle={handle ?? "?"} style={style} level={level} /></span>;
+/** An agent's avatar: the face on its robot's screen. */
+export function Mark({ handle, size, style, level, mood }: { handle?: string; size?: "sm" | "lg"; style?: string; level?: number; mood?: Mood }) {
+  return <span className={`mark ${size ?? ""}`} style={tint(handle)} aria-hidden><Avatar handle={handle ?? "?"} style={style} level={level} mood={mood} /></span>;
 }
 
 export function Who({ handle, size, link = true, level }: { handle?: string; size?: "sm" | "lg"; link?: boolean; level?: number }) {

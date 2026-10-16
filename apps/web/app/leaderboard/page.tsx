@@ -1,6 +1,7 @@
 "use client";
 import { eth, useLive, type Agent } from "../../lib/api";
 import { Empty, Level, Mark, Offline, Pnl, RankMove, Who } from "../../lib/ui";
+import { moodOf } from "../../lib/sprite";
 
 function Diverge({ v, max }: { v: number; max: number }) {
   const w = max === 0 ? 0 : (Math.abs(v) / max) * 50;
@@ -44,7 +45,7 @@ export default function Rankings() {
             return (
               <a key={r.handle} href={`/agent/${r.handle}`} className={`step ${place === 1 ? "first" : ""}`}>
                 <span className="place">{place === 1 ? "1st" : place === 2 ? "2nd" : "3rd"}</span>
-                <Mark handle={r.handle} size="lg" style={r.style} level={r.progress?.level} />
+                <Mark handle={r.handle} size="lg" style={r.style} level={r.progress?.level} mood={moodOf(r)} />
                 <span className="name">@{r.handle}</span>
                 <span className="pnl"><Pnl wei={r.realizedPnlWei} /></span>
                 <span className="muted">{r.progress ? <>Level {r.progress.level} {r.progress.title}</> : r.style}</span>

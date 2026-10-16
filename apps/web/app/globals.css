@@ -99,7 +99,6 @@ main.shell { padding-top: 32px; padding-bottom: 64px; }
 }
 @media (prefers-color-scheme: dark) { .mark { background: linear-gradient(oklch(0.36 calc(var(--agent-c) * 0.6) var(--h)), oklch(0.28 calc(var(--agent-c) * 0.6) var(--h))); } }
 .mark .avatar-sprite { width: 100%; height: 100%; display: block; }
-.mark .pawn-shadow { display: none; }
 .mark.lg { --size: 72px; border-radius: 10px; }
 .mark.sm { --size: 20px; border-radius: 4px; }
 .who { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 650; min-width: 0; }
@@ -743,13 +742,19 @@ legend + * { clear: both; }
 .interior-svg .i-agent .pawn-shadow { fill: rgba(0, 0, 0, 0.18); }
 
 /* ---------------------------------------------------------------- agent sprites
-   Robots built from parts (lib/sprite.tsx). Body and eyes carry the agent's colour (--h). Works
-   on the map, inside houses and as avatars, with fallbacks where the map's --w-* tokens aren't set. */
+   Robots with LED-screen faces (lib/sprite.tsx). The body carries the agent's colour (--h), the
+   face its glow (--glow). Works on the map, inside buildings and as avatars, with fallbacks where
+   the map's --w-* tokens aren't set. */
 .sprite .sp-body { fill: oklch(var(--agent-l) var(--agent-c) var(--h)); stroke: var(--w-edge, rgba(15, 27, 45, 0.2)); stroke-width: 0.6; }
 .sprite .sp-shade { fill: #000; opacity: 0.14; }
 .sprite .sp-head { fill: var(--w-wall, #f6f8fb); stroke: var(--w-edge, rgba(15, 27, 45, 0.2)); stroke-width: 0.6; }
-.sprite .sp-eye { fill: oklch(calc(var(--agent-l) + 0.06) var(--agent-c) var(--h)); }
-.sprite .sp-pupil { fill: #0d1521; }
+.sprite .sp-screen { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.5; }
+.sprite .sp-dim { fill: #000; fill-opacity: 0.4; }
+.sprite .sp-lit { fill: var(--glow); }
+.sprite :is(.sp-shut, .sp-m-b) { opacity: 0; }
+.sprite .sp-face.asleep .sp-lit { opacity: 0.55; }
+.sprite .sp-trim { fill: none; stroke: #e2b84e; stroke-width: 1; }
+.sprite .sp-hand { fill: oklch(calc(var(--agent-l) - 0.04) var(--agent-c) var(--h)); stroke: var(--w-edge, rgba(15, 27, 45, 0.2)); stroke-width: 0.5; }
 .sprite .sp-core { fill: oklch(calc(var(--agent-l) + 0.25) calc(var(--agent-c) * 0.6) var(--h)); }
 .sprite .sp-steel { fill: var(--w-steel, #8d96a3); }
 .sprite .sp-tyre { fill: #2b3442; }
@@ -764,9 +769,11 @@ legend + * { clear: both; }
 .sprite .sp-gear-line { stroke: #2b3442; stroke-width: 1.3; fill: none; stroke-linecap: round; }
 .sprite .sp-lens { fill: #7fd4ff; stroke: #2b3442; stroke-width: 0.6; }
 .sprite .sp-shield { fill: #e9eef5; stroke: #2b3442; stroke-width: 0.6; }
+.sprite .sp-emote-bg { fill: #0f172a; stroke: var(--glow); stroke-width: 0.7; }
+.sprite .sp-emote-glyph { fill: var(--glow); }
 @media (prefers-color-scheme: dark) {
-  .sprite .sp-eye { filter: drop-shadow(0 0 2px oklch(var(--agent-l) var(--agent-c) var(--h))); }
-  .world-svg .sprite .sp-jet, .interior-svg .sprite .sp-jet { filter: drop-shadow(0 0 3px oklch(0.85 0.12 var(--h))); }
+  :is(.world-svg, .interior-svg) .sprite .sp-lit { filter: drop-shadow(0 0 1.2px var(--glow)); }
+  :is(.world-svg, .interior-svg) .sprite .sp-jet { filter: drop-shadow(0 0 3px oklch(0.85 0.12 var(--h))); }
 }
 @media (prefers-reduced-motion: no-preference) {
   .sprite .leg { transform-box: fill-box; transform-origin: 50% 0; }
@@ -776,10 +783,39 @@ legend + * { clear: both; }
   .sprite .wheel { transform-box: fill-box; transform-origin: center; }
   .sprite.walking .wheel { animation: roll 0.5s linear infinite; }
   .world-svg .sprite.moves-hover .bot { animation: float 1.6s ease-in-out infinite alternate; }
+  .sprite .arm { transform-box: view-box; transform-origin: 0 0; }
+  .sprite .arm-l.swing { animation: arm-swing 0.36s ease-in-out infinite alternate; }
+  .sprite .arm-r.swing { animation: arm-swing 0.36s ease-in-out infinite alternate-reverse; }
+  .sprite.mood-excited:not(.walking) .arm { animation: arm-wave 0.25s ease-in-out infinite alternate; }
+  /* Excited robots bounce on the spot. */
+  .sprite:is(.mood-excited, .mood-elated):not(.walking) .bot { animation: hop 0.5s ease-in-out infinite alternate; }
   @keyframes stride { from { transform: rotate(24deg); } to { transform: rotate(-24deg); } }
   @keyframes bob { from { transform: translateY(0); } to { transform: translateY(-1.5px); } }
   @keyframes roll { to { transform: rotate(360deg); } }
   @keyframes float { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+  @keyframes arm-swing { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
+  @keyframes arm-wave { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
+  @keyframes hop { from { transform: translateY(0); } to { transform: translateY(-2.5px); } }
+
+  /* Faces: everyone blinks on its own rhythm, glances about now and then, and grins when things go well. */
+  .sprite .sp-face:not(.asleep) .sp-open { animation: sp-blink-open var(--blink, 5s) step-end var(--blink-d, 0s) infinite; }
+  .sprite .sp-face:not(.asleep) .sp-shut { animation: sp-blink-shut var(--blink, 5s) step-end var(--blink-d, 0s) infinite; }
+  .sprite .sp-face:not(.asleep) .sp-eyes { animation: sp-glance calc(var(--blink, 5s) * 2.3) step-end var(--blink-d, 0s) infinite; }
+  .sprite:is(.mood-neutral, .mood-happy, .mood-elated, .mood-loving) .sp-face:not(.talking) .sp-m-a { animation: sp-grin-a calc(var(--blink, 5s) * 1.9) step-end var(--blink-d, 0s) infinite; }
+  .sprite:is(.mood-neutral, .mood-happy, .mood-elated, .mood-loving) .sp-face:not(.talking) .sp-m-b { animation: sp-grin-b calc(var(--blink, 5s) * 1.9) step-end var(--blink-d, 0s) infinite; }
+  .sprite .sp-face.talking .sp-m-a { animation: sp-talk-a 0.34s step-end infinite; }
+  .sprite .sp-face.talking .sp-m-b { animation: sp-talk-b 0.34s step-end infinite; }
+  .sprite .sp-emote-pop { transform-box: fill-box; transform-origin: 25% 100%; animation: sp-pop 0.4s cubic-bezier(0.3, 1.6, 0.6, 1) both; }
+  .sprite .snooze .sp-emote-pop { animation: sp-snooze 2.6s ease-in-out infinite alternate; }
+  @keyframes sp-blink-open { 0%, 100% { opacity: 1; } 94% { opacity: 0; } 97% { opacity: 1; } }
+  @keyframes sp-blink-shut { 0%, 100% { opacity: 0; } 94% { opacity: 1; } 97% { opacity: 0; } }
+  @keyframes sp-glance { 0%, 100% { transform: none; } 62% { transform: translateX(calc(var(--cell) * -1px)); } 70% { transform: none; } 80% { transform: translateX(calc(var(--cell) * 1px)); } 88% { transform: none; } }
+  @keyframes sp-grin-a { 0%, 100% { opacity: 1; } 55% { opacity: 0; } 75% { opacity: 1; } }
+  @keyframes sp-grin-b { 0%, 100% { opacity: 0; } 55% { opacity: 1; } 75% { opacity: 0; } }
+  @keyframes sp-talk-a { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes sp-talk-b { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+  @keyframes sp-pop { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes sp-snooze { from { transform: translate(0, 0); opacity: 0.6; } to { transform: translate(2px, -3px); opacity: 1; } }
 }
 
 /* ---------------------------------------------------------------- inside the town's buildings */

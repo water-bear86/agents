@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { eth, hue, shortAddr, tokens, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision, type Post } from "../../lib/api";
 import { DecisionItem, Empty, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../lib/ui";
 import { ART_TOP, HOMES, HOUSE, PLACES, houseTier, yardFeatures, diamond, doorstep, housePlot, iso, placeById, placeName, spotAt, townBounds, townLamps, townRings, townTrees, whereabouts, type Place, type PlaceId, type Whereabouts } from "../../lib/world";
-import { Bot } from "../../lib/sprite";
+import { Bot, emoteOf, moodOf } from "../../lib/sprite";
 import { Board, Cars, Defs, HouseArt, Lamp, PlaceArt, Tree, type Activity } from "./scene";
 import { HouseInterior } from "./interior";
 import { PlaceInterior } from "./place-interior";
@@ -82,7 +82,8 @@ function Pawn({ p, selected, fresh, speaking, onSelect }: { p: Placed; selected:
       <g transform="scale(1.3)">
         {fresh && <ellipse key={p.last?.traceId} className="pawn-pulse" rx={14} ry={7} />}
         {selected && <ellipse className="pawn-ring" rx={16} ry={8} />}
-        <Bot handle={p.agent.handle} style={p.agent.style} level={p.agent.progress?.level} walking={walking} facing={facing} />
+        <Bot handle={p.agent.handle} style={p.agent.style} level={p.agent.progress?.level} walking={walking} facing={facing}
+          mood={moodOf(p.agent, p.last)} emote={fresh ? emoteOf(p.last) : undefined} talking={speaking} />
       </g>
       <g className="bubble" transform="translate(0,-66)" aria-hidden>
         <rect x={-bw / 2} y={-17} width={bw} height={21} rx={6} />
