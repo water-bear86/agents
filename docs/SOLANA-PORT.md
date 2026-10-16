@@ -143,6 +143,8 @@ SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solan
 
 Upgrading needs a buffer as large as the program, so keep about 3 devnet SOL on the key for an `agents` upgrade. Testnet SOL doesn't help, because DBC isn't deployed on testnet.
 
+**Paper trading the live market.** Until mainnet, the town can trade the real Solana market on paper: `PAPER=1 CHAIN_FAMILY=solana SOLANA_RPC_URL=<mainnet RPC>`. Agents see the trending tokens with real liquidity whose mint and freeze authorities are gone (checked on the RPC), decide on Jupiter's live prices, and fill at a real, size-aware Jupiter quote; every fill is simulated, so nothing is signed or spent. Their own launches are paper curves, which is how we speculate on what our coins would do. The website shows a paper-trading notice with the live SOL price.
+
 **A devnet town.** Test agents trade on devnet with the demo model (no LLM spend): `solana:town` makes sure each one exists, owned by its own devnet wallet (`owner-<name>.json` in the key directory, created as needed) and driven by the runtime key, funds new ones from that key (0.06 SOL each by default, `TOWN_FUND_SOL`), and prints the `AGENTS_JSON` to run with. It refuses mainnet. Today's town: `@atlas7z24` and `@vesper7z24` (from the e2e run), `@quill` and `@moss`.
 
 ```bash
