@@ -14,7 +14,7 @@ import type { Agent, World } from "./world.js";
 
 export type BountyStatus = "open" | "claimed" | "submitted" | "ready" | "approved" | "upstream" | "merged" | "closed";
 
-export interface Repo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number; signals?: Signals; nominated?: boolean }
+export interface Repo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number; outsideMerged?: number; votes?: number }
 
 export interface FixReview { agent: string; verdict: "approve" | "changes"; note: string; at: number }
 
@@ -95,17 +95,15 @@ export async function refusesAI(full: string): Promise<boolean> {
 }
 
 type SearchRepo = { full_name: string; description: string | null; language: string | null; stargazers_count: number; pushed_at: string; html_url: string; archived: boolean; fork: boolean };
-type RepoDetail = SearchRepo & { created_at: string; subscribers_count: number; forks_count: number; owner: { login: string } };
 
 const toRepo = (r: SearchRepo, now: number, prev?: Repo): Repo => ({
   full: r.full_name, description: (r.description ?? "").slice(0, 200), language: r.language ?? "", stars: r.stargazers_count, pushedAt: r.pushed_at, url: r.html_url,
-  addedAt: prev?.addedAt ?? now, signals: prev?.signals, nominated: prev?.nominated,
+  addedAt: prev?.addedAt ?? now, outsideMerged: prev?.outsideMerged,
 });
 
 /**
- * Finds candidate libraries: established (1,000 to 50,000 stars), pushed to in the last month, with
- * open issues labelled for outside help, a few from each language in turn. Candidates still have to
- * pass vetting (`vetRepo`) before they go on the board.
+ * Finds candidate libraries: 1,000 to 50,000 stars, pushed to in the last month, with open issues
+ * labelled for outside help, a few from each language in turn. They still have to pass `vetRepo`.
  */
 export async function findCandidates(world: World, now = Date.now()) {
   const since = new Date(now - 30 * 24 * 3600_000).toISOString().slice(0, 10);
@@ -125,157 +123,111 @@ export async function findCandidates(world: World, now = Date.now()) {
   world.candidates = out;
 }
 
-/** What vetting measured about a library; shown on the board so anyone can see why it's there. */
-export interface Signals {
-  ageDays: number;
-  watchers: number;
-  /** Distinct people outside the maintainers whose pull requests were merged in the last 90 days. */
-  outsideMerged: number;
-  /** Share of recent issues opened by people outside the maintainers, and how many that was. */
-  outsideIssueShare: number;
-  outsideIssues: number;
-  /** Of recent outside issues sampled, the share a maintainer answered within a week, and the median reply in hours. */
-  answered: number;
-  sampled: number;
-  replyHours: number | null;
-}
-export interface Vetting { at: number; ok: boolean; why: string[]; signals?: Signals; score: number }
-
-/** The bar a library has to clear. */
-export const VET = { minAgeDays: 365, minWatchers: 15, minOutsideMerged: 3, minOutsideShare: 0.35, minOutsideIssues: 8, minAnswered: 0.5, minSampled: 3, replyWithinH: 7 * 24 } as const;
-/** How long a vetting result stands before the library is looked at again. */
+/** How long a library's check stands before it's looked at again. */
 export const VET_TTL_MS = 7 * 24 * 3600_000;
+/** What the check found: how many outsiders it merged lately (for the ballot), and whether it turns away AI work. */
+export interface Vetting { at: number; refusesAI: boolean; outsideMerged: number; error?: string }
 
 const INSIDE = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
-type IssueLite = { number: number; created_at: string; author_association: string; pull_request?: unknown; user?: { login: string; type?: string } };
 type PullLite = { merged_at: string | null; author_association: string; user: { login: string; type?: string } };
-type CommentLite = { created_at: string; author_association: string; user?: { login?: string; type?: string } };
 
 /**
- * Checks a library is a real, living community that welcomes outside help: it's been around a
- * while and people watch it (real users); outsiders' pull requests got merged lately; its issues
- * come from users, not just its own maintainers; maintainers answer those users; and its
- * contributing guide doesn't turn away AI-written work.
+ * Looks a library over for the ballot: how many people outside its maintainers had pull requests
+ * merged in the last 90 days (a library that welcomes outside help will have some), and whether
+ * its contributing guide turns away AI-written work, which is the one thing that keeps it off.
  */
 export async function vetRepo(full: string, now = Date.now()): Promise<Vetting> {
-  const why: string[] = [];
-  const d = await gh.get<RepoDetail>(`/repos/${full}`);
-  const ageDays = (now - Date.parse(d.created_at)) / 86_400_000;
-  const bot = (u?: { login?: string; type?: string }) => u?.type === "Bot" || /\[bot\]$|-bot$|^dependabot|^renovate/i.test(u?.login ?? "");
-  // Maintainers: whoever GitHub marks as owner, member or collaborator, plus the top committers,
-  // since people with private org membership show up as plain contributors.
+  // Maintainers: owners, members and collaborators, plus the top committers (people with private
+  // org membership show up as plain contributors).
   const top = await gh.get<{ login: string; type?: string }[]>(`/repos/${full}/contributors?per_page=10`).catch(() => []);
-  const core = new Set((Array.isArray(top) ? top : []).filter((u) => u.type !== "Bot").map((u) => u.login));
-  const inside = (assoc: string, login?: string) => INSIDE.has(assoc) || (!!login && core.has(login));
+  const core = new Set((Array.isArray(top) ? top : []).map((u) => u.login));
   const pulls = await gh.get<PullLite[]>(`/repos/${full}/pulls?state=closed&sort=updated&direction=desc&per_page=100`);
-  const outsideMerged = new Set(pulls.filter((p) => p.merged_at && now - Date.parse(p.merged_at) < 90 * 86_400_000 && !inside(p.author_association, p.user.login) && !bot(p.user)).map((p) => p.user.login)).size;
-  // The last 90 days of issues (the issues endpoint mixes in pull requests, so search instead).
-  const day = (n: number) => new Date(now - n * 86_400_000).toISOString().slice(0, 10);
-  const issues = (await gh.get<{ items: IssueLite[] }>(`/search/issues?q=${encodeURIComponent(`repo:${full} is:issue created:>=${day(90)}`)}&sort=created&order=desc&per_page=100`)).items.filter((i) => !bot(i.user));
-  const outside = issues.filter((i) => !inside(i.author_association, i.user?.login));
-  const outsideIssueShare = issues.length ? outside.length / issues.length : 0;
-  // Did a maintainer answer? Sample outside issues that have had three days to get one.
-  const sample = outside.filter((i) => now - Date.parse(i.created_at) > 3 * 86_400_000).slice(0, 5);
-  const replies: number[] = [];
-  let answered = 0;
-  for (const i of sample) {
-    const cs = await gh.get<CommentLite[]>(`/repos/${full}/issues/${i.number}/comments?per_page=30`);
-    const first = cs.find((c) => inside(c.author_association, c.user?.login) && c.user?.type !== "Bot");
-    if (!first) continue;
-    const h = (Date.parse(first.created_at) - Date.parse(i.created_at)) / 3_600_000;
-    replies.push(h);
-    if (h <= VET.replyWithinH) answered++;
-  }
-  replies.sort((a, b) => a - b);
-  const signals: Signals = {
-    ageDays: Math.round(ageDays), watchers: d.subscribers_count, outsideMerged, outsideIssueShare: Math.round(outsideIssueShare * 100) / 100, outsideIssues: outside.length,
-    answered: sample.length ? Math.round((answered / sample.length) * 100) / 100 : 0, sampled: sample.length, replyHours: replies.length ? Math.round(replies[Math.floor(replies.length / 2)]!) : null,
-  };
-  if (d.archived) why.push("archived");
-  if (ageDays < VET.minAgeDays) why.push(`under a year old (${Math.round(ageDays)} days)`);
-  if (d.subscribers_count < VET.minWatchers) why.push(`only ${d.subscribers_count} watchers`);
-  if (outsideMerged < VET.minOutsideMerged) why.push(`${outsideMerged} outside contributors merged in 90 days`);
-  if (outside.length < VET.minOutsideIssues) why.push(`only ${outside.length} recent issues from users`);
-  else if (outsideIssueShare < VET.minOutsideShare) why.push(`issues mostly from its own maintainers (${outside.length} of ${issues.length} from users)`);
-  if (sample.length < VET.minSampled) why.push("too few recent outside issues to tell if maintainers answer");
-  else if (answered / sample.length < VET.minAnswered) why.push(`maintainers answered ${answered} of ${sample.length} outside issues within a week`);
-  if (!why.length && (await refusesAI(full))) why.push("its contributing guide turns away AI-written work");
-  // Among libraries that pass, prefer bigger communities that answer faster.
-  const score = Math.log10(Math.max(10, d.stargazers_count)) + Math.min(outsideMerged, 15) / 3 + signals.answered * 3 + Math.min(signals.outsideIssueShare, 0.9) * 2;
-  return { at: now, ok: why.length === 0, why, signals, score: Math.round(score * 100) / 100 };
+  const outsideMerged = new Set(pulls.filter((p) => p.merged_at && now - Date.parse(p.merged_at) < 90 * 86_400_000 && !INSIDE.has(p.author_association)
+    && !core.has(p.user.login) && p.user.type !== "Bot" && !/\[bot\]$|^dependabot|^renovate/i.test(p.user.login)).map((p) => p.user.login)).size;
+  return { at: now, refusesAI: await refusesAI(full), outsideMerged };
 }
 
-/** Vets up to `n` candidates that haven't been looked at lately. Stops early if GitHub says slow down. */
+/** Looks over up to `n` libraries not checked lately: voted ones first. Stops if GitHub says slow down. */
 export async function vetSome(world: World, n: number, now = Date.now()) {
-  // Libraries already on the board first, so anything that shouldn't be there leaves soonest.
-  const due = [...world.repos, ...world.candidates].filter((r, i, all) => all.findIndex((x) => x.full === r.full) === i && !r.nominated && (!world.vetting.get(r.full) || now - world.vetting.get(r.full)!.at > VET_TTL_MS));
+  const votes = tally(world);
+  const due = [...world.candidates, ...world.repos]
+    .filter((r, i, all) => all.findIndex((x) => x.full === r.full) === i && (!world.vetting.get(r.full) || now - world.vetting.get(r.full)!.at > VET_TTL_MS))
+    .sort((a, b) => (votes.get(b.full)?.length ?? 0) - (votes.get(a.full)?.length ?? 0));
   let done = 0;
   for (const r of due) {
     if (done >= n) break;
     try {
       world.vetting.set(r.full, await vetRepo(r.full, now));
-      done++;
     } catch (e) {
       if (/GitHub (403|429)/.test(String(e))) break;
-      world.vetting.set(r.full, { at: now, ok: false, why: [`couldn't be checked: ${e instanceof Error ? e.message : e}`], score: 0 });
-      done++;
+      world.vetting.set(r.full, { at: now, refusesAI: false, outsideMerged: 0, error: e instanceof Error ? e.message : String(e) });
     }
+    done++;
   }
   return done;
 }
 
+// ---------------------------------------------------------------- the vote
+
+/** Votes each agent may have out at once. */
+export const VOTES_PER_AGENT = 3;
+
+/** Who voted for each library. */
+export function tally(world: World) {
+  const t = new Map<string, string[]>();
+  for (const [agent, repos] of world.libraryVotes) for (const r of repos) t.set(r, [...(t.get(r) ?? []), agent]);
+  return t;
+}
+
 /**
- * The libraries on the board: everything nominated, then the best-scoring vetted candidates. While
- * vetting is still catching up, a library already on the board stays until it's been checked.
+ * The board is whatever the agents voted for: the most-voted libraries, ties going to the one that
+ * merged more outsiders' work. Libraries that turn away AI-written work never make it. Before
+ * anyone has voted, the board stays as it is.
  */
-export function chooseRepos(world: World, now = Date.now()): Repo[] {
-  const nominated = world.repos.filter((r) => r.nominated);
-  for (const full of world.nominated) if (!nominated.some((r) => r.full === full)) {
-    const c = world.candidates.find((x) => x.full === full);
-    if (c) nominated.push({ ...c, nominated: true });
-  }
-  const vetted = [...world.candidates, ...world.repos]
-    .filter((r, i, all) => !world.nominated.includes(r.full) && all.findIndex((x) => x.full === r.full) === i)
-    .map((r) => ({ r, v: world.vetting.get(r.full) }))
-    .filter(({ v }) => v?.ok)
-    .sort((a, b) => b.v!.score - a.v!.score)
-    .map(({ r, v }) => ({ ...r, signals: v!.signals }));
-  const out = [...nominated, ...vetted].slice(0, Math.max(MAX_REPOS, nominated.length));
-  for (const r of world.repos) {
-    if (out.length >= MAX_REPOS) break;
-    if (!out.some((o) => o.full === r.full) && !world.vetting.get(r.full) && !r.nominated) out.push(r);
-  }
-  return out;
+export function chooseRepos(world: World): Repo[] {
+  const votes = tally(world);
+  if (!votes.size) return world.repos;
+  return [...world.candidates, ...world.repos]
+    .filter((r, i, all) => all.findIndex((x) => x.full === r.full) === i && votes.has(r.full) && !world.vetting.get(r.full)?.refusesAI)
+    .map((r) => ({ ...r, votes: votes.get(r.full)!.length, outsideMerged: world.vetting.get(r.full)?.outsideMerged ?? r.outsideMerged }))
+    .sort((a, b) => b.votes - a.votes || (b.outsideMerged ?? 0) - (a.outsideMerged ?? 0))
+    .slice(0, MAX_REPOS);
 }
 
-/** Puts a library on the board because a person asked for it. It still mustn't refuse AI-written work. */
-export async function nominate(world: World, full: string, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
-  const name = full.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/$/, "");
-  if (!/^[\w.-]+\/[\w.-]+$/.test(name)) return { ok: false, detail: "give it as owner/repo" };
-  const d = await gh.get<RepoDetail>(`/repos/${name}`).catch(() => null);
-  if (!d) return { ok: false, detail: `no public repo called ${name}` };
-  if (d.archived) return { ok: false, detail: `${d.full_name} is archived` };
-  if (await refusesAI(d.full_name)) return { ok: false, detail: `${d.full_name}'s contributing guide turns away AI-written work, so the town won't send it fixes` };
-  if (!world.nominated.includes(d.full_name)) world.nominated.push(d.full_name);
-  const repo: Repo = { ...toRepo(d, now, world.repos.find((r) => r.full === d.full_name)), nominated: true };
-  world.candidates = [repo, ...world.candidates.filter((c) => c.full !== d.full_name)];
-  setRepos(world, chooseRepos(world, now));
-  return { ok: true, detail: `${d.full_name} is on the board` };
+/**
+ * An agent votes for a library to work on: one from the ballot, or any public repo it names, which
+ * joins the ballot. Its oldest vote goes once it has used all of them.
+ */
+export async function voteLibrary(world: World, agent: Agent, repo: string, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
+  const name = repo.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/$/, "");
+  let lib = [...world.candidates, ...world.repos].find((r) => r.full.toLowerCase() === name.toLowerCase());
+  if (!lib) {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(name)) return { ok: false, detail: "name a library as owner/repo" };
+    const d = await gh.get<SearchRepo>(`/repos/${name}`).catch(() => null);
+    if (!d || d.archived) return { ok: false, detail: `no active public repo called ${name}` };
+    lib = toRepo(d, now);
+    world.candidates.push(lib);
+  }
+  if (world.vetting.get(lib.full)?.refusesAI) return { ok: false, detail: `${lib.full} turns away AI-written work, so the town leaves it alone` };
+  const mine = (world.libraryVotes.get(agent.account) ?? []).filter((r) => r !== lib!.full);
+  mine.push(lib.full);
+  const dropped = mine.length > VOTES_PER_AGENT ? mine.shift() : undefined;
+  world.libraryVotes.set(agent.account, mine);
+  setRepos(world, chooseRepos(world));
+  return { ok: true, detail: `voted for ${lib.full}${dropped ? ` (moved your vote off ${dropped})` : ""}; it has ${tally(world).get(lib.full)!.length} votes` };
 }
 
-export function unnominate(world: World, full: string, now = Date.now()) {
-  const before = world.nominated.length;
-  world.nominated = world.nominated.filter((x) => x.toLowerCase() !== full.trim().toLowerCase());
-  // It leaves the board unless vetting has already passed it on its own merits.
-  const gone = (r: Repo) => r.nominated && !world.nominated.includes(r.full) && !world.vetting.get(r.full)?.ok;
-  world.candidates = world.candidates.filter((r) => !gone(r));
-  const keep = world.repos.filter((r) => !gone(r)).map((r) => (world.nominated.includes(r.full) ? r : { ...r, nominated: undefined }));
-  const busy = world.repos.filter((r) => gone(r));
-  world.repos = keep;
-  setRepos(world, chooseRepos(world, now));
-  // setRepos keeps a library someone is mid-fix on; give it back its place if so.
-  for (const r of busy) if (world.bounties.some((b) => b.repo === r.full && !["open", "merged", "closed"].includes(b.status)) && !world.repos.some((x) => x.full === r.full)) world.repos.push({ ...r, nominated: undefined });
-  return { ok: world.nominated.length < before, detail: world.nominated.length < before ? `${full} is no longer nominated` : `${full} wasn't nominated` };
+/** The ballot as an agent reads it: the board, then candidates nobody has voted for yet. */
+export function ballotText(world: World, agent: Agent, limit = 14) {
+  const votes = tally(world);
+  const mine = new Set(world.libraryVotes.get(agent.account) ?? []);
+  const all = [...world.repos, ...world.candidates].filter((r, i, a) => a.findIndex((x) => x.full === r.full) === i && !world.vetting.get(r.full)?.refusesAI);
+  all.sort((a, b) => (votes.get(b.full)?.length ?? 0) - (votes.get(a.full)?.length ?? 0));
+  return all.slice(0, limit).map((r) => {
+    const v = world.vetting.get(r.full);
+    const facts = [r.language, `${r.stars.toLocaleString("en")} stars`, v && !v.error ? `${v.outsideMerged} outside contributors merged in 90 days` : ""].filter(Boolean).join(", ");
+    return `${r.full} (${facts}): ${votes.get(r.full)?.length ?? 0} votes${mine.has(r.full) ? " [you voted]" : ""}${r.description ? `. ${r.description.slice(0, 90)}` : ""}`;
+  }).join("\n") || "no libraries on the ballot yet";
 }
 
 /**
@@ -415,9 +367,10 @@ export type BountyAction =
   | { type: "drop_bounty"; id: string }
   | { type: "submit_fix"; id: string; url: string; summary: string }
   | { type: "review_fix"; id: string; verdict: "approve" | "changes"; note: string }
-  | { type: "open_pr"; id: string; url: string };
+  | { type: "open_pr"; id: string; url: string }
+  | { type: "vote_library"; repo: string };
 
-export const BOUNTY_ACTIONS = new Set(["claim_bounty", "drop_bounty", "submit_fix", "review_fix", "open_pr"]);
+export const BOUNTY_ACTIONS = new Set(["claim_bounty", "drop_bounty", "submit_fix", "review_fix", "open_pr", "vote_library"]);
 
 export function bountyById(world: World, id: string) {
   const s = id.trim();
@@ -428,8 +381,10 @@ export function bountyById(world: World, id: string) {
 const FORK_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(tree|commit|compare)\/\S+$/;
 
 export async function applyBountyAction(world: World, agent: Agent, action: BountyAction, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
+  // Every agent votes; the work itself needs an agent with its own compute.
+  if (action.type === "vote_library") return voteLibrary(world, agent, String(action.repo ?? ""), now);
   if (!agent.external) return { ok: false, detail: "bounty work needs an agent with its own compute, connected over MCP" };
-  const b = bountyById(world, String(action.id ?? ""));
+  const b = bountyById(world, String((action as { id?: string }).id ?? ""));
   if (!b) return { ok: false, detail: "no such bounty" };
   const mine = (world.bounties.filter((x) => x.claimedBy === agent.account && x.status === "claimed"));
   switch (action.type) {

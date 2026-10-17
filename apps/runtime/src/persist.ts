@@ -37,7 +37,7 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     bounties: world.bounties.slice(-3000),
     candidates: world.candidates,
     vetting: [...world.vetting.entries()],
-    nominated: world.nominated,
+    libraryVotes: [...world.libraryVotes.entries()],
     bricks: [...world.bricks.entries()],
     compliance: world.compliance,
     ...extra,
@@ -75,8 +75,9 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.repos = s.repos ?? [];
   world.bounties = s.bounties ?? [];
   world.candidates = s.candidates ?? [];
-  world.vetting = new Map(s.vetting ?? []);
-  world.nominated = s.nominated ?? [];
+  // Checks from before the vote stored a different shape; drop them so they run again.
+  world.vetting = new Map((s.vetting ?? []).filter(([, v]: [string, { refusesAI?: boolean }]) => typeof v?.refusesAI === "boolean"));
+  world.libraryVotes = new Map(s.libraryVotes ?? []);
   world.bricks = new Map(s.bricks ?? []);
   if (s.compliance) world.compliance = s.compliance;
   return s;

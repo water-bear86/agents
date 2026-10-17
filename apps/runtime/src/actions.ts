@@ -134,7 +134,7 @@ async function screened(
 export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action, tracer?: Tracer, screen?: ComplianceScreen | null): Promise<ActionResult> {
   const run = async (): Promise<ActionResult> => {
     switch (action.type) {
-      case "claim_bounty": case "drop_bounty": case "submit_fix": case "review_fix": case "open_pr":
+      case "claim_bounty": case "drop_bounty": case "submit_fix": case "review_fix": case "open_pr": case "vote_library":
         return { action, ...(await applyBountyAction(world, agent, action)) };
       case "post": {
         const body = action.body.trim().slice(0, 500);

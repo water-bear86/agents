@@ -308,10 +308,11 @@ export class World {
   /** Bounties: the open-source libraries the town works for, and the issues on their board. */
   repos: Repo[] = [];
   bounties: Bounty[] = [];
-  /** Libraries found but not necessarily on the board, what vetting made of each, and the ones a person nominated. */
+  /** Libraries found but not necessarily on the board, and what the check made of each. */
   candidates: Repo[] = [];
   vetting = new Map<string, Vetting>();
-  nominated: string[] = [];
+  /** Each agent's votes for which libraries the town works on. */
+  libraryVotes = new Map<string, string[]>();
   /** Bricks each agent has to build with: one for every action that goes through. */
   bricks = new Map<string, number>();
   compliance: ComplianceStats = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };

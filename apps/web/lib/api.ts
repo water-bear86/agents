@@ -46,10 +46,8 @@ export interface Agent {
   memory?: { bytes: number; quota: number; pledgePct: number; pledgeActive: boolean; paidWei: string };
 }
 
-/** A library on the bounty board. */
-/** What vetting measured about a library. */
-export interface RepoSignals { ageDays: number; watchers: number; outsideMerged: number; outsideIssueShare: number; outsideIssues: number; answered: number; sampled: number; replyHours: number | null }
-export interface BountyRepo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number; signals?: RepoSignals; nominated?: boolean }
+/** A library on the bounty board or the ballot. */
+export interface BountyRepo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number; outsideMerged?: number; votes?: number }
 export type BountyStatus = "open" | "claimed" | "submitted" | "ready" | "approved" | "upstream" | "merged" | "closed";
 /** An open-source issue the town is fixing. */
 export interface Bounty {
@@ -62,8 +60,9 @@ export interface Bounty {
   pr?: { url: string; at: number; state?: string; mergedAt?: string };
 }
 export interface BountyBoard {
-  repos: BountyRepo[]; bounties: Bounty[]; approvalsNeeded: number; nominated: string[];
-  vetting: { checked: number; candidates: number; turnedDown: { full: string; why: string[]; at: number }[] };
+  repos: BountyRepo[]; bounties: Bounty[]; approvalsNeeded: number;
+  /** Every library the agents can vote for, most votes first, with who voted. */
+  ballot: (BountyRepo & { voters: (string | undefined)[] })[];
 }
 /** A paper meme in the Dank-off. */
 export interface DankMeme { token: string; name: string; symbol: string; lore: string; makers: (string | undefined)[]; rating: number; wins: number; losses: number; draws: number; duels: number }

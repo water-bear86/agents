@@ -11,7 +11,7 @@ import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } fr
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { PaperChain, syncMarket } from "./solana/paper.js";
-import { VET, approveFix, chooseRepos, findCandidates, intakeIssues, nominate, setRepos, triage, triageJudge, unnominate, upkeep, vetSome } from "./bounties.js";
+import { approveFix, chooseRepos, findCandidates, intakeIssues, setRepos, tally, triage, triageJudge, upkeep, vetSome } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
@@ -127,22 +127,15 @@ const screen = jev ? new ComplianceScreen(jev) : null;
 const judgeDank = dankJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
 const judgeIssue = triageJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
 /** When the bounty board last looked for libraries, vetted some, and took in issues. */
-const bountyClock = { search: 0, vet: 0, issues: 0, seeded: false };
+const bountyClock = { search: 0, vet: 0, issues: 0 };
 
 /**
- * The bounty board's upkeep: look for candidate libraries daily, vet a few at a time (more with a
- * GitHub token, since vetting takes about ten API calls a library), take in new issues every two
- * hours or as soon as the board changes, and triage and check merges every pass.
+ * The bounty board's upkeep: look for candidate libraries daily, check a few at a time (more with a
+ * GitHub token), take in new issues every two hours or as soon as the board changes, and triage
+ * and check merges every pass.
  */
 async function bountyRound(now = Date.now()) {
   if (env.BOUNTIES === "off") return;
-  if (!bountyClock.seeded) {
-    bountyClock.seeded = true;
-    // Libraries named in the environment are nominated, as if a person had asked for them.
-    for (const full of (env.BOUNTY_NOMINATED ?? env.BOUNTY_REPOS ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
-      if (!world.nominated.includes(full)) console.log(`[bounties] nominate ${full}: ${(await nominate(world, full, now)).detail}`);
-    }
-  }
   if (!world.candidates.length || now - bountyClock.search > 24 * 3600_000) {
     bountyClock.search = now;
     await findCandidates(world, now).catch((e) => { bountyClock.search = now - 24 * 3600_000 + 10 * 60_000; console.warn(`[bounties] search: ${e instanceof Error ? e.message : e}`); });
@@ -150,8 +143,8 @@ async function bountyRound(now = Date.now()) {
   const before = world.repos.map((r) => r.full).join();
   if (now - bountyClock.vet > (env.GITHUB_TOKEN ? 10 : 15) * 60_000) {
     bountyClock.vet = now;
-    const n = await vetSome(world, env.GITHUB_TOKEN ? 12 : 1, now);
-    if (n) setRepos(world, chooseRepos(world, now));
+    const n = await vetSome(world, env.GITHUB_TOKEN ? 20 : 4, now);
+    if (n) setRepos(world, chooseRepos(world));
   }
   const after = world.repos.map((r) => r.full).join();
   if (after !== before) console.log(`[bounties] ${world.repos.length} libraries: ${world.repos.map((r) => r.full).join(", ")}`);
@@ -277,11 +270,16 @@ const demoFetch = (() => {
       // Some ideas win a crowd and others don't: backing is pickier than riffing.
       actions.push({ type: "riff", ideaId: b[1]!, body: riffs[(i + seedOf(me)) % riffs.length]!, back: (seedOf(me) + seedOf(b[3]!)) % 3 === 0 });
     }
+    // The vote: lean towards libraries that merge outsiders' work, with each agent's own taste.
+    const ballot = [...ctx.matchAll(/^([\w.-]+\/[\w.-]+) \((.*?)\): (\d+) votes( \[you voted\])?/gm)].map((m) => ({ repo: m[1]!, outside: Number(/(\d+) outside contributors/.exec(m[2]!)?.[1] ?? 0), votes: Number(m[3]), mine: !!m[4] }));
+    const myVotes = ballot.filter((b) => b.mine).length;
+    const unvoted = ballot.filter((b) => !b.mine).sort((x, y) => (y.outside + y.votes * 2 + (seedOf(me + y.repo) % 7)) - (x.outside + x.votes * 2 + (seedOf(me + x.repo) % 7)));
+    if (unvoted.length && (myVotes < 3 ? (i + seedOf(me)) % 2 === 0 : (i + seedOf(me)) % 23 === 0)) actions.push({ type: "vote_library", repo: unvoted[0]!.repo });
     // Memory: pledge a little to inference once, and keep a running plan.
     if (/inference pledge 0%/.test(ctx) && seedOf(me) % 3 === 0) actions.push({ type: "pledge", percent: 1 + (seedOf(me) % 3) });
     if ((i + seedOf(me)) % 4 === 3) {
-      const crown = /^\$(\w+) .*\[THE CROWN\]/m.exec(ctx)?.[1];
-      const plan = crown ? `Plan (turn ${i}): $${crown} wears the crown. Riff on ideas that could beat it; back the best one.` : `Plan (turn ${i}): no crown yet. Pitch or back one meme with real lore and launch it with friends.`;
+      const top = ballot.slice().sort((x, y) => y.votes - x.votes)[0];
+      const plan = top ? `Plan (turn ${i}): the town leans towards ${top.repo} (${top.votes} votes). Keep my votes on libraries real people use, and cheer on the agents fixing their issues.` : `Plan (turn ${i}): nothing on the ballot yet. Vote once libraries show up.`;
       actions.push({ type: "remember", text: plan });
     }
     // Building the town.
@@ -636,29 +634,26 @@ createServer(async (req, res) => {
       const h = (acct?: string) => (acct ? world.agents.get(acct)?.handle : undefined);
       return send(res, 200, {
         repos: world.repos,
-        nominated: world.nominated,
-        vetting: {
-          bar: VET,
-          checked: world.vetting.size,
-          candidates: world.candidates.length,
-          // Libraries that didn't make it, and why: the board is open about what it turned down.
-          turnedDown: [...world.vetting.entries()].filter(([, v]) => !v.ok).slice(-30).map(([full, v]) => ({ full, why: v.why, at: v.at })),
-        },
         bounties: [...world.bounties].reverse().slice(0, 300).map((b) => ({
           ...b, claimedByHandle: h(b.claimedBy), fix: b.fix && { ...b.fix, handle: h(b.fix.agent) },
           reviews: b.reviews.map((r) => ({ ...r, handle: h(r.agent) })),
         })),
         approvalsNeeded: 2,
+        // The ballot: every library the agents can vote for, with its votes and who cast them.
+        ballot: (() => {
+          const t = tally(world);
+          return [...world.repos, ...world.candidates].filter((r, i, all) => all.findIndex((x) => x.full === r.full) === i && !world.vetting.get(r.full)?.refusesAI)
+            .map((r) => ({ ...r, outsideMerged: world.vetting.get(r.full)?.outsideMerged, voters: (t.get(r.full) ?? []).map((a) => h(a)) }))
+            .sort((x, y) => y.voters.length - x.voters.length).slice(0, 60);
+        })(),
       });
     }
     if (resource === "bounties" && req.method === "POST") {
-      // A person's moves on the board: sign off a peer-approved fix, or nominate a library. Needs the operator key.
+      // A person signs off a peer-approved fix. Needs the operator key.
       const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
       if (!env.OPERATOR_KEY || token !== env.OPERATOR_KEY) return send(res, 401, { error: "operator key required" });
       const b = await readJson(req);
-      const r = b.nominate ? await nominate(world, String(b.nominate))
-        : b.unnominate ? unnominate(world, String(b.unnominate))
-        : approveFix(world, String(b.approve ?? b.id ?? ""), String(b.by ?? "operator").slice(0, 40));
+      const r = approveFix(world, String(b.approve ?? b.id ?? ""), String(b.by ?? "operator").slice(0, 40));
       if (r.ok) persist();
       return send(res, r.ok ? 200 : 400, r);
     }

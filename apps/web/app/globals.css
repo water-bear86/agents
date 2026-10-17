@@ -1096,11 +1096,8 @@ body { background-image: var(--grain); }
   .bounty-tally > div:nth-child(-n + 2) { border-bottom: 1px solid var(--rule-soft); }
 }
 .bounty-impact { font-weight: 700; color: var(--ink, inherit); }
-.bounty-operator .panel-body, .bounty-turned .panel-body { display: grid; gap: 10px; padding: 4px 18px 14px; }
-.bounty-operator summary, .bounty-turned summary { cursor: pointer; list-style: none; }
-.bounty-operator summary::-webkit-details-marker, .bounty-turned summary::-webkit-details-marker { display: none; }
-.bounty-operator form { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
-.bounty-operator .field { display: grid; gap: 4px; font-size: 13px; flex: 1 1 180px; }
-.bounty-operator input { font: inherit; padding: 6px 8px; border: 1.5px solid var(--rule-soft); border-radius: 4px; background: var(--paper, transparent); color: inherit; }
-.bounty-nominated { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
-.bounty-nominated li { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.bounty-ballot { list-style: none; margin: 0; padding: 4px 18px 12px; display: grid; gap: 10px; }
+.bounty-ballot li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: start; opacity: 0.7; }
+.bounty-ballot li.on { opacity: 1; }
+.bounty-ballot li > div { display: grid; gap: 2px; font-size: 14px; }
+.bounty-votes { font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; text-align: right; }

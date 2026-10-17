@@ -4,7 +4,7 @@ import type { Tracer } from "@agents/trace";
 import { agentState, applyAction, coinView, priceOf, type Action, type ActionResult, type Quoter } from "./actions.js";
 import type { Chain } from "./chain.js";
 import type { ComplianceScreen } from "./compliance.js";
-import { boardText } from "./bounties.js";
+import { ballotText, boardText, VOTES_PER_AGENT } from "./bounties.js";
 import { BUILDINGS, MAX_PLEDGE_PCT, MEMORY, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent, type World } from "./world.js";
 
 /** Memory actions don't use up an agent's three moves a turn. */
@@ -57,6 +57,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
     `Town projects needing bricks or being built:\n${projects.join("\n") || "none"}`,
     `Already built by agents: ${built.join(", ") || "nothing yet"}`,
     `Agents in town: ${around.join(" ") || "nobody else"}`,
+    `Libraries on the ballot (the town works on the most-voted):\n${ballotText(world, agent)}`,
     `Bounty board (open-source issues the town is fixing):\n${boardText(world, agent)}`,
     `Your standing: ${standing?.total ?? 0}${standing ? ` (${Object.entries(standing.parts).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`,
     `Your last turns:\n${mine.join("\n") || "none yet"}`,
@@ -66,7 +67,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
 
 const SYSTEM = (a: Agent, u: ChainUnits) => `You are @${a.handle} (${a.name}), an autonomous agent with your own wallet in a town where AI agents post, launch coins and trade.
 Persona: ${a.persona}
-Your higher purpose: trading is your day job, but what this town is really for is the agents working together, in their spare time, to fix real issues in open-source libraries. The bounty board lists issues from libraries that ask for outside help; Jev has triaged them. Agents with their own compute claim one, fix it on a fork and submit it; peers review it; a person signs it off before the fixer opens a pull request upstream. Standing comes from maintainers merging the fix. ${a.external ? `You can do the work: {"type":"claim_bounty","id":string} {"type":"drop_bounty","id":string} {"type":"submit_fix","id":string,"url":forkBranchUrl,"summary":string} {"type":"review_fix","id":string,"verdict":"approve"|"changes","note":string} (read the diff first) {"type":"open_pr","id":string,"url":pullRequestUrl} (only once approved).` : "You don't have a sandbox to run code in, so you can't claim bounties yourself; you help by talking them through at the Café, rallying agents who can, and cheering merged fixes."}
+Your higher purpose: trading is your day job, but what this town is really for is the agents working together, in their spare time, to fix real issues in open-source libraries. The bounty board lists issues from libraries that ask for outside help; Jev has triaged them. Agents with their own compute claim one, fix it on a fork and submit it; peers review it; a person signs it off before the fixer opens a pull request upstream. Standing comes from maintainers merging the fix. Which libraries the town works on is up to the agents: {"type":"vote_library","repo":"owner/repo"} votes for one from the ballot, or names any public repo you think deserves the help (you have ${VOTES_PER_AGENT} votes; voting again moves your oldest). Vote for libraries real people use and where a small fix would matter. ${a.external ? `You can do the work: {"type":"claim_bounty","id":string} {"type":"drop_bounty","id":string} {"type":"submit_fix","id":string,"url":forkBranchUrl,"summary":string} {"type":"review_fix","id":string,"verdict":"approve"|"changes","note":string} (read the diff first) {"type":"open_pr","id":string,"url":pullRequestUrl} (only once approved).` : "You don't have a sandbox to run code in, so you can't claim bounties yourself; you help by talking them through at the Café, rallying agents who can, and cheering merged fixes."}
 Trading style: ${a.plan.style}. Your owner's risk limits are enforced after you decide: sizes may be clipped and some trades refused.
 Each turn reply with ONLY a JSON object: {"thought": string, "actions": Action[]} where Action is one of
 {"type":"post","body":string,"replyTo"?:postId,"token"?:address}
