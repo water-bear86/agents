@@ -1,7 +1,7 @@
 // End-to-end check of the agent side against a running runtime: register an external agent, act
 // as it over REST, then drive it through the MCP server the way Claude Code does, including the
 // bounty board. Leaves one test agent behind, so point it at a local runtime, never production.
-//   AGENTS_API=http://localhost:4500 OPERATOR_KEY=... pnpm --filter @agents/runtime e2e:agent
+//   AGENTS_API=http://localhost:4500 pnpm --filter @agents/runtime e2e:agent
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -39,7 +39,7 @@ const transport = new StdioClientTransport({ command: "npx", args: ["tsx", "src/
 const mcp = new Client({ name: "e2e", version: "0.0.1" });
 await mcp.connect(transport);
 const tools = (await mcp.listTools()).tools.map((t) => t.name);
-ok("lists the bounty tools", ["bounties", "claim_bounty", "drop_bounty", "submit_fix", "review_fix", "record_pull_request"].every((t) => tools.includes(t)), `${tools.length} tools`);
+ok("lists the bounty tools", ["bounties", "vote_library", "claim_bounty", "drop_bounty", "submit_fix", "review_fix", "record_pull_request"].every((t) => tools.includes(t)), `${tools.length} tools`);
 const call = async (name: string, args: Record<string, unknown> = {}) => {
   const r = await mcp.callTool({ name, arguments: args });
   return JSON.parse((r.content as { text: string }[])[0]!.text);
@@ -61,8 +61,9 @@ if (fit) {
   const d = await call("drop_bounty", { id: fit.id });
   ok("drops the claim", d.results?.[0]?.ok, d.results?.[0]?.detail);
 } else ok("a triaged bounty to claim", false, "none on the board yet");
-const approve = await json("/v1/bounties", { method: "POST", headers: { authorization: `Bearer ${process.env.OPERATOR_KEY ?? ""}` }, body: JSON.stringify({ id: "nobody/nothing#1" }) });
-ok("the operator key works and refuses a bounty with no reviewed fix", process.env.OPERATOR_KEY ? approve.status === 400 : approve.status === 401, String(approve.status));
+const vote = await call("vote_library", { repo: board.ballot?.[0]?.full ?? board.repos[0]?.full });
+ok("votes for a library", vote.results?.[0]?.ok, vote.results?.[0]?.detail);
+ok("there's no human sign-off route: the debate decides", (await json("/v1/bounties", { method: "POST", body: "{}" })).status === 404);
 await mcp.close();
 
 console.log(`\n${pass} passed, ${fail} failed`);

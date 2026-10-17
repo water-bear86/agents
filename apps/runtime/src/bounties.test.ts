@@ -1,7 +1,7 @@
 import { PRESETS } from "@agents/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyAction } from "./actions.js";
-import { APPROVALS_NEEDED, CLAIM_TTL_MS, STANDING, approveFix, ballotText, boardText, findCandidates, guessImpact, intakeIssues, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, vetSome, type Bounty, type GitHub, type Repo } from "./bounties.js";
+import { CLAIM_TTL_MS, DEBATE_MS, STANDING, ballotText, fixJudge, settleDebates, boardText, findCandidates, guessImpact, intakeIssues, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, vetSome, type Bounty, type GitHub, type Repo } from "./bounties.js";
 import { SimChain } from "./chain.js";
 import { World, standingOf, type Agent } from "./world.js";
 
@@ -36,32 +36,56 @@ describe("bounties", () => {
     fixer = mk("fixer"); r1 = mk("rev1"); r2 = mk("rev2");
     for (const a of [fixer, r1, r2]) world.agents.set(a.account, a);
     world.bounties.push(bounty());
-    useGitHub(fakeGitHub({ "/repos/fixer/lib": { fork: true, parent: { full_name: "acme/lib" } }, "/repos/acme/lib/pulls/99": { state: "closed", merged_at: "2026-10-16T00:00:00Z" } }, [FIX]));
+    useGitHub(fakeGitHub({ "/repos/fixer/lib": { fork: true, parent: { full_name: "acme/lib" } }, "/repos/acme/lib": { default_branch: "main" },
+      "/repos/acme/lib/compare/main...fixer:fix-7": { files: [{ filename: "src/parser.ts", additions: 3, deletions: 1, patch: "@@ -10 +10,3 @@\n-  if (s.endsWith(\",\")) s = s.slice(0, -1);\n+  // keep trailing commas" }] }, "/repos/acme/lib/pulls/99": { state: "closed", merged_at: "2026-10-16T00:00:00Z" } }, [FIX]));
   });
 
   const act = (a: Agent, action: Parameters<typeof applyAction>[4]) => applyAction(world, chain, chain, a, action);
 
-  it("runs a fix from claim to merge, and standing lands only on the merge", async () => {
+  it("runs a fix from claim to merge: the town debates it, Jev rules, and standing lands on the merge", async () => {
     expect((await act(fixer, { type: "claim_bounty", id: "acme/lib#7" })).ok).toBe(true);
     expect((await act(fixer, { type: "submit_fix", id: "acme/lib#7", url: FIX, summary: "Keeps trailing commas; added a test for it" })).ok).toBe(true);
-    expect((await act(fixer, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "looks right to me, honest" })).detail).toMatch(/own fix/);
-    await act(r1, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "read the diff, tests cover the case" });
-    await act(r2, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "ran the suite locally, all green" });
     const b = world.bounties[0]!;
-    expect(b.status).toBe("ready");
-    expect(b.reviews.filter((r) => r.verdict === "approve")).toHaveLength(APPROVALS_NEEDED);
-    // Nothing goes upstream before a person signs it off.
+    expect(b.status).toBe("submitted");
+    expect(b.fix?.diff).toMatch(/parser\.ts \(\+3 -1\)/);
+    // Everyone sees the diff on the board and can argue, including agents without their own compute.
+    const managed = mk("managed", false);
+    world.agents.set(managed.account, managed);
+    expect(boardText(world, managed)).toMatch(/Up for debate: acme\/lib#7[\s\S]*parser\.ts/);
+    expect((await act(fixer, { type: "review_fix", id: b.id, verdict: "approve", note: "the new test covers the exact case in the issue" })).ok).toBe(true);
+    expect((await act(managed, { type: "review_fix", id: b.id, verdict: "approve", note: "one-line change in the right place, test added" })).ok).toBe(true);
+    expect((await act(managed, { type: "review_fix", id: b.id, verdict: "changes", note: "changed my mind about this one, sorry" })).detail).toMatch(/already argued/);
+    // Nothing goes upstream before the debate is settled.
     expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/99" })).ok).toBe(false);
-    expect(approveFix(world, b.id, "angus").ok).toBe(true);
+    expect(await settleDebates(world, fixJudge(null), b.fix!.at + 60_000)).toEqual([]);
+    expect((await settleDebates(world, fixJudge(null), b.fix!.at + DEBATE_MS + 60_000)).map((x) => x.id)).toEqual(["acme/lib#7"]);
+    expect(b.status).toBe("approved");
+    expect(b.ruling?.verdict).toBe("ship");
     expect((await act(r1, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/99" })).ok).toBe(false);
     expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/other/lib/pull/99" })).ok).toBe(false);
     expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/99" })).ok).toBe(true);
-    expect(standingOf(world).get(fixer.account)?.parts["fixes approved"]).toBe(STANDING.approved);
+    expect(standingOf(world).get(fixer.account)?.parts["fixes cleared"]).toBe(STANDING.approved);
     const merged = await upkeep(world);
     expect(merged.map((x) => x.id)).toEqual(["acme/lib#7"]);
     const s = standingOf(world);
     expect(s.get(fixer.account)?.parts["fixes merged"]).toBe(STANDING.merged);
-    expect(s.get(r1.account)?.parts["reviews that held up"]).toBe(STANDING.reviewMerged);
+    expect(s.get(managed.account)?.parts["reviews that held up"]).toBe(STANDING.reviewMerged);
+  });
+
+  it("holds a fix the debate goes against, and allows one pull request per library at a time", async () => {
+    await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
+    await act(fixer, { type: "submit_fix", id: "acme/lib#7", url: FIX, summary: "Keeps trailing commas; added a test for it" });
+    await act(r1, { type: "review_fix", id: "acme/lib#7", verdict: "changes", note: "the test doesn't cover nested arrays" });
+    await act(r2, { type: "review_fix", id: "acme/lib#7", verdict: "changes", note: "this also changes the error message users match on" });
+    const b = world.bounties[0]!;
+    await settleDebates(world, fixJudge(null), b.fix!.at + DEBATE_MS + 60_000);
+    expect(b.status).toBe("claimed");
+    expect(b.ruling).toMatchObject({ verdict: "hold", why: "the test doesn't cover nested arrays" });
+    expect(boardText(world, fixer)).toMatch(/held after debate: the test doesn't cover nested arrays/);
+    // A second fix on the same library waits while the town has a pull request open there.
+    world.bounties.push(bounty({ id: "acme/lib#8", number: 8, status: "upstream", pr: { url: "https://github.com/acme/lib/pull/5", at: 0 } }));
+    world.bounties.push(bounty({ id: "acme/lib#9", number: 9, status: "approved", fix: { agent: r1.account, url: FIX, summary: "x", at: 0 } }));
+    expect((await act(r1, { type: "open_pr", id: "acme/lib#9", url: "https://github.com/acme/lib/pull/6" })).detail).toMatch(/already has a pull request open on acme\/lib/);
   });
 
   it("only takes fixes on a real fork of the upstream repo", async () => {
@@ -85,12 +109,9 @@ describe("bounties", () => {
     expect((await act(r1, { type: "claim_bounty", id: "acme/lib#9" })).detail).toMatch(/isn't a fit/);
   });
 
-  it("sends a fix back to its fixer when a reviewer asks for changes, and lapses stale claims", async () => {
+  it("lapses a claim nobody delivers on", async () => {
     await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
-    await act(fixer, { type: "submit_fix", id: "acme/lib#7", url: FIX, summary: "Keeps trailing commas; added a test for it" });
-    await act(r1, { type: "review_fix", id: "acme/lib#7", verdict: "changes", note: "the test doesn't cover nested arrays" });
     const b = world.bounties[0]!;
-    expect(b.status).toBe("claimed");
     await upkeep(world, b.claimedAt! + CLAIM_TTL_MS + 1);
     expect(b.status).toBe("open");
     expect(b.claimedBy).toBeUndefined();

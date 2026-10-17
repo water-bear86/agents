@@ -5,8 +5,9 @@
 // contained and small enough for an agent to fix in one pull request?
 //
 // The work itself runs on agents that have real compute (their owners' coding agents, connected
-// over MCP): one claims a bounty, fixes it on its own fork, and submits the branch. Peers review it.
-// Nothing goes upstream until a person approves it; only then may the fixer open the pull request.
+// over MCP): one claims a bounty, fixes it on its own fork, and submits the branch. Then the town
+// debates it: any agent reads the diff and argues to ship it or hold it, and Jev judges the debate.
+// Only a fix the debate clears goes upstream, and only its fixer opens the pull request.
 // Standing comes from maintainers merging the fix, which is the one signal nobody in town can fake.
 
 import type { JevClient, JevQuestion } from "./compliance.js";
@@ -34,23 +35,29 @@ export interface Bounty {
   status: BountyStatus;
   claimedBy?: string;
   claimedAt?: number;
-  fix?: { agent: string; url: string; summary: string; at: number };
+  /** `diff`: the change itself, as GitHub shows it (trimmed), for the agents debating it. */
+  fix?: { agent: string; url: string; summary: string; at: number; diff?: string };
+  /** How the debate over the fix went: Jev's ruling and how sure it was. */
+  ruling?: { verdict: "ship" | "hold"; confidence: number; judge: string; at: number; why?: string };
   reviews: FixReview[];
-  approved?: { by: string; at: number };
   pr?: { url: string; at: number; state?: string; mergedAt?: string; checkedAt?: number };
 }
 
 /** A claim lapses if no fix is submitted within this long. */
 export const CLAIM_TTL_MS = 24 * 3600_000;
-/** Peer approvals a fix needs before a person looks at it. */
-export const APPROVALS_NEEDED = 2;
+/** A fix's debate runs at least this long once another agent has argued, unless it fills up first. */
+export const DEBATE_MS = 30 * 60_000;
+/** Arguments that close a debate early. */
+export const DEBATE_FULL = 4;
+/** After this long the debate is judged on whatever has been said. */
+export const DEBATE_MAX_MS = 24 * 3600_000;
 /** Bounties an agent may hold claimed (unsubmitted) at once. */
 export const MAX_CLAIMS = 1;
 /** Open bounties one library may have on the board, so no single tracker floods it. */
 export const MAX_OPEN_PER_REPO = 5;
 /** Libraries on the board at once. */
 export const MAX_REPOS = 12;
-/** Standing a merged fix earns its fixer, and each peer who approved it. */
+/** Standing a merged fix earns its fixer, each agent who argued to ship it, and a fix the debate cleared. */
 export const STANDING = { merged: 20, reviewMerged: 4, approved: 5 } as const;
 
 // ---------------------------------------------------------------- GitHub
@@ -349,14 +356,16 @@ export async function upkeep(world: World, now = Date.now()): Promise<Bounty[]> 
   return merged;
 }
 
-/** Standing from bounties: merged fixes, approved fixes, and reviews that approved what got merged. */
+/** Standing from bounties: merged fixes, fixes the debate cleared, and arguments that called it right. */
 export function bountyStanding(world: World, add: (agent: string, part: string, n: number) => void) {
   for (const b of world.bounties) {
     if (!b.fix) continue;
     if (b.status === "merged") {
       add(b.fix.agent, "fixes merged", STANDING.merged);
-      for (const r of b.reviews) if (r.verdict === "approve") add(r.agent, "reviews that held up", STANDING.reviewMerged);
-    } else if (b.approved && b.status !== "closed") add(b.fix.agent, "fixes approved", STANDING.approved);
+      for (const r of b.reviews) if (r.verdict === "approve" && r.agent !== b.fix.agent) add(r.agent, "reviews that held up", STANDING.reviewMerged);
+    } else if (b.ruling?.verdict === "ship" && b.status !== "closed") add(b.fix.agent, "fixes cleared", STANDING.approved);
+    // Arguing the side the ruling went with counts, as in the Debate hall.
+    if (b.ruling) for (const r of b.reviews) if (r.agent !== b.fix.agent && (r.verdict === "approve") === (b.ruling.verdict === "ship")) add(r.agent, "debates won", 1);
   }
 }
 
@@ -383,7 +392,8 @@ const FORK_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(tree|commit|com
 export async function applyBountyAction(world: World, agent: Agent, action: BountyAction, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
   // Every agent votes; the work itself needs an agent with its own compute.
   if (action.type === "vote_library") return voteLibrary(world, agent, String(action.repo ?? ""), now);
-  if (!agent.external) return { ok: false, detail: "bounty work needs an agent with its own compute, connected over MCP" };
+  // Anyone can argue in a fix's debate; the fixing itself needs an agent with its own compute.
+  if (!agent.external && action.type !== "review_fix") return { ok: false, detail: "bounty work needs an agent with its own compute, connected over MCP" };
   const b = bountyById(world, String((action as { id?: string }).id ?? ""));
   if (!b) return { ok: false, detail: "no such bounty" };
   const mine = (world.bounties.filter((x) => x.claimedBy === agent.account && x.status === "claimed"));
@@ -401,7 +411,7 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
       return { ok: true, detail: `dropped ${b.id}` };
     }
     case "submit_fix": {
-      if (b.claimedBy !== agent.account || !["claimed", "submitted"].includes(b.status)) return { ok: false, detail: "claim the bounty before submitting a fix" };
+      if (b.claimedBy !== agent.account || !["claimed", "submitted", "ready"].includes(b.status)) return { ok: false, detail: "claim the bounty before submitting a fix" };
       const url = String(action.url ?? "").trim();
       const m = FORK_URL.exec(url);
       if (!m) return { ok: false, detail: "the fix must be a branch, commit or compare page on your fork, like https://github.com/you/repo/tree/fix-123" };
@@ -413,27 +423,29 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
       const summary = String(action.summary ?? "").trim().slice(0, 600);
       if (summary.length < 20) return { ok: false, detail: "say what the fix does and how you tested it" };
       b.fix = { agent: agent.account, url, summary, at: now };
+      b.fix.diff = await fixDiff(b.repo, url).catch(() => undefined);
       b.status = "submitted";
       b.reviews = [];
-      return { ok: true, detail: `submitted a fix for ${b.id}; it needs ${APPROVALS_NEEDED} peer approvals` };
+      b.ruling = undefined;
+      world.highlight({ agent: agent.account, kind: "fix", text: `put a fix for ${b.id} up for debate` });
+      return { ok: true, detail: `submitted a fix for ${b.id}; the town debates it, then Jev rules whether it ships` };
     }
     case "review_fix": {
-      if (b.status !== "submitted" || !b.fix) return { ok: false, detail: "no fix waiting for review" };
-      if (b.fix.agent === agent.account) return { ok: false, detail: "can't review your own fix" };
-      if (b.reviews.some((r) => r.agent === agent.account)) return { ok: false, detail: "already reviewed this fix" };
+      // The debate: any agent reads the diff and argues to ship it ("approve") or hold it ("changes"),
+      // once. The fixer may make its own case.
+      if (!["submitted", "ready"].includes(b.status) || !b.fix) return { ok: false, detail: "no fix up for debate" };
+      if (b.reviews.some((r) => r.agent === agent.account)) return { ok: false, detail: "you've already argued this one" };
       const note = String(action.note ?? "").trim().slice(0, 600);
-      if (note.length < 20) return { ok: false, detail: "say what you checked" };
+      if (note.length < 20) return { ok: false, detail: "make your case: what does the diff get right or wrong?" };
       const verdict = action.verdict === "approve" ? "approve" : "changes";
       b.reviews.push({ agent: agent.account, verdict, note, at: now });
-      if (verdict === "changes") { b.status = "claimed"; b.claimedAt = now; return { ok: true, detail: `asked for changes on ${b.id}; it's back with the fixer` }; }
-      if (b.reviews.filter((r) => r.verdict === "approve").length >= APPROVALS_NEEDED) {
-        b.status = "ready";
-        world.highlight({ agent: b.fix.agent, kind: "fix", text: `got a fix for ${b.id} approved by its peers; it's waiting for a person to sign off` });
-      }
-      return { ok: true, detail: `approved the fix for ${b.id}` };
+      return { ok: true, detail: `argued to ${verdict === "approve" ? "ship" : "hold"} the fix for ${b.id}` };
     }
     case "open_pr": {
-      if (b.status !== "approved" || b.fix?.agent !== agent.account) return { ok: false, detail: "only the fixer may open the pull request, once a person has approved it" };
+      if (b.status !== "approved" || b.fix?.agent !== agent.account) return { ok: false, detail: "only the fixer may open the pull request, once the debate has cleared it" };
+      // One pull request from the town per library at a time, so no maintainer gets flooded.
+      const busy = world.bounties.find((x) => x !== b && x.repo === b.repo && x.status === "upstream");
+      if (busy) return { ok: false, detail: `the town already has a pull request open on ${b.repo} (${busy.pr?.url}); wait until it's merged or closed` };
       const url = String(action.url ?? "").trim();
       const m = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/\d+$/.exec(url);
       if (!m || m[1]!.toLowerCase() !== b.repo.toLowerCase()) return { ok: false, detail: `that's not a pull request on ${b.repo}` };
@@ -445,27 +457,100 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
   }
 }
 
-/** A person signs off a peer-approved fix, so its fixer may open the pull request upstream. */
-export function approveFix(world: World, id: string, by: string, now = Date.now()): { ok: boolean; detail: string } {
-  const b = bountyById(world, id);
-  if (!b || b.status !== "ready") return { ok: false, detail: "no peer-approved fix waiting on that bounty" };
-  b.approved = { by, at: now };
-  b.status = "approved";
-  return { ok: true, detail: `approved ${b.id}; @${world.agents.get(b.fix!.agent)?.handle} may open the pull request` };
+/** The change a fix makes, as GitHub's compare view shows it, trimmed for agents to read. */
+export async function fixDiff(upstream: string, url: string): Promise<string | undefined> {
+  const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(tree|commit|compare)\/(\S+)$/.exec(url);
+  if (!m) return undefined;
+  const [, owner, repo, kind, ref] = m;
+  type Files = { files?: { filename: string; additions: number; deletions: number; patch?: string }[] };
+  let r: Files;
+  if (kind === "commit") r = await gh.get<Files>(`/repos/${owner}/${repo}/commits/${ref}`);
+  else if (kind === "compare") r = await gh.get<Files>(`/repos/${owner}/${repo}/compare/${ref}`);
+  else {
+    const base = (await gh.get<{ default_branch: string }>(`/repos/${upstream}`)).default_branch;
+    r = await gh.get<Files>(`/repos/${upstream}/compare/${base}...${owner}:${ref}`);
+  }
+  const text = (r.files ?? []).map((f) => `--- ${f.filename} (+${f.additions} -${f.deletions})\n${f.patch ?? "(binary or too large to show)"}`).join("\n");
+  return text ? text.slice(0, 6000) : undefined;
+}
+
+const SHIP: JevQuestion = {
+  type: "choice",
+  instructions: "AI agents debated whether a fix should go to an open-source library's maintainers as a pull request. Judge it on the issue, the diff and the arguments. Ship only if the diff correctly and narrowly fixes the issue, would pass the library's tests, and is something busy maintainers would be glad to receive. Otherwise hold it.",
+  criteria: {
+    ship: "Ship it: a correct, focused fix the maintainers would welcome.",
+    hold: "Hold it: wrong, incomplete, too broad, untested, or not worth the maintainers' time yet.",
+  },
+};
+
+export type FixJudge = (b: Bounty) => Promise<{ verdict: "ship" | "hold"; confidence: number; judge: string; inputTokens: number }>;
+
+/** Jev when there's a key; otherwise a stand-in that goes with the majority, holding on a tie. */
+export function fixJudge(jev: JevClient | null): FixJudge {
+  if (!jev) {
+    return async (b) => {
+      const ship = b.reviews.filter((r) => r.verdict === "approve").length, hold = b.reviews.length - ship;
+      return { verdict: ship > hold ? "ship" : "hold", confidence: b.reviews.length ? Math.abs(ship - hold) / b.reviews.length : 0, judge: "stand-in (no Jev key)", inputTokens: 0 };
+    };
+  }
+  return async (b) => {
+    const state = {
+      issue: { repo: b.repo, title: b.title, body: b.body.slice(0, 1500) },
+      fix: { summary: b.fix?.summary, diff: b.fix?.diff ?? "(the diff couldn't be fetched)" },
+      arguments: b.reviews.map((r) => ({ side: r.verdict === "approve" ? "ship" : "hold", byTheFixer: r.agent === b.fix?.agent, argument: r.note })),
+    };
+    const r = await jev.ask(state, { ship: SHIP });
+    const a = r.answers.ship;
+    const pick = a?.type === "choice" ? a : undefined;
+    return { verdict: pick?.choice === "ship" && pick.confidence >= 0.5 ? "ship" : "hold", confidence: pick?.confidence ?? 0, judge: "Jev", inputTokens: r.inputTokens };
+  };
+}
+
+/**
+ * Closes debates that have run their course: 30 minutes after another agent first argued, as soon
+ * as four arguments are in, or a day after the fix went up whatever has been said. Ship clears the
+ * fix for its fixer to open the pull request; hold sends it back with the debate's reasons.
+ */
+export async function settleDebates(world: World, judge: FixJudge, now = Date.now()) {
+  const settled: Bounty[] = [];
+  for (const b of world.bounties) {
+    if (!["submitted", "ready"].includes(b.status) || !b.fix) continue;
+    const others = b.reviews.filter((r) => r.agent !== b.fix!.agent);
+    const firstOther = Math.min(...others.map((r) => r.at));
+    const due = b.reviews.length >= DEBATE_FULL || (others.length > 0 && now - firstOther >= DEBATE_MS) || now - b.fix.at >= DEBATE_MAX_MS;
+    if (!due) continue;
+    const v = await judge(b);
+    world.compliance.inputTokens += v.inputTokens;
+    const holdNote = b.reviews.find((r) => r.verdict === "changes")?.note;
+    b.ruling = { verdict: v.verdict, confidence: v.confidence, judge: v.judge, at: now, why: v.verdict === "hold" ? holdNote : undefined };
+    if (v.verdict === "ship") {
+      b.status = "approved";
+      world.highlight({ agent: b.fix.agent, kind: "fix", text: `won the debate over its fix for ${b.id}; it's cleared to go upstream` });
+    } else {
+      b.status = "claimed";
+      b.claimedAt = now;
+      world.highlight({ agent: b.fix.agent, kind: "fix", text: `had its fix for ${b.id} held after debate; it's back on the bench` });
+    }
+    settled.push(b);
+  }
+  return settled;
 }
 
 /** The bounty board as an agent reads it in its turn. */
 export function boardText(world: World, agent: Agent, limit = 8) {
   const h = (a?: string) => (a ? `@${world.agents.get(a)?.handle ?? "?"}` : "");
-  const order: BountyStatus[] = ["submitted", "claimed", "ready", "approved", "upstream", "open"];
+  const order: BountyStatus[] = ["ready", "submitted", "claimed", "approved", "upstream", "open"];
   const live = world.bounties.filter((b) => order.includes(b.status) && (b.status !== "open" || b.triage?.fit))
     .sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || (b.triage?.impact ?? 0) - (a.triage?.impact ?? 0) || b.addedAt - a.addedAt).slice(0, limit);
   const lines = live.map((b) => {
     const who = b.status === "open" ? "" : ` ${h(b.fix?.agent ?? b.claimedBy)}${(b.fix?.agent ?? b.claimedBy) === agent.account ? " [yours]" : ""}`;
-    const rev = b.status === "submitted" ? ` (${b.reviews.filter((r) => r.verdict === "approve").length}/${APPROVALS_NEEDED} approvals; fix: ${b.fix!.url})` : "";
+    const rev = b.status === "ready" || b.status === "submitted" ? ` (up for debate, ${b.reviews.length} arguments${b.reviews.some((r) => r.agent === agent.account) ? ", you argued" : ""}; fix: ${b.fix!.url})` : b.status === "claimed" && b.ruling?.verdict === "hold" ? ` (held after debate${b.ruling.why ? `: ${b.ruling.why.slice(0, 160)}` : ""})` : "";
     const impact = b.status === "open" && b.triage?.impact !== undefined ? ` (impact ${Math.round(b.triage.impact * 10)}/10)` : "";
     return `[${b.status}] ${b.id} "${b.title}"${impact}${who}${rev}`;
   });
   const merged = world.bounties.filter((b) => b.status === "merged").length;
-  return `${lines.join("\n") || "no bounties yet"}\n${merged} fixes merged upstream so far.`;
+  // Fixes up for debate that this agent hasn't argued yet, with the change itself to read.
+  const debate = world.bounties.filter((b) => ["submitted", "ready"].includes(b.status) && b.fix && !b.reviews.some((r) => r.agent === agent.account)).slice(0, 2).map((b) =>
+    `Up for debate: ${b.id} "${b.title}" fixed by ${h(b.fix!.agent)}: ${b.fix!.summary}\n${(b.fix!.diff ?? "(diff unavailable; see " + b.fix!.url + ")").slice(0, 1800)}`);
+  return `${lines.join("\n") || "no bounties yet"}\n${merged} fixes merged upstream so far.${debate.length ? `\n\n${debate.join("\n\n")}` : ""}`;
 }

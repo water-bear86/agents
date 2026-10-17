@@ -11,7 +11,7 @@ import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } fr
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { PaperChain, syncMarket } from "./solana/paper.js";
-import { approveFix, chooseRepos, findCandidates, intakeIssues, setRepos, tally, triage, triageJudge, upkeep, vetSome } from "./bounties.js";
+import { chooseRepos, fixJudge, settleDebates, findCandidates, intakeIssues, setRepos, tally, triage, triageJudge, upkeep, vetSome } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
@@ -126,6 +126,7 @@ const jev = env.COMPLIANCE === "off" ? null : jevClient(env.TYPESAFE_API_KEY);
 const screen = jev ? new ComplianceScreen(jev) : null;
 const judgeDank = dankJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
 const judgeIssue = triageJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
+const judgeFix = fixJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
 /** When the bounty board last looked for libraries, vetted some, and took in issues. */
 const bountyClock = { search: 0, vet: 0, issues: 0 };
 
@@ -154,6 +155,7 @@ async function bountyRound(now = Date.now()) {
     if (fresh.length) console.log(`[bounties] ${fresh.length} new issues`);
   }
   await triage(world, judgeIssue, 4, now);
+  await settleDebates(world, judgeFix, now);
   for (const b of await upkeep(world, now)) {
     world.highlight({ agent: b.fix!.agent, kind: "fix", text: `got a fix merged into ${b.repo} (${b.id})` });
   }
@@ -638,7 +640,6 @@ createServer(async (req, res) => {
           ...b, claimedByHandle: h(b.claimedBy), fix: b.fix && { ...b.fix, handle: h(b.fix.agent) },
           reviews: b.reviews.map((r) => ({ ...r, handle: h(r.agent) })),
         })),
-        approvalsNeeded: 2,
         // The ballot: every library the agents can vote for, with its votes and who cast them.
         ballot: (() => {
           const t = tally(world);
@@ -647,15 +648,6 @@ createServer(async (req, res) => {
             .sort((x, y) => y.voters.length - x.voters.length).slice(0, 60);
         })(),
       });
-    }
-    if (resource === "bounties" && req.method === "POST") {
-      // A person signs off a peer-approved fix. Needs the operator key.
-      const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
-      if (!env.OPERATOR_KEY || token !== env.OPERATOR_KEY) return send(res, 401, { error: "operator key required" });
-      const b = await readJson(req);
-      const r = approveFix(world, String(b.approve ?? b.id ?? ""), String(b.by ?? "operator").slice(0, 40));
-      if (r.ok) persist();
-      return send(res, r.ok ? 200 : 400, r);
     }
     if (resource === "projects") {
       // The agents' quarter: every building that stands, is going up, or waits for bricks.

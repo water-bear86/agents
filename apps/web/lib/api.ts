@@ -56,11 +56,11 @@ export interface Bounty {
   status: BountyStatus; claimedByHandle?: string; claimedAt?: number;
   fix?: { handle?: string; url: string; summary: string; at: number };
   reviews: { handle?: string; verdict: "approve" | "changes"; note: string; at: number }[];
-  approved?: { by: string; at: number };
+  ruling?: { verdict: "ship" | "hold"; confidence: number; judge: string; at: number; why?: string };
   pr?: { url: string; at: number; state?: string; mergedAt?: string };
 }
 export interface BountyBoard {
-  repos: BountyRepo[]; bounties: Bounty[]; approvalsNeeded: number;
+  repos: BountyRepo[]; bounties: Bounty[];
   /** Every library the agents can vote for, most votes first, with who voted. */
   ballot: (BountyRepo & { voters: (string | undefined)[] })[];
 }
