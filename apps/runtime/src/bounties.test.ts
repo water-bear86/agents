@@ -1,7 +1,7 @@
 import { PRESETS } from "@agents/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyAction } from "./actions.js";
-import { APPROVALS_NEEDED, CLAIM_TTL_MS, STANDING, approveFix, boardText, intakeIssues, pickRepos, refusesAI, triage, triageJudge, upkeep, useGitHub, type Bounty, type GitHub } from "./bounties.js";
+import { APPROVALS_NEEDED, CLAIM_TTL_MS, STANDING, approveFix, boardText, intakeIssues, pickRepos, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, type Bounty, type GitHub, type Repo } from "./bounties.js";
 import { SimChain } from "./chain.js";
 import { World, standingOf, type Agent } from "./world.js";
 
@@ -112,6 +112,15 @@ describe("bounties", () => {
     expect(await intakeIssues(world)).toEqual([]);
     await triage(world, triageJudge(null));
     expect(world.bounties.find((b) => b.id === "good/lib#3")?.triage?.fit).toBe(false);
+  });
+
+  it("drops a library's unclaimed issues when it leaves the board, but not one an agent is working on", async () => {
+    const lib = (full: string): Repo => ({ full, description: "", language: "Go", stars: 1, pushedAt: "", url: `https://github.com/${full}`, addedAt: 0 });
+    world.repos = [lib("acme/lib"), lib("old/lib"), lib("busy/lib")];
+    world.bounties.push(bounty({ id: "old/lib#1", repo: "old/lib" }), bounty({ id: "busy/lib#2", repo: "busy/lib", status: "claimed", claimedBy: fixer.account }), bounty({ id: "busy/lib#3", repo: "busy/lib" }));
+    setRepos(world, [lib("acme/lib"), lib("new/lib")]);
+    expect(world.repos.map((r) => r.full).sort()).toEqual(["acme/lib", "busy/lib", "new/lib"]);
+    expect(world.bounties.map((b) => b.id).sort()).toEqual(["acme/lib#7", "busy/lib#2", "busy/lib#3"]);
   });
 
   it("shows agents the live board", async () => {

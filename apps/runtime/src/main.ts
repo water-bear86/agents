@@ -11,7 +11,7 @@ import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } fr
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { PaperChain, syncMarket } from "./solana/paper.js";
-import { approveFix, intakeIssues, pickRepos, triage, triageJudge, upkeep } from "./bounties.js";
+import { approveFix, intakeIssues, pickRepos, setRepos, triage, triageJudge, upkeep } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
@@ -134,7 +134,7 @@ async function bountyRound(now = Date.now()) {
   if (env.BOUNTIES === "off") return;
   if (!world.repos.length || now - bountyClock.repos > 24 * 3600_000) {
     bountyClock.repos = now;
-    world.repos = await pickRepos(world, now);
+    setRepos(world, await pickRepos(world, now));
     console.log(`[bounties] ${world.repos.length} libraries: ${world.repos.map((r) => r.full).join(", ")}`);
   }
   if (now - bountyClock.issues > 2 * 3600_000) {

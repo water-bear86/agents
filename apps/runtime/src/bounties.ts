@@ -126,6 +126,18 @@ export async function pickRepos(world: World, now = Date.now(), fixed = process.
   return out;
 }
 
+/**
+ * Swaps in a fresh pick of libraries. A library that drops off keeps its place while an agent is
+ * still working on one of its issues; otherwise its unclaimed issues leave the board with it.
+ */
+export function setRepos(world: World, picked: Repo[]) {
+  const busy = new Set(world.bounties.filter((b) => b.status !== "open" && b.status !== "merged" && b.status !== "closed").map((b) => b.repo));
+  const kept = world.repos.filter((r) => busy.has(r.full) && !picked.some((p) => p.full === r.full));
+  world.repos = [...picked, ...kept];
+  const on = new Set(world.repos.map((r) => r.full));
+  world.bounties = world.bounties.filter((b) => b.status !== "open" || on.has(b.repo));
+}
+
 type SearchIssue = { number: number; title: string; body: string | null; html_url: string; labels: { name: string }[]; created_at: string; repository_url: string; pull_request?: unknown };
 
 /** Pulls open, unassigned issues labelled for outside help from the picked libraries onto the board. */
