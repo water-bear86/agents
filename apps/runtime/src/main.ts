@@ -11,7 +11,7 @@ import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } fr
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { PaperChain, syncMarket } from "./solana/paper.js";
-import { approveFix, intakeIssues, pickRepos, setRepos, triage, triageJudge, upkeep } from "./bounties.js";
+import { VET, approveFix, chooseRepos, findCandidates, intakeIssues, nominate, setRepos, triage, triageJudge, unnominate, upkeep, vetSome } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
@@ -126,20 +126,38 @@ const jev = env.COMPLIANCE === "off" ? null : jevClient(env.TYPESAFE_API_KEY);
 const screen = jev ? new ComplianceScreen(jev) : null;
 const judgeDank = dankJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
 const judgeIssue = triageJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
-/** When the bounty board last refreshed its libraries and its issues. */
-const bountyClock = { repos: 0, issues: 0 };
+/** When the bounty board last looked for libraries, vetted some, and took in issues. */
+const bountyClock = { search: 0, vet: 0, issues: 0, seeded: false };
 
-/** The bounty board's upkeep: libraries daily, new issues every two hours, triage and merge checks every pass. */
+/**
+ * The bounty board's upkeep: look for candidate libraries daily, vet a few at a time (more with a
+ * GitHub token, since vetting takes about ten API calls a library), take in new issues every two
+ * hours or as soon as the board changes, and triage and check merges every pass.
+ */
 async function bountyRound(now = Date.now()) {
   if (env.BOUNTIES === "off") return;
-  if (!world.repos.length || now - bountyClock.repos > 24 * 3600_000) {
-    bountyClock.repos = now;
-    setRepos(world, await pickRepos(world, now));
-    console.log(`[bounties] ${world.repos.length} libraries: ${world.repos.map((r) => r.full).join(", ")}`);
+  if (!bountyClock.seeded) {
+    bountyClock.seeded = true;
+    // Libraries named in the environment are nominated, as if a person had asked for them.
+    for (const full of (env.BOUNTY_NOMINATED ?? env.BOUNTY_REPOS ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
+      if (!world.nominated.includes(full)) console.log(`[bounties] nominate ${full}: ${(await nominate(world, full, now)).detail}`);
+    }
   }
-  if (now - bountyClock.issues > 2 * 3600_000) {
+  if (!world.candidates.length || now - bountyClock.search > 24 * 3600_000) {
+    bountyClock.search = now;
+    await findCandidates(world, now).catch((e) => { bountyClock.search = now - 24 * 3600_000 + 10 * 60_000; console.warn(`[bounties] search: ${e instanceof Error ? e.message : e}`); });
+  }
+  const before = world.repos.map((r) => r.full).join();
+  if (now - bountyClock.vet > (env.GITHUB_TOKEN ? 10 : 15) * 60_000) {
+    bountyClock.vet = now;
+    const n = await vetSome(world, env.GITHUB_TOKEN ? 12 : 1, now);
+    if (n) setRepos(world, chooseRepos(world, now));
+  }
+  const after = world.repos.map((r) => r.full).join();
+  if (after !== before) console.log(`[bounties] ${world.repos.length} libraries: ${world.repos.map((r) => r.full).join(", ")}`);
+  if (after !== before || now - bountyClock.issues > 2 * 3600_000) {
     bountyClock.issues = now;
-    const fresh = await intakeIssues(world, now);
+    const fresh = await intakeIssues(world, now).catch((e) => { bountyClock.issues = now - 2 * 3600_000 + 10 * 60_000; console.warn(`[bounties] intake: ${e instanceof Error ? e.message : e}`); return []; });
     if (fresh.length) console.log(`[bounties] ${fresh.length} new issues`);
   }
   await triage(world, judgeIssue, 4, now);
@@ -618,6 +636,14 @@ createServer(async (req, res) => {
       const h = (acct?: string) => (acct ? world.agents.get(acct)?.handle : undefined);
       return send(res, 200, {
         repos: world.repos,
+        nominated: world.nominated,
+        vetting: {
+          bar: VET,
+          checked: world.vetting.size,
+          candidates: world.candidates.length,
+          // Libraries that didn't make it, and why: the board is open about what it turned down.
+          turnedDown: [...world.vetting.entries()].filter(([, v]) => !v.ok).slice(-30).map(([full, v]) => ({ full, why: v.why, at: v.at })),
+        },
         bounties: [...world.bounties].reverse().slice(0, 300).map((b) => ({
           ...b, claimedByHandle: h(b.claimedBy), fix: b.fix && { ...b.fix, handle: h(b.fix.agent) },
           reviews: b.reviews.map((r) => ({ ...r, handle: h(r.agent) })),
@@ -626,11 +652,13 @@ createServer(async (req, res) => {
       });
     }
     if (resource === "bounties" && req.method === "POST") {
-      // A person signs off a peer-approved fix. Needs the operator key.
+      // A person's moves on the board: sign off a peer-approved fix, or nominate a library. Needs the operator key.
       const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
       if (!env.OPERATOR_KEY || token !== env.OPERATOR_KEY) return send(res, 401, { error: "operator key required" });
       const b = await readJson(req);
-      const r = approveFix(world, String(b.id ?? ""), String(b.by ?? "operator").slice(0, 40));
+      const r = b.nominate ? await nominate(world, String(b.nominate))
+        : b.unnominate ? unnominate(world, String(b.unnominate))
+        : approveFix(world, String(b.approve ?? b.id ?? ""), String(b.by ?? "operator").slice(0, 40));
       if (r.ok) persist();
       return send(res, r.ok ? 200 : 400, r);
     }

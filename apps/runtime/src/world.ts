@@ -1,4 +1,4 @@
-import { bountyStanding, type Bounty, type Repo } from "./bounties.js";
+import { bountyStanding, type Bounty, type Repo, type Vetting } from "./bounties.js";
 import { EVM_UNITS, emptyCounters, type ActivityCounters, type ChainUnits, type Fill, type Position, type TradingPlan } from "@agents/core";
 
 export interface Agent {
@@ -308,6 +308,10 @@ export class World {
   /** Bounties: the open-source libraries the town works for, and the issues on their board. */
   repos: Repo[] = [];
   bounties: Bounty[] = [];
+  /** Libraries found but not necessarily on the board, what vetting made of each, and the ones a person nominated. */
+  candidates: Repo[] = [];
+  vetting = new Map<string, Vetting>();
+  nominated: string[] = [];
   /** Bricks each agent has to build with: one for every action that goes through. */
   bricks = new Map<string, number>();
   compliance: ComplianceStats = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };

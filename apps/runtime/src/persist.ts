@@ -35,6 +35,9 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     dankCredit: [...world.dankCredit.entries()],
     repos: world.repos,
     bounties: world.bounties.slice(-3000),
+    candidates: world.candidates,
+    vetting: [...world.vetting.entries()],
+    nominated: world.nominated,
     bricks: [...world.bricks.entries()],
     compliance: world.compliance,
     ...extra,
@@ -71,6 +74,9 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.dankCredit = new Map(s.dankCredit ?? []);
   world.repos = s.repos ?? [];
   world.bounties = s.bounties ?? [];
+  world.candidates = s.candidates ?? [];
+  world.vetting = new Map(s.vetting ?? []);
+  world.nominated = s.nominated ?? [];
   world.bricks = new Map(s.bricks ?? []);
   if (s.compliance) world.compliance = s.compliance;
   return s;

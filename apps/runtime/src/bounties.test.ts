@@ -1,7 +1,7 @@
 import { PRESETS } from "@agents/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyAction } from "./actions.js";
-import { APPROVALS_NEEDED, CLAIM_TTL_MS, STANDING, approveFix, boardText, intakeIssues, pickRepos, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, type Bounty, type GitHub, type Repo } from "./bounties.js";
+import { APPROVALS_NEEDED, CLAIM_TTL_MS, STANDING, approveFix, boardText, chooseRepos, findCandidates, guessImpact, intakeIssues, nominate, refusesAI, setRepos, triage, triageJudge, unnominate, upkeep, useGitHub, vetSome, type Bounty, type GitHub, type Repo } from "./bounties.js";
 import { SimChain } from "./chain.js";
 import { World, standingOf, type Agent } from "./world.js";
 
@@ -11,7 +11,8 @@ const mk = (handle: string, external = true): Agent => ({ account: `0x${handle}`
 function fakeGitHub(routes: Record<string, unknown>, pages: string[] = []): GitHub {
   return {
     async get<T>(path: string) {
-      const key = Object.keys(routes).find((k) => path.startsWith(k));
+      // The longest matching prefix wins, so /repos/x/pulls isn't answered by /repos/x.
+      const key = Object.keys(routes).filter((k) => path.startsWith(k)).sort((a, b) => b.length - a.length)[0];
       if (!key) throw new Error(`GitHub 404 on ${path}`);
       return routes[key] as T;
     },
@@ -95,23 +96,58 @@ describe("bounties", () => {
     expect(b.claimedBy).toBeUndefined();
   });
 
-  it("picks libraries that ask for help and passes over ones that refuse AI work", async () => {
-    const repo = (full: string) => ({ full_name: full, description: "", language: "TypeScript", stargazers_count: 900, pushed_at: "", html_url: `https://github.com/${full}`, archived: false, fork: false });
+  it("only puts real, living communities on the board, and lets a person nominate one", async () => {
+    const now = Date.parse("2026-10-17T00:00:00Z");
+    const ago = (days: number, hours = 0) => new Date(now - days * 86_400_000 + hours * 3_600_000).toISOString();
+    const search = (full: string) => ({ full_name: full, description: "", language: "TypeScript", stargazers_count: 5000, pushed_at: ago(1), html_url: `https://github.com/${full}`, archived: false, fork: false });
+    /** A library with a real community: old, watched, merging outsiders' work, answering outsiders' issues. */
+    const community = (full: string) => ({
+      [`/repos/${full}/contributors`]: [{ login: "maintainer" }],
+      [`/repos/${full}/pulls`]: ["ann", "bo", "cy", "dee"].map((u, i) => ({ merged_at: ago(5 + i), author_association: "CONTRIBUTOR", user: { login: u } })),
+      [`/search/issues?q=${encodeURIComponent(`repo:${full} is:issue`)}`]: { items: Array.from({ length: 12 }, (_, i) => ({ number: i + 1, created_at: ago(5 + i), author_association: i % 4 === 3 ? "MEMBER" : "NONE", user: { login: `u${i}` } })) },
+      [`/repos/${full}/issues/`]: [{ created_at: ago(5, 5), author_association: "MEMBER", user: { type: "User" } }],
+      [`/repos/${full}`]: { ...search(full), created_at: ago(1200), subscribers_count: 40, forks_count: 300, owner: { login: full.split("/")[0] } },
+    });
     useGitHub(fakeGitHub({
-      "/search/repositories": { items: [repo("good/lib"), repo("strict/lib")] },
+      "/search/repositories": { items: [search("good/lib"), search("solo/lib"), search("strict/lib")] },
+      ...community("good/lib"),
+      ...community("strict/lib"),
       "/repos/strict/lib/contents/CONTRIBUTING.md": { content: b64("Please note: we do not accept AI-generated pull requests."), encoding: "base64" },
       "/repos/good/lib/contents/CONTRIBUTING.md": { content: b64("Run the tests before opening a PR. AI tools are fine if you review the output."), encoding: "base64" },
-      "/search/issues": { items: [{ number: 3, title: "Typo in error", body: "b", html_url: "https://github.com/good/lib/issues/3", labels: [{ name: "good first issue" }], created_at: "", repository_url: "https://api.github.com/repos/good/lib" }] },
+      // One person's project: new, unwatched, filing its own "good first issues".
+      "/repos/solo/lib/contributors": [{ login: "solo" }],
+      "/repos/solo/lib/pulls": [],
+      [`/search/issues?q=${encodeURIComponent("repo:solo/lib is:issue")}`]: { items: Array.from({ length: 12 }, (_, i) => ({ number: i + 1, created_at: ago(5 + i), author_association: "OWNER", user: { login: "solo" } })) },
+      "/repos/solo/lib": { ...search("solo/lib"), created_at: ago(90), subscribers_count: 2, forks_count: 1, owner: { login: "solo" } },
+      "/repos/nom/lib": { ...search("nom/lib"), created_at: ago(40), subscribers_count: 1, forks_count: 0, owner: { login: "nom" } },
+      [`/search/issues?q=${encodeURIComponent("repo:good/lib is:issue is:open")}`]: { items: [{ number: 3, title: "Crash when the config file is empty", body: "b", html_url: "https://github.com/good/lib/issues/3", labels: [{ name: "bug" }, { name: "good first issue" }], created_at: "", repository_url: "https://api.github.com/repos/good/lib" }] },
     }));
     expect(await refusesAI("strict/lib")).toBe(true);
-    expect(await refusesAI("good/lib")).toBe(false);
-    world.repos = await pickRepos(world, Date.now(), "");
+    await findCandidates(world, now);
+    expect(world.candidates.map((r) => r.full)).toEqual(["good/lib", "solo/lib", "strict/lib"]);
+    expect(await vetSome(world, 10, now)).toBe(3);
+    const good = world.vetting.get("good/lib")!;
+    expect(good.ok).toBe(true);
+    expect(good.signals).toMatchObject({ outsideMerged: 4, outsideIssues: 9, answered: 1 });
+    expect(good.signals!.replyHours).toBeLessThan(7 * 24);
+    expect(world.vetting.get("solo/lib")!.why.join("; ")).toMatch(/under a year old.*watchers.*0 outside contributors.*maintainers/);
+    expect(world.vetting.get("strict/lib")!.why).toEqual(["its contributing guide turns away AI-written work"]);
+    setRepos(world, chooseRepos(world, now));
     expect(world.repos.map((r) => r.full)).toEqual(["good/lib"]);
-    const fresh = await intakeIssues(world);
-    expect(fresh.map((b) => b.id)).toEqual(["good/lib#3"]);
-    expect(await intakeIssues(world)).toEqual([]);
+    expect(world.repos[0]!.signals?.outsideMerged).toBe(4);
+
+    // A person can put a library on the board directly, but not one that refuses AI-written work.
+    expect((await nominate(world, "https://github.com/nom/lib", now)).ok).toBe(true);
+    expect((await nominate(world, "strict/lib", now)).detail).toMatch(/turns away AI-written work/);
+    expect(world.repos.map((r) => [r.full, !!r.nominated])).toEqual([["nom/lib", true], ["good/lib", false]]);
+    expect(unnominate(world, "nom/lib", now).ok).toBe(true);
+    expect(world.repos.map((r) => r.full)).toEqual(["good/lib"]);
+
+    // Issues come in, and triage scores how much each one matters.
+    expect((await intakeIssues(world)).map((b) => b.id)).toEqual(["good/lib#3"]);
     await triage(world, triageJudge(null));
-    expect(world.bounties.find((b) => b.id === "good/lib#3")?.triage?.fit).toBe(false);
+    expect(world.bounties.find((b) => b.id === "good/lib#3")?.triage?.impact).toBeGreaterThanOrEqual(0.7);
+    expect(guessImpact({ labels: ["documentation"], title: "Fix typo in README", body: "" })).toBeLessThan(0.3);
   });
 
   it("drops a library's unclaimed issues when it leaves the board, but not one an agent is working on", async () => {

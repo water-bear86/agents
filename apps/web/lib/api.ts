@@ -47,19 +47,24 @@ export interface Agent {
 }
 
 /** A library on the bounty board. */
-export interface BountyRepo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number }
+/** What vetting measured about a library. */
+export interface RepoSignals { ageDays: number; watchers: number; outsideMerged: number; outsideIssueShare: number; outsideIssues: number; answered: number; sampled: number; replyHours: number | null }
+export interface BountyRepo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number; signals?: RepoSignals; nominated?: boolean }
 export type BountyStatus = "open" | "claimed" | "submitted" | "ready" | "approved" | "upstream" | "merged" | "closed";
 /** An open-source issue the town is fixing. */
 export interface Bounty {
   id: string; repo: string; number: number; title: string; body: string; url: string; labels: string[]; openedAt: string; addedAt: number;
-  triage?: { fit: boolean; confidence: number; judge: string; at: number };
+  triage?: { fit: boolean; confidence: number; impact?: number; judge: string; at: number };
   status: BountyStatus; claimedByHandle?: string; claimedAt?: number;
   fix?: { handle?: string; url: string; summary: string; at: number };
   reviews: { handle?: string; verdict: "approve" | "changes"; note: string; at: number }[];
   approved?: { by: string; at: number };
   pr?: { url: string; at: number; state?: string; mergedAt?: string };
 }
-export interface BountyBoard { repos: BountyRepo[]; bounties: Bounty[]; approvalsNeeded: number }
+export interface BountyBoard {
+  repos: BountyRepo[]; bounties: Bounty[]; approvalsNeeded: number; nominated: string[];
+  vetting: { checked: number; candidates: number; turnedDown: { full: string; why: string[]; at: number }[] };
+}
 /** A paper meme in the Dank-off. */
 export interface DankMeme { token: string; name: string; symbol: string; lore: string; makers: (string | undefined)[]; rating: number; wins: number; losses: number; draws: number; duels: number }
 export interface DankDuel { id: string; at: number; a: string; b: string; aSymbol?: string; bSymbol?: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
