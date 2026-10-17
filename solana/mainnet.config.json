@@ -1,0 +1,34 @@
+{
+  "_readme": "Mainnet launch settings. Every empty string and every value marked in _todo is the owner's decision. Read by `pnpm --filter @agents/runtime solana:mainnet preflight|platform`. Nothing here is a secret: keypairs are referenced by path and stay outside the repo.",
+  "_todo": [
+    "multisig.address: the Squads v4 multisig, created first (see docs/MAINNET-LAUNCH.md step 2)",
+    "deployer.keypair: path to a fresh hot key made only for the deploy (a Ledger would have to approve ~500 buffer writes), never the devnet key; it holds ~4.2 SOL for an hour and loses all authority at handover",
+    "platform.inference / platform.buyback / platform.leftoverReceiver: wallets the multisig controls",
+    "platform.migrationThresholdSol and platform.openThresholdSol: real thresholds (open must be below migration)",
+    "platform.platformMint and platform.holdPerSlot: slot gating, or leave empty to keep it off"
+  ],
+  "rpcUrl": "https://api.mainnet-beta.solana.com",
+  "deployer": {
+    "keypair": ""
+  },
+  "multisig": {
+    "address": "",
+    "vaultIndex": 0,
+    "_suggested": "2-of-3 members on hardware wallets, a time lock of at least 24 hours"
+  },
+  "platform": {
+    "migrationThresholdSol": 85,
+    "openThresholdSol": 20,
+    "openWindowHours": 24,
+    "launchCooldownSec": 3600,
+    "inference": "",
+    "buyback": "",
+    "leftoverReceiver": "",
+    "platformMint": "",
+    "holdPerSlot": "0"
+  },
+  "runtime": {
+    "_note": "The session key signs every agent trade. Generate it on the server that runs the runtime, keep it there, and give agents' owners only its public key.",
+    "sessionKeyPublic": ""
+  }
+}

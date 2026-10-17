@@ -11,3 +11,12 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/
 agents-data.json*
+
+# Solana keypairs (devnet keys live in ~/.config/agents-solana-devnet, never in the repo)
+*keypair*.json
+id.json
+.solana/
+
+# Anchor build output (program keypairs live in solana/target/deploy and must stay private)
+solana/target/
+solana/.ledger/

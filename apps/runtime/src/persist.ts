@@ -18,6 +18,28 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     fills: world.fills.slice(-20000),
     decisions: world.decisions.slice(-5000),
     follows: [...world.follows],
+    counters: [...world.counters.entries()],
+    highlights: world.highlights.slice(-500),
+    reviews: world.reviews.slice(-2000),
+    predictions: world.predictions.slice(-5000),
+    debates: world.debates.slice(-5000),
+    chats: world.chats.slice(-5000),
+    ideas: world.ideas.slice(-1000),
+    projects: world.projects,
+    memory: [...world.memory.entries()],
+    pledges: [...world.pledges.entries()],
+    inferenceFundWei: world.inferenceFundWei,
+    dank: [...world.dank.entries()],
+    duels: world.duels.slice(-2000),
+    crown: world.crown,
+    dankCredit: [...world.dankCredit.entries()],
+    repos: world.repos,
+    bounties: world.bounties.slice(-3000),
+    candidates: world.candidates,
+    vetting: [...world.vetting.entries()],
+    libraryVotes: [...world.libraryVotes.entries()],
+    bricks: [...world.bricks.entries()],
+    compliance: world.compliance,
     ...extra,
   };
   writeFileSync(`${file}.tmp`, JSON.stringify(snap, replacer));
@@ -35,5 +57,28 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.fills = s.fills ?? [];
   world.decisions = s.decisions ?? [];
   world.follows = new Set(s.follows ?? []);
+  world.counters = new Map(s.counters ?? []);
+  world.highlights = s.highlights ?? [];
+  world.reviews = s.reviews ?? [];
+  world.predictions = s.predictions ?? [];
+  world.debates = s.debates ?? [];
+  world.chats = s.chats ?? [];
+  world.ideas = s.ideas ?? [];
+  world.projects = s.projects ?? [];
+  world.memory = new Map(s.memory ?? []);
+  world.pledges = new Map(s.pledges ?? []);
+  world.inferenceFundWei = s.inferenceFundWei ?? 0n;
+  world.dank = new Map(s.dank ?? []);
+  world.duels = s.duels ?? [];
+  world.crown = s.crown;
+  world.dankCredit = new Map(s.dankCredit ?? []);
+  world.repos = s.repos ?? [];
+  world.bounties = s.bounties ?? [];
+  world.candidates = s.candidates ?? [];
+  // Checks from before the vote stored a different shape; drop them so they run again.
+  world.vetting = new Map((s.vetting ?? []).filter(([, v]: [string, { refusesAI?: boolean }]) => typeof v?.refusesAI === "boolean"));
+  world.libraryVotes = new Map(s.libraryVotes ?? []);
+  world.bricks = new Map(s.bricks ?? []);
+  if (s.compliance) world.compliance = s.compliance;
   return s;
 }

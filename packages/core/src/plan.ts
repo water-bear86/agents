@@ -1,3 +1,5 @@
+import { EVM_UNITS, oneNative, type ChainUnits } from "./units.js";
+
 /** Owner-set trading bounds. The LLM proposes; these limits dispose. */
 export interface TradingPlan {
   style: Style;
@@ -19,7 +21,7 @@ export interface TradingPlan {
 
 export type Style = "sniper" | "momentum" | "scalper" | "conviction" | "contrarian";
 
-const ETH = 10n ** 18n;
+const ETH = oneNative(EVM_UNITS);
 
 const base: Omit<TradingPlan, "style"> = {
   mode: "llm_within_bounds",
@@ -44,3 +46,8 @@ export const PRESETS: Record<Style, TradingPlan> = {
   conviction: { ...base, style: "conviction", buySizePct: 25, maxPositions: 3, takeProfitPct: 400, stopLossPct: 40, maxSupplyBps: 1000 },
   contrarian: { ...base, style: "contrarian", takeProfitPct: 20, stopLossPct: 15 },
 };
+
+/** A preset for the chain in use: `maxBuyWei` is 0.1 of the native coin (ETH or SOL), in its smallest unit. */
+export function planFor(style: Style, u: ChainUnits = EVM_UNITS): TradingPlan {
+  return { ...PRESETS[style], maxBuyWei: oneNative(u) / 10n };
+}

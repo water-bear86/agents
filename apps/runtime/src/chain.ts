@@ -1,6 +1,6 @@
 import { createPublicClient, createWalletClient, http, parseAbi, type Address, type Chain as ViemChain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import type { Order } from "@agents/core";
+import { EVM_UNITS, oneNative, type ChainUnits, type Order } from "@agents/core";
 
 /** What the runtime needs from the chain. `ViemChain` in prod, `SimChain` in tests/demo. */
 export interface Chain {
@@ -54,6 +54,7 @@ export class ViemAgentChain implements Chain {
 export class SimChain implements Chain {
   pools = new Map<string, { eth: bigint; tokens: bigint }>();
   #n = 0;
+  constructor(readonly units: ChainUnits = EVM_UNITS) {}
 
   quoteBuy(token: string, ethIn: bigint) {
     const p = this.pools.get(token)!;
@@ -71,12 +72,15 @@ export class SimChain implements Chain {
     const out = o.kind === "buy" ? this.quoteBuy(o.token, o.ethIn) : this.quoteSell(o.token, o.tokensIn);
     if (out < o.minOut) throw new Error("Slippage");
     if (o.kind === "buy") { p.eth += o.ethIn; p.tokens -= out; } else { p.eth -= out; p.tokens += o.tokensIn; }
-    return { txHash: `0xsim${++this.#n}`, out };
+    return { txHash: `0xsim${Date.now().toString(36)}${++this.#n}`, out };
   }
 
   async launch(_account: string, _name: string, _symbol: string) {
-    const token = `0xcoin${++this.#n}`;
-    this.pools.set(token, { eth: 1n * 10n ** 18n, tokens: 1_000_000_000n * 10n ** 18n });
+    // Pools are restored from a snapshot after a restart while the counter is not, so skip
+    // every id already taken. Reusing one would hand old holders a fresh pool to drain.
+    let token: string;
+    do token = `0xcoin${++this.#n}`; while (this.pools.has(token));
+    this.pools.set(token, { eth: oneNative(this.units), tokens: this.units.tokenSupply });
     return { txHash: `0xsim${this.#n}`, token };
   }
 }
