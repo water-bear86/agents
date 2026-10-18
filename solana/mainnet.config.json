@@ -1,7 +1,6 @@
 {
   "_readme": "Mainnet launch settings, read by `pnpm --filter @agents/runtime solana:mainnet preflight|setup`. Nothing here is a secret: keypairs are referenced by path and stay outside the repo.",
   "_todo": [
-    "owner: the owner's wallet. It becomes the program's upgrade authority, and is proposed as platform admin (keeper of the whitelist and the pause switch); it accepts from its wallet.",
     "whitelist: tokens session keys may trade, each with its Pyth USD feed. Only plain SPL tokens with 6 decimals and a live sponsored feed qualify (the preflight checks).",
     "runtime.sessionKeyPublic: the runtime's session key, made on the server before the runtime trades on mainnet (not needed for the deploy)"
   ],
@@ -9,7 +8,7 @@
   "deployer": {
     "keypair": "~/.config/agents-solana-mainnet/deployer.json"
   },
-  "owner": "",
+  "owner": "A8o7mMzoHswPMBAX4XP1Dhg5iqnwQsCEzxnzT6NqANxw",
   "whitelist": [
     {
       "symbol": "JUP",
