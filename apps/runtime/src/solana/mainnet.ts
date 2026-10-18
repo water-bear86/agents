@@ -18,11 +18,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction, sendAndConfirmTransaction, type TransactionInstruction } from "@solana/web3.js";
-import { isMainnet } from "./chain.js";
+import { MAINNET_GENESIS, isMainnet } from "./chain.js";
 import { AGENTS_PROGRAM_ID, AgentsClient, JUPITER_PROGRAM_ID, agentsProgram, pdas, type OracleSettings } from "./program.js";
 import { SOL_USD_FEED, feedAccount, publishTime } from "./pyth.js";
 
-const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 const repo = resolve(import.meta.dirname, "../../../..");
 /** Program accounts are sized at deploy; a bigger upgrade first extends the program (`solana program extend`), paying rent for the extra bytes then. */
 export const DEPLOY_HEADROOM = 1;

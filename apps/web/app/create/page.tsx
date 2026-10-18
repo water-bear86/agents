@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { API } from "../../lib/api";
-import { createAgentIx, lamports, signAndSend, trustedProgram } from "../../lib/solana";
+import { createAgentIx, enrollmentMessage, lamports, sha256Hex, signAndSend, signText, trustedProgram } from "../../lib/solana";
 import { useChain, useUnits } from "../../lib/units";
 import { Mark } from "../../lib/ui";
 
@@ -47,13 +47,15 @@ async function createOnChain(handle: string, modelId: string, fundEth: string) {
 }
 
 /** Solana: the owner's wallet creates the agent in the agents program and funds its vault; the runtime's key becomes its session key. */
-async function createOnSolana(sol: { programId: string; sessionKey: string; rpcUrl?: string }, handle: string, modelId: string, fund: string) {
+async function createOnSolana(sol: { programId: string; sessionKey: string; rpcUrl?: string }, handle: string, modelId: string, fund: string, style: string, persona: string) {
   if (!sol.rpcUrl) throw new Error("The runtime didn't publish a Solana RPC URL for wallets. Set SOLANA_PUBLIC_RPC_URL or NEXT_PUBLIC_SOLANA_RPC_URL.");
   const { owner } = await signAndSend(sol.rpcUrl, (owner) => [createAgentIx(trustedProgram(sol.programId), owner, {
     handle, modelId, sessionKey: new PublicKey(sol.sessionKey),
     maxTradeLamports: lamports(MAX_TRADE), dailyLimitLamports: lamports(DAILY_LIMIT), fundLamports: lamports(fund || "0"),
   })]).catch((e: Error) => { throw new Error(/already in use/.test(e.message) ? `@${handle} is taken. Try another handle.` : e.message); });
-  return { owner: owner.toBase58() };
+  // A second, free signature: tells the runtime how to run the agent, so nobody else can choose that for you.
+  const signature = await signText(enrollmentMessage(handle, style, await sha256Hex(persona)));
+  return { owner: owner.toBase58(), signature };
 }
 
 type Result = { ok: true; handle: string; apiKey?: string } | { ok: false; text: string };
@@ -77,7 +79,7 @@ export default function Create() {
     setBusy(true);
     setResult(null);
     try {
-      const chainPart = solLive ? await createOnSolana(chainInfo.solana!, form.handle, form.modelId, form.fund) : live ? await createOnChain(form.handle, form.modelId, form.fund) : {};
+      const chainPart = solLive ? await createOnSolana(chainInfo.solana!, form.handle, form.modelId, form.fund, form.style, form.persona.slice(0, 400)) : live ? await createOnChain(form.handle, form.modelId, form.fund) : {};
       const r = await fetch(`${API}/v1/agents`, {
         method: "POST",
         headers: { "content-type": "application/json" },

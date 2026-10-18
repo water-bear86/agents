@@ -312,12 +312,15 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
       case "like": {
         const p = world.posts.find((x) => x.id === action.postId);
         if (!p || p.agent === agent.account) return { action, ok: false, detail: "cannot like" };
+        if (p.likedBy?.includes(agent.account)) return { action, ok: false, detail: "you already liked that" };
+        (p.likedBy ??= []).push(agent.account);
         p.likes++;
         return { action, ok: true, detail: "liked" };
       }
       case "follow": {
         const t = world.agentByHandle(action.handle);
         if (!t || t.account === agent.account) return { action, ok: false, detail: "unknown agent" };
+        if (world.follows.has(`${agent.account}->${t.account}`)) return { action, ok: false, detail: `you already follow @${t.handle}` };
         world.follows.add(`${agent.account}->${t.account}`);
         return { action, ok: true, detail: "followed" };
       }

@@ -16,15 +16,19 @@ import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { SolanaVaultChain, isMainnet } from "./solana/chain.js";
+import { MAINNET_GENESIS, SolanaVaultChain, isMainnet } from "./solana/chain.js";
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
 import { tick } from "./tick.js";
+import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
 import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
 import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 4100);
 const demo = !env.OPENROUTER_API_KEY;
+
+/** Traces kept in memory for the trace explorer; older ones are dropped. */
+const MAX_TRACES = Number(env.MAX_TRACES ?? 5_000);
 
 class Live implements SpanSink {
   spans = new Map<string, SpanRecord>();
@@ -36,7 +40,15 @@ class Live implements SpanSink {
     const c = { ...s };
     this.spans.set(s.id, c);
     let t = this.byTrace.get(s.traceId);
-    if (!t) this.byTrace.set(s.traceId, (t = new Map()));
+    if (!t) {
+      this.byTrace.set(s.traceId, (t = new Map()));
+      // Maps keep insertion order, so the first trace is the oldest.
+      while (this.byTrace.size > MAX_TRACES) {
+        const [oldest, spans] = this.byTrace.entries().next().value!;
+        for (const id of spans.keys()) this.spans.delete(id);
+        this.byTrace.delete(oldest);
+      }
+    }
     t.set(s.id, c);
     for (const f of this.subs) f(c);
   }
@@ -63,8 +75,10 @@ let indexer: { pass(): Promise<unknown>; syncBalances(): Promise<void> } | null 
 let poolQuoter: Pick<PoolQuoter, "refresh"> | null = null;
 let solana: { client: AgentsClient; chain: SolanaVaultChain; publicRpc?: string } | null = null;
 if (solanaOnchain) {
-  if (isMainnet(env.SOLANA_RPC_URL!) && env.SOLANA_ALLOW_MAINNET !== "1") throw new Error("Solana mainnet needs SOLANA_ALLOW_MAINNET=1 (and audited programs)");
   const conn = new Connection(env.SOLANA_RPC_URL!, "confirmed");
+  // Ask the cluster which it is: an RPC URL needn't say "mainnet" to be mainnet.
+  const onMainnet = isMainnet(env.SOLANA_RPC_URL!) || (await conn.getGenesisHash()) === MAINNET_GENESIS;
+  if (onMainnet && env.SOLANA_ALLOW_MAINNET !== "1") throw new Error("this RPC is Solana mainnet: real money. Set SOLANA_ALLOW_MAINNET=1 to trade there");
   const session = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(env.SOLANA_SESSION_KEYPAIR!, "utf8")) as number[]));
   const client = new AgentsClient(agentsProgram(conn));
   const sc = new SolanaVaultChain(conn, client, session, { api: env.JUPITER_API, apiKey: env.JUPITER_API_KEY });
@@ -411,8 +425,49 @@ const send = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type" });
   res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 };
+/** Requests are small: an agent's actions, a registration. Anything bigger is refused before it's buffered. */
+const MAX_BODY = 64 * 1024;
+class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const readJson = (req: IncomingMessage) =>
-  new Promise<any>((ok, bad) => { let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => { try { ok(d ? JSON.parse(d) : {}); } catch (e) { bad(e); } }); });
+  new Promise<any>((ok, bad) => {
+    if (Number(req.headers["content-length"] ?? 0) > MAX_BODY) return bad(new HttpError(413, "request body too large"));
+    let d = "";
+    req.on("data", (c) => {
+      d += c;
+      if (d.length > MAX_BODY) { bad(new HttpError(413, "request body too large")); req.destroy(); }
+    });
+    req.on("end", () => { try { ok(d ? JSON.parse(d) : {}); } catch { bad(new HttpError(400, "body is not JSON")); } });
+    req.on("error", bad);
+  });
+
+/**
+ * The caller's address. Render sits behind Cloudflare, which sets cf-connecting-ip itself; otherwise
+ * the last X-Forwarded-For hop is the one our own proxy added (earlier hops are the client's to forge).
+ */
+const clientIp = (req: IncomingMessage) =>
+  String(req.headers["cf-connecting-ip"] ?? "").trim() || String(req.headers["x-forwarded-for"] ?? "").split(",").pop()!.trim() || req.socket.remoteAddress || "?";
+
+/** At most `limit` events per key in a sliding `windowMs`. */
+class RateLimit {
+  readonly #seen = new Map<string, number[]>();
+  constructor(private readonly limit: number, private readonly windowMs: number) {}
+  take(key: string, now = Date.now()) {
+    const recent = (this.#seen.get(key) ?? []).filter((t) => now - t < this.windowMs);
+    if (recent.length >= this.limit) { this.#seen.set(key, recent); return false; }
+    recent.push(now);
+    this.#seen.set(key, recent);
+    if (this.#seen.size > 10_000) for (const [k, v] of this.#seen) if (!v.some((t) => now - t < this.windowMs)) this.#seen.delete(k);
+    return true;
+  }
+}
+const registrations = new RateLimit(Number(env.REGISTRATIONS_PER_HOUR ?? 5), 60 * 60_000);
+/** Agents this runtime pays to think for, and outside agents, at most. */
+const MAX_MANAGED = Number(env.MAX_MANAGED_AGENTS ?? 60);
+const MAX_EXTERNAL = Number(env.MAX_EXTERNAL_AGENTS ?? 500);
+/** Live-update streams: in all, and from one address. */
+const MAX_STREAMS = Number(env.MAX_STREAMS ?? 300);
+const MAX_STREAMS_PER_IP = 5;
+const streamsByIp = new Map<string, number>();
 
 // A decision as the website shows it: the model's thought plus each proposed action and whether it went through.
 // Traces live in memory, so decisions restored from a snapshot come back without actions.
@@ -679,6 +734,11 @@ createServer(async (req, res) => {
     if (resource === "agents" && !id && req.method === "POST") {
       const b = await readJson(req);
       if (!/^[a-z0-9]{2,15}$/.test(b.handle ?? "") || world.agentByHandle(b.handle)) return send(res, 400, { error: "bad or taken handle" });
+      const agents = [...world.agents.values()];
+      if (b.managed ? agents.filter((x) => !x.external).length >= MAX_MANAGED : agents.filter((x) => x.external).length >= MAX_EXTERNAL) {
+        return send(res, 503, { error: "the town is full right now" });
+      }
+      if (!registrations.take(clientIp(req))) return send(res, 429, { error: "too many new agents from this address; try again in an hour" });
       const style: Style = (b.style in PRESETS ? b.style : "momentum") as Style;
       if (b.managed) {
         // Platform-run agent: our LLM loop drives it (demo: scripted model).
@@ -686,7 +746,11 @@ createServer(async (req, res) => {
           // The owner already called create_agent from their wallet with our session key; verify before driving it.
           const onChain = await solanaAgent(b.handle);
           if (!onChain) return send(res, 400, { error: "no agent with this handle uses this runtime's session key" });
-          const a = addAgent(b.handle, onChain.owner, style, String(b.persona ?? "").slice(0, 400), onChain.modelId, false, onChain.account);
+          // Only the owner chooses how their agent runs: the request must carry their signature.
+          const persona = String(b.persona ?? "").slice(0, 400);
+          const signed = verifySignature(new PublicKey(onChain.owner).toBytes(), enrollmentMessage(b.handle, style, sha256Hex(persona)), String(b.signature ?? ""));
+          if (!signed) return send(res, 401, { error: "enrollment must be signed by the agent's owner" });
+          const a = addAgent(b.handle, onChain.owner, style, persona, onChain.modelId, false, onChain.account);
           return send(res, 201, { agent: publicAgent(a) });
         }
         if (onchain) {
@@ -737,14 +801,28 @@ createServer(async (req, res) => {
     if (resource === "traces" && id) return send(res, 200, { tree: buildTree([...(live.byTrace.get(id)?.values() ?? [])]) });
 
     if (resource === "stream") {
+      const ip = clientIp(req);
+      if (live.subs.size >= MAX_STREAMS || (streamsByIp.get(ip) ?? 0) >= MAX_STREAMS_PER_IP) return send(res, 429, { error: "too many open streams" });
+      streamsByIp.set(ip, (streamsByIp.get(ip) ?? 0) + 1);
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "access-control-allow-origin": "*" });
-      const f = (s: SpanRecord) => { if (s.kind === "run" && s.endedAt) res.write(`data: ${JSON.stringify({ id: s.id, handle: s.attrs.handle })}\n\n`); };
+      const close = () => {
+        if (!live.subs.delete(f)) return;
+        const n = (streamsByIp.get(ip) ?? 1) - 1;
+        if (n > 0) streamsByIp.set(ip, n); else streamsByIp.delete(ip);
+      };
+      const f = (s: SpanRecord) => {
+        if (!(s.kind === "run" && s.endedAt)) return;
+        // A reader that has stopped reading gets dropped rather than buffered for.
+        if (res.writableLength > 64 * 1024) { close(); res.destroy(); return; }
+        res.write(`data: ${JSON.stringify({ id: s.id, handle: s.attrs.handle })}\n\n`);
+      };
       live.subs.add(f);
-      req.on("close", () => live.subs.delete(f));
+      req.on("close", close);
       return;
     }
     return send(res, 404, { error: "not found" });
   } catch (err) {
+    if (err instanceof HttpError) return send(res, err.status, { error: err.message });
     return send(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
 }).listen(PORT);

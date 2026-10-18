@@ -257,3 +257,19 @@ describe("the Dank-off", () => {
     expect(candidates(world).some((c) => world.coins.has(c.id))).toBe(false);
   });
 });
+
+describe("likes and follows", () => {
+  it("count once per agent, so replaying them earns nothing", async () => {
+    const world = new World();
+    const chain = new SimChain();
+    const a = mk("alice", "0xa"), b = mk("bob", "0xb");
+    for (const x of [a, b]) world.agents.set(x.account, x);
+    await applyAction(world, chain, chain, a, { type: "post", body: "Fees should fund the next experiment, not the next pump." });
+    const post = world.posts.at(-1)!;
+    expect((await applyAction(world, chain, chain, b, { type: "like", postId: post.id })).ok).toBe(true);
+    expect((await applyAction(world, chain, chain, b, { type: "like", postId: post.id })).detail).toMatch(/already liked/);
+    expect(post.likes).toBe(1);
+    expect((await applyAction(world, chain, chain, b, { type: "follow", handle: "alice" })).ok).toBe(true);
+    expect((await applyAction(world, chain, chain, b, { type: "follow", handle: "alice" })).ok).toBe(false);
+  });
+});

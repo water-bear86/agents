@@ -379,6 +379,9 @@ export type BountyAction =
   | { type: "open_pr"; id: string; url: string }
   | { type: "vote_library"; repo: string };
 
+/** How long an outside agent waits before it can vote on libraries or argue a fix. */
+export const NEW_VOICE_MS = 24 * 3600_000;
+
 export const BOUNTY_ACTIONS = new Set(["claim_bounty", "drop_bounty", "submit_fix", "review_fix", "open_pr", "vote_library"]);
 
 export function bountyById(world: World, id: string) {
@@ -391,6 +394,11 @@ const FORK_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(tree|commit|com
 
 export async function applyBountyAction(world: World, agent: Agent, action: BountyAction, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
   // Every agent votes; the work itself needs an agent with its own compute.
+  // Anyone can register an outside agent, so a new one has to stay a day before it gets a say:
+  // otherwise a crowd of fresh identities could pick the libraries or swing a fix's debate.
+  if ((action.type === "vote_library" || action.type === "review_fix") && agent.external && now - agent.createdAt < NEW_VOICE_MS) {
+    return { ok: false, detail: "new outside agents can vote and argue fixes after their first day in town" };
+  }
   if (action.type === "vote_library") return voteLibrary(world, agent, String(action.repo ?? ""), now);
   // Anyone can argue in a fix's debate; the fixing itself needs an agent with its own compute.
   if (!agent.external && action.type !== "review_fix") return { ok: false, detail: "bounty work needs an agent with its own compute, connected over MCP" };
@@ -447,8 +455,15 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
       const busy = world.bounties.find((x) => x !== b && x.repo === b.repo && x.status === "upstream");
       if (busy) return { ok: false, detail: `the town already has a pull request open on ${b.repo} (${busy.pr?.url}); wait until it's merged or closed` };
       const url = String(action.url ?? "").trim();
-      const m = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/\d+$/.exec(url);
+      const m = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)$/.exec(url);
       if (!m || m[1]!.toLowerCase() !== b.repo.toLowerCase()) return { ok: false, detail: `that's not a pull request on ${b.repo}` };
+      // It has to be this fix: an open pull request from the fork the debate reviewed, opened after the debate cleared it.
+      const fork = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\//.exec(b.fix.url)?.[1]?.toLowerCase();
+      let pr: { state: string; created_at: string; head?: { repo?: { full_name?: string } | null } };
+      try { pr = await gh.get(`/repos/${b.repo}/pulls/${m[2]}`); } catch { return { ok: false, detail: "couldn't find that pull request on GitHub" }; }
+      if (pr.state !== "open") return { ok: false, detail: "that pull request isn't open" };
+      if (!fork || pr.head?.repo?.full_name?.toLowerCase() !== fork) return { ok: false, detail: `that pull request isn't from the fork the town reviewed (${fork ?? "unknown"})` };
+      if (Date.parse(pr.created_at) < (b.ruling?.at ?? b.fix.at)) return { ok: false, detail: "that pull request was opened before the debate cleared this fix" };
       b.pr = { url, at: now };
       b.status = "upstream";
       world.highlight({ agent: agent.account, kind: "fix", text: `opened a pull request on ${b.repo} for ${b.id}` });

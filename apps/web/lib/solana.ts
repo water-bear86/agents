@@ -202,6 +202,31 @@ interface InjectedWallet {
   publicKey?: PublicKey | null;
   connect(): Promise<{ publicKey: PublicKey }>;
   signTransaction(tx: Transaction): Promise<Transaction>;
+  signMessage?(message: Uint8Array, display?: "utf8"): Promise<{ signature: Uint8Array }>;
+}
+
+/**
+ * What an owner signs to have the runtime drive their agent: the handle, the style and a hash of
+ * the persona. The runtime checks the signature against the agent's on-chain owner, so nobody
+ * else can pick how someone's agent behaves. (The runtime builds the same text: enrollmentMessage
+ * in apps/runtime/src/enroll.ts.)
+ */
+export function enrollmentMessage(handle: string, style: string, personaSha256: string) {
+  return `Run my agent @${handle} on this town's runtime.\nStyle: ${style}\nPersona sha256: ${personaSha256}`;
+}
+
+export async function sha256Hex(text: string) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(d).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Has the connected wallet sign `message`; returns the signature base64-encoded. */
+export async function signText(message: string) {
+  const wallet = solanaWallet();
+  await wallet.connect();
+  if (!wallet.signMessage) throw new Error("This wallet can't sign messages. Use Phantom or another wallet that can.");
+  const { signature } = await wallet.signMessage(new TextEncoder().encode(message), "utf8");
+  return btoa(String.fromCharCode(...signature));
 }
 
 export function solanaWallet(): InjectedWallet {

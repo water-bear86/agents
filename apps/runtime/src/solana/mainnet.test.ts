@@ -6,8 +6,9 @@ const addr = () => Keypair.generate().publicKey.toBase58();
 const filled = (): MainnetConfig => ({ ...loadConfig(), owner: addr(), runtime: { sessionKeyPublic: addr() } });
 
 describe("mainnet settings", () => {
-  it("the checked-in template only lacks the owner's wallet", () => {
-    expect(configProblems(loadConfig())).toEqual(["owner must be the owner's wallet address (the future upgrade authority and admin)"]);
+  it("the checked-in config is complete", () => {
+    expect(configProblems(loadConfig())).toEqual([]);
+    expect(configProblems({ ...loadConfig(), owner: "" })).toEqual(["owner must be the owner's wallet address (the future upgrade authority and admin)"]);
   });
 
   it("a filled-in config passes", () => {

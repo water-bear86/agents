@@ -30,14 +30,19 @@ const FIX = "https://github.com/fixer/lib/tree/fix-7";
 
 describe("bounties", () => {
   let world: World, chain: SimChain, fixer: Agent, r1: Agent, r2: Agent;
+  /** Pull request 99 as GitHub reports it: opened from the fixer's fork, merged later in the test. */
+  let pr99: Record<string, unknown>;
   beforeEach(() => {
     world = new World();
     chain = new SimChain();
     fixer = mk("fixer"); r1 = mk("rev1"); r2 = mk("rev2");
     for (const a of [fixer, r1, r2]) world.agents.set(a.account, a);
     world.bounties.push(bounty());
+    pr99 = { state: "open", created_at: new Date(Date.now() + 3_600_000).toISOString(), head: { repo: { full_name: "fixer/lib" } } };
     useGitHub(fakeGitHub({ "/repos/fixer/lib": { fork: true, parent: { full_name: "acme/lib" } }, "/repos/acme/lib": { default_branch: "main" },
-      "/repos/acme/lib/compare/main...fixer:fix-7": { files: [{ filename: "src/parser.ts", additions: 3, deletions: 1, patch: "@@ -10 +10,3 @@\n-  if (s.endsWith(\",\")) s = s.slice(0, -1);\n+  // keep trailing commas" }] }, "/repos/acme/lib/pulls/99": { state: "closed", merged_at: "2026-10-16T00:00:00Z" } }, [FIX]));
+      "/repos/acme/lib/compare/main...fixer:fix-7": { files: [{ filename: "src/parser.ts", additions: 3, deletions: 1, patch: "@@ -10 +10,3 @@\n-  if (s.endsWith(\",\")) s = s.slice(0, -1);\n+  // keep trailing commas" }] }, "/repos/acme/lib/pulls/99": pr99,
+      "/repos/acme/lib/pulls/98": { state: "open", created_at: new Date(Date.now() + 3_600_000).toISOString(), head: { repo: { full_name: "someone/lib" } } },
+      "/repos/acme/lib/pulls/97": { state: "open", created_at: "2020-01-01T00:00:00Z", head: { repo: { full_name: "fixer/lib" } } } }, [FIX]));
   });
 
   const act = (a: Agent, action: Parameters<typeof applyAction>[4]) => applyAction(world, chain, chain, a, action);
@@ -63,13 +68,29 @@ describe("bounties", () => {
     expect(b.ruling?.verdict).toBe("ship");
     expect((await act(r1, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/99" })).ok).toBe(false);
     expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/other/lib/pull/99" })).ok).toBe(false);
+    // Only a pull request GitHub shows is from the reviewed fork, opened after the debate cleared it.
+    expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/98" })).detail).toMatch(/isn't from the fork the town reviewed/);
+    expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/97" })).detail).toMatch(/opened before the debate cleared/);
+    expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/96" })).ok).toBe(false);
     expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/99" })).ok).toBe(true);
+    Object.assign(pr99, { state: "closed", merged_at: "2026-10-16T00:00:00Z" });
     expect(standingOf(world).get(fixer.account)?.parts["fixes cleared"]).toBe(STANDING.approved);
     const merged = await upkeep(world);
     expect(merged.map((x) => x.id)).toEqual(["acme/lib#7"]);
     const s = standingOf(world);
     expect(s.get(fixer.account)?.parts["fixes merged"]).toBe(STANDING.merged);
     expect(s.get(managed.account)?.parts["reviews that held up"]).toBe(STANDING.reviewMerged);
+  });
+
+  it("gives new outside agents a say only after their first day", async () => {
+    await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
+    await act(fixer, { type: "submit_fix", id: "acme/lib#7", url: FIX, summary: "Keeps trailing commas; added a test for it" });
+    const fresh = { ...mk("fresh"), createdAt: Date.now() };
+    world.agents.set(fresh.account, fresh);
+    expect((await act(fresh, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "looks right to me, the test covers it" })).detail).toMatch(/after their first day/);
+    expect((await act(fresh, { type: "vote_library", repo: "acme/lib" })).detail).toMatch(/after their first day/);
+    fresh.createdAt = Date.now() - 25 * 3600_000;
+    expect((await act(fresh, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "looks right to me, the test covers it" })).ok).toBe(true);
   });
 
   it("holds a fix the debate goes against, and allows one pull request per library at a time", async () => {

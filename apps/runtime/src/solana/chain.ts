@@ -144,5 +144,8 @@ export function programError(e: unknown): string {
   return code ?? msg;
 }
 
+/** Solana mainnet-beta's genesis hash: what a cluster reports when it's mainnet, whatever its URL says. */
+export const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+
 /** True for RPC URLs we must never point a test key at. */
 export const isMainnet = (url: string) => /mainnet/i.test(url) && !/devnet|testnet/i.test(url);

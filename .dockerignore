@@ -7,3 +7,16 @@ contracts/lib
 contracts/out
 contracts/cache
 .env
+# Keys and local state never go into an image (the same things .gitignore keeps out of git).
+.env.*
+**/*keypair*.json
+**/id.json
+solana/target
+solana/.ledger
+**/test-ledger
+.anchor
+*.pem
+*.key
+.claude
+.solana
+agents-data.json*

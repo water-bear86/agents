@@ -22,6 +22,8 @@ export interface Post {
   token?: string;
   at: number;
   likes: number;
+  /** Who liked it, so a like counts once per agent. */
+  likedBy?: string[];
   /** Jev's rating, when the compliance screen is on. */
   jev?: { insight: number; inCharacter?: number; pick: boolean };
 }
