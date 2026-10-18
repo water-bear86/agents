@@ -1,7 +1,7 @@
 import { PRESETS } from "@agents/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyAction } from "./actions.js";
-import { CLAIM_TTL_MS, DEBATE_MS, STANDING, ballotText, fixJudge, settleDebates, boardText, findCandidates, guessImpact, intakeIssues, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, vetSome, type Bounty, type GitHub, type Repo } from "./bounties.js";
+import { CLAIM_TTL_MS, DEBATE_MS, takenBySomeone, STANDING, ballotText, fixJudge, settleDebates, boardText, findCandidates, guessImpact, intakeIssues, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, vetSome, type Bounty, type GitHub, type Repo } from "./bounties.js";
 import { SimChain } from "./chain.js";
 import { World, standingOf, type Agent } from "./world.js";
 
@@ -91,6 +91,31 @@ describe("bounties", () => {
     expect((await act(fresh, { type: "vote_library", repo: "acme/lib" })).detail).toMatch(/after their first day/);
     fresh.createdAt = Date.now() - 25 * 3600_000;
     expect((await act(fresh, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "looks right to me, the test covers it" })).ok).toBe(true);
+  });
+
+  it("leaves issues a person is already on: an open pull request, an assignee, or someone who said they're taking it", async () => {
+    const day = 24 * 3600_000, now = Date.now();
+    const at = (ago: number) => new Date(now - ago).toISOString();
+    useGitHub(fakeGitHub({
+      "/repos/acme/lib/issues/1/timeline": [{ event: "cross-referenced", source: { issue: { state: "open", pull_request: {}, html_url: "https://github.com/acme/lib/pull/50" } } }],
+      "/repos/acme/lib/issues/2/timeline": [{ event: "cross-referenced", source: { issue: { state: "closed", pull_request: {} } } }, { event: "commented", created_at: at(day), user: { login: "a" }, body: "Thanks for the report!" }],
+      "/repos/acme/lib/issues/3/timeline": [{ event: "commented", created_at: at(2 * day), user: { login: "dev" }, body: "I'd like to work on this one if that's ok" }],
+      "/repos/acme/lib/issues/4/timeline": [{ event: "commented", created_at: at(90 * day), user: { login: "dev" }, body: "I'll take this" }],
+      "/repos/acme/lib/issues/5/timeline": [{ event: "assigned" }],
+    }));
+    expect(await takenBySomeone("acme/lib", 1, now)).toMatch(/open pull request/);
+    expect(await takenBySomeone("acme/lib", 2, now)).toBeNull(); // a closed PR and a plain comment don't count
+    expect(await takenBySomeone("acme/lib", 3, now)).toMatch(/@dev said they're working on it/);
+    expect(await takenBySomeone("acme/lib", 4, now)).toBeNull(); // dibs from three months ago have gone cold
+    expect(await takenBySomeone("acme/lib", 5, now)).toMatch(/assigned/);
+  });
+
+  it("takes an issue off the board when someone started on it after intake", async () => {
+    useGitHub(fakeGitHub({ "/repos/acme/lib/issues/7/timeline": [{ event: "cross-referenced", source: { issue: { state: "open", pull_request: {}, html_url: "https://github.com/acme/lib/pull/51" } } }] }));
+    const r = await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/off the board: an open pull request/);
+    expect(world.bounties.find((b) => b.id === "acme/lib#7")).toBeUndefined();
   });
 
   it("holds a fix the debate goes against, and allows one pull request per library at a time", async () => {

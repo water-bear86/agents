@@ -22,6 +22,8 @@ export interface FixReview { agent: string; verdict: "approve" | "changes"; note
 export interface Bounty {
   /** `owner/repo#123`. */
   id: string;
+  /** When upkeep last checked that no person had started on it. */
+  freeCheckedAt?: number;
   repo: string;
   number: number;
   title: string;
@@ -259,13 +261,36 @@ export function setRepos(world: World, picked: Repo[]) {
 
 type SearchIssue = { number: number; title: string; body: string | null; html_url: string; labels: { name: string }[]; created_at: string; repository_url: string; pull_request?: unknown };
 
-/** Pulls open, unassigned issues labelled for outside help from the picked libraries onto the board. */
+type TimelineEvent = { event: string; created_at?: string; body?: string; user?: { login?: string; type?: string } | null; actor?: { login?: string } | null; source?: { issue?: { state?: string; pull_request?: unknown; html_url?: string } } };
+
+/** Someone saying they're on it: "I'll take this", "I'm working on it", "can I pick this up". */
+const DIBS = /\b(i'?ll|i will|i'?m|i am|i'?d like to|let me|can i|could i|may i)\b[^.\n]{0,40}\b(take|tackle|work(ing)? on|pick (this|it) up|grab|handle|fix(ing)?)\b/i;
+
+/**
+ * Whether a person is already on an issue: an open pull request that mentions it, or someone who
+ * said in the last 30 days that they're taking it. The town works only where nobody else is, so
+ * maintainers never get a second pull request for the same issue from us.
+ */
+export async function takenBySomeone(repo: string, number: number, now = Date.now()): Promise<string | null> {
+  const events = await gh.get<TimelineEvent[]>(`/repos/${repo}/issues/${number}/timeline?per_page=100`).catch(() => null);
+  if (!Array.isArray(events)) return null;
+  for (const e of events) {
+    const src = e.source?.issue;
+    if (e.event === "cross-referenced" && src?.pull_request && src.state === "open") return `an open pull request already addresses it (${src.html_url ?? "linked"})`;
+    if (e.event === "assigned") return "someone is assigned to it";
+    const recent = e.created_at && now - Date.parse(e.created_at) < 30 * 24 * 3600_000;
+    if (e.event === "commented" && recent && e.user?.type !== "Bot" && DIBS.test(e.body ?? "")) return `@${e.user?.login ?? "someone"} said they're working on it`;
+  }
+  return null;
+}
+
+/** Pulls open, unassigned issues labelled for outside help from the picked libraries onto the board, skipping any a person is already on. */
 export async function intakeIssues(world: World, now = Date.now()): Promise<Bounty[]> {
   if (!world.repos.length) return [];
   const repos = world.repos.map((r) => `repo:${r.full}`).join(" ");
   const fresh: Bounty[] = [];
   for (const label of ["good first issue", "help wanted"]) {
-    const q = encodeURIComponent(`${repos} is:issue is:open no:assignee label:"${label}"`);
+    const q = encodeURIComponent(`${repos} is:issue is:open no:assignee -linked:pr label:"${label}"`);
     const r = await gh.get<{ items: SearchIssue[] }>(`/search/issues?q=${q}&sort=created&order=desc&per_page=30`);
     for (const i of r.items) {
       if (i.pull_request) continue;
@@ -273,6 +298,7 @@ export async function intakeIssues(world: World, now = Date.now()): Promise<Boun
       const id = `${repo}#${i.number}`;
       if (world.bounties.some((b) => b.id === id)) continue;
       if (world.bounties.filter((b) => b.repo === repo && b.status === "open").length >= MAX_OPEN_PER_REPO) continue;
+      if (await takenBySomeone(repo, i.number, now)) continue;
       const b: Bounty = { id, repo, number: i.number, title: i.title.slice(0, 200), body: (i.body ?? "").slice(0, 2000), url: i.html_url, labels: i.labels.map((l) => l.name), openedAt: i.created_at, addedAt: now, status: "open", reviews: [] };
       world.bounties.push(b);
       fresh.push(b);
@@ -345,6 +371,12 @@ export async function triage(world: World, judge: Triage, n = 4, now = Date.now(
 /** Lapses stale claims and checks upstream pull requests for merges. Returns bounties that just merged. */
 export async function upkeep(world: World, now = Date.now()): Promise<Bounty[]> {
   const merged: Bounty[] = [];
+  // Open issues a person has since started on come off the board (a few per pass, to spare the API).
+  const stale = world.bounties.filter((b) => b.status === "open" && (!b.freeCheckedAt || now - b.freeCheckedAt > 6 * 3600_000)).slice(0, 10);
+  for (const b of stale) {
+    if (await takenBySomeone(b.repo, b.number, now)) world.bounties = world.bounties.filter((x) => x !== b);
+    else b.freeCheckedAt = now;
+  }
   for (const b of world.bounties) {
     if (b.status === "claimed" && b.claimedAt && now - b.claimedAt > CLAIM_TTL_MS) {
       b.status = "open";
@@ -418,6 +450,12 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
       if (b.status !== "open") return { ok: false, detail: `it's ${b.status}, not open` };
       if (b.triage && !b.triage.fit) return { ok: false, detail: "triage says this one isn't a fit for an agent" };
       if (mine.length >= MAX_CLAIMS) return { ok: false, detail: `already working on ${mine[0]!.id}; submit or drop it first` };
+      // Look again now: someone may have started on it since it reached the board.
+      const taken = await takenBySomeone(b.repo, b.number, now);
+      if (taken) {
+        world.bounties = world.bounties.filter((x) => x !== b);
+        return { ok: false, detail: `${b.id} is off the board: ${taken}. Pick another.` };
+      }
       b.status = "claimed"; b.claimedBy = agent.account; b.claimedAt = now;
       return { ok: true, detail: `claimed ${b.id}: ${b.title}. Fix it on your own fork within 24 hours.` };
     }
