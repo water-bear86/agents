@@ -12,9 +12,8 @@
     "compliance:check": "tsx src/compliance-check.ts",
     "counsel:preread": "tsx src/counsel-preread.ts",
     "solana:e2e": "tsx src/solana/e2e.ts",
-    "solana:validator": "sh -c 'K=\"${SOLANA_KEY_DIR:-$HOME/.config/agents-solana-devnet}/runtime.json\"; exec solana-test-validator --reset --ledger ../../solana/.ledger --url devnet --clone-upgradeable-program dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s --upgradeable-program 4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r ../../solana/target/deploy/agents.so \"$K\" --upgradeable-program 8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9 ../../solana/target/deploy/agents_hook.so \"$K\"'",
+    "solana:fork": "surfpool start --rpc-url ${SOLANA_UPSTREAM_RPC:-https://api.mainnet-beta.solana.com} --no-deploy --ci --airdrop-keypair-path ${SOLANA_KEY_DIR:-$HOME/.config/agents-solana-devnet}/runtime.json",
     "solana:mainnet": "tsx src/solana/mainnet.ts",
-    "solana:town": "tsx src/solana/town.ts",
     "e2e:agent": "tsx src/e2e-agent.ts"
   },
   "dependencies": {
@@ -24,7 +23,6 @@
     "@agents/llm": "workspace:*",
     "@agents/trace": "workspace:*",
     "@coral-xyz/anchor": "0.31.1",
-    "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.13",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@solana/spl-token": "0.4.13",
     "@solana/web3.js": "1.98.4",

@@ -178,7 +178,7 @@ export function Lamp({ x, y }: { x: number; y: number }) {
 
 /** What's happening at each place right now, from the live data. */
 export interface Activity {
-  /** Key of a launch in the last few seconds: the rocket lifts off (and a new one is wheeled out after). */
+  /** Key of a fix sent upstream in the last few seconds: Mission control's rocket lifts off (and a new one is wheeled out after). */
   launch?: string;
   ticker: { sym: string; dir: 1 | 0 | -1 }[];
   /** Notes pinned to the plaza's board. */
@@ -189,7 +189,8 @@ export interface Activity {
   ideas: number;
 }
 
-function Launchpad({ p, launch }: { p: Place; launch?: string }) {
+/** Mission control: a pad with a rocket that lifts off when a fix goes upstream. */
+function MissionControl({ p, launch }: { p: Place; launch?: string }) {
   const { x, y } = p;
   const c = iso(x + 1.5, y + 1.5, 5);
   const body = { l: c.x - 9, t: c.y - 98, w: 18, h: 92 };
@@ -203,7 +204,7 @@ function Launchpad({ p, launch }: { p: Place; launch?: string }) {
       {[30, 52, 74, 96].map((z) => <polygon key={z} points={quadL(y + 1, x + 2.05, x + 2.5, z, z + 1.5)} className="m-card t" />)}
       <Solid f={box(x + 1.62, y + 0.7, 0.45, 0.14, 4, 78)} m="m-steel" />
       {launch && <g key={`smoke${launch}`} className="smoke">{[-22, -8, 8, 22].map((dx) => <circle key={dx} cx={c.x + dx} cy={c.y - 4} r={9} />)}</g>}
-      {/* Rocket: lifts off when an agent launches a coin. */}
+      {/* Rocket: lifts off when an agent sends a fix upstream. */}
       <g key={launch ?? "idle"} className={`rocket-g ${launch ? "liftoff" : ""}`}>
       {launch && <path d={`M${c.x - 6},${c.y} Q${c.x},${c.y + 34} ${c.x + 6},${c.y} Z`} className="flame" />}
       <path d={`M${body.l},${c.y - 6} l-3,6 h${body.w + 6} l-3,-6 Z`} className="exhaust" />
@@ -232,7 +233,7 @@ function Exchange({ p, ticker }: { p: Place; ticker: Activity["ticker"] }) {
       {(() => {
         const o = iso(x + 0.3, y + 2.85, 15.5);
         const w = 2.4 * Math.hypot(32, 16);
-        const items = ticker.length ? ticker : [{ sym: "WAITING FOR A LAUNCH", dir: 0 as const }];
+        const items = ticker.length ? ticker : [{ sym: "WAITING FOR THE MARKET", dir: 0 as const }];
         const run = (k: number) => items.map((t, i) => <tspan key={`${k}-${i}`} className={t.dir > 0 ? "up" : t.dir < 0 ? "down" : ""}>{`$${t.sym}${t.dir > 0 ? " ▲" : t.dir < 0 ? " ▼" : ""}   `}</tspan>);
         return (
           <g transform={`matrix(${32 / Math.hypot(32, 16)} ${16 / Math.hypot(32, 16)} 0 1 ${o.x} ${o.y})`}>
@@ -408,7 +409,7 @@ export function CafeLights() {
 
 export function PlaceArt({ p, act }: { p: Place; act: Activity }) {
   switch (p.id) {
-    case "launchpad": return <Launchpad p={p} launch={act.launch} />;
+    case "launchpad": return <MissionControl p={p} launch={act.launch} />;
     case "exchange": return <Exchange p={p} ticker={act.ticker} />;
     case "plaza": return <Plaza p={p} papers={act.papers} />;
     case "observatory": return <Observatory p={p} calling={act.calling} />;

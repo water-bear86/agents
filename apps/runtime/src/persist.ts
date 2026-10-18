@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import type { World } from "./world.js";
+import type { Highlight, Idea, World } from "./world.js";
 
 // Rudimentary persistence: the whole world is snapshotted to a JSON file after each
 // pass (atomic write via rename) and restored on start. Swap for Postgres at scale.
@@ -58,19 +58,23 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.decisions = s.decisions ?? [];
   world.follows = new Set(s.follows ?? []);
   world.counters = new Map(s.counters ?? []);
-  world.highlights = s.highlights ?? [];
+  // News about coin launches ("opened", and "idea" for an idea launched as a coin) no longer applies.
+  world.highlights = (s.highlights ?? []).filter((h: { kind: string }) => h.kind !== "opened" && h.kind !== "idea") as Highlight[];
   world.reviews = s.reviews ?? [];
   world.predictions = s.predictions ?? [];
   world.debates = s.debates ?? [];
   world.chats = s.chats ?? [];
-  world.ideas = s.ideas ?? [];
+  // Ideas from when the Café could launch them as coins carried the coin they became; ideas are talk now.
+  world.ideas = (s.ideas ?? []).map(({ launched: _gone, ...i }: Idea & { launched?: string }) => i);
   world.projects = s.projects ?? [];
   world.memory = new Map(s.memory ?? []);
   world.pledges = new Map(s.pledges ?? []);
   world.inferenceFundWei = s.inferenceFundWei ?? 0n;
-  world.dank = new Map(s.dank ?? []);
-  world.duels = s.duels ?? [];
-  world.crown = s.crown;
+  // The Dank-off rates Café ideas now; ratings, duels and a crown that were about launched coins are dropped.
+  const ideaIds = new Set(world.ideas.map((i) => i.id));
+  world.dank = new Map((s.dank ?? []).filter(([id]: [string]) => ideaIds.has(id)));
+  world.duels = (s.duels ?? []).filter((d: { a: string; b: string }) => ideaIds.has(d.a) && ideaIds.has(d.b));
+  world.crown = s.crown?.id && ideaIds.has(s.crown.id) ? s.crown : undefined;
   world.dankCredit = new Map(s.dankCredit ?? []);
   world.repos = s.repos ?? [];
   world.bounties = s.bounties ?? [];
@@ -80,5 +84,33 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.libraryVotes = new Map(s.libraryVotes ?? []);
   world.bricks = new Map(s.bricks ?? []);
   if (s.compliance) world.compliance = s.compliance;
+  // Plans saved when the sniper style only bought coins before they opened to everyone: every
+  // coin is a market token now, so a plan that refuses open coins could never trade again.
+  for (const a of world.agents.values()) if (a.plan?.phases && !a.plan.phases.opened) a.plan.phases = { ...a.plan.phases, opened: true };
   return s;
+}
+
+/**
+ * Drops coins the agents launched themselves, from a save made before agents stopped launching:
+ * only market tokens stay tradable. Holdings in a dropped coin go back to the agent at cost, and
+ * open price calls on one close flat. For paper and demo worlds, whose balances are the runtime's
+ * own; on-chain worlds keep what their indexers report. Returns how many coins were dropped.
+ */
+export function retireLaunchedCoins(world: World, now = Date.now()): number {
+  const gone = new Set([...world.coins.values()].filter((c) => !c.market).map((c) => c.token));
+  if (!gone.size) return 0;
+  for (const t of gone) world.coins.delete(t);
+  for (const [acct, positions] of world.positions) {
+    const kept = positions.filter((p) => !gone.has(p.token));
+    const refund = positions.filter((p) => gone.has(p.token)).reduce((sum, p) => sum + p.costWei, 0n);
+    if (refund > 0n) world.balances.set(acct, (world.balances.get(acct) ?? 0n) + refund);
+    world.positions.set(acct, kept);
+  }
+  for (const p of world.predictions) {
+    if (p.outcome || !gone.has(p.token)) continue;
+    p.outcome = "flat";
+    p.exitPrice = p.entryPrice;
+    p.resolveAt = Math.min(p.resolveAt, now);
+  }
+  return gone.size;
 }

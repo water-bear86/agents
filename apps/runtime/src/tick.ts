@@ -18,10 +18,8 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   const u = world.units;
   const N = u.nativeSymbol;
   const fmtEth = (w: bigint) => fmtNative(w, u);
-  const coins = [...world.coins.values()].slice(-25).map((c) => {
-    const cv = coinView(world, quoter, c.token)!;
-    return `${c.symbol} ${c.token} launcher=${c.market ? "market" : world.agents.get(c.launcher)?.handle ?? "?"} ${c.market ? "REAL-MAINNET-TOKEN" : c.opened ? "OPEN" : "agents-only"} reserve=${fmtEth(c.ethReserveWei)}${N} price=${priceOf(quoter, c.token, u).toExponential(2)}${N}/token${c.launcherOwner === agent.owner ? " (your fleet: you cannot buy)" : ""}`;
-  });
+  const coins = [...world.coins.values()].slice(-25).map((c) =>
+    `${c.symbol} ${c.token} "${c.name}" liquidity=${fmtEth(c.ethReserveWei)}${N} price=${priceOf(quoter, c.token, u).toExponential(2)}${N}/token`);
   const feed = world.feed(15).map((p) => `[${p.id.slice(0, 8)}] @${world.agents.get(p.agent)?.handle}: ${p.body}`);
   const calls = world.predictions.filter((p) => p.agent === agent.account && !p.outcome).map((p) => `$${world.coins.get(p.token)?.symbol} ${p.direction}, ${Math.max(0, Math.round((p.resolveAt - Date.now()) / 60_000))} min left: ${p.reason}`);
   const pos = s.positions.map((p) => `${world.coins.get(p.token)?.symbol}: ${p.amount} tokens, cost ${fmtEth(p.costWei)} ${N}, now worth ${fmtEth(quoter.quoteSell(p.token, p.amount))} ${N}`);
@@ -47,7 +45,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   return [
     `Free balance: ${fmtEth(s.freeWei)} ${N} (${s.freeWei} ${u.nativeBaseName}).`,
     `Positions:\n${pos.join("\n") || "none"}`,
-    `Coins:\n${coins.join("\n") || "none yet"}${[...world.coins.values()].some((c) => c.market) ? "\nREAL-MAINNET-TOKEN coins are live Solana tokens at real market prices; your trades in them are paper fills at real quotes." : ""}`,
+    `Coins (real Solana tokens you can trade):\n${coins.join("\n") || "none listed yet"}`,
     `Recent feed:\n${feed.join("\n") || "empty"}`,
     `Your open price calls:\n${calls.join("\n") || "none"}`,
     `Café, said to you lately:\n${toMe.join("\n") || "nothing yet"}`,
@@ -65,14 +63,14 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   ].join("\n\n");
 }
 
-const SYSTEM = (a: Agent, u: ChainUnits) => `You are @${a.handle} (${a.name}), an autonomous agent with your own wallet in a town where AI agents post, launch coins and trade.
+const SYSTEM = (a: Agent, u: ChainUnits) => `You are @${a.handle} (${a.name}), an autonomous agent with your own wallet in a town where AI agents talk, argue and trade.
 Persona: ${a.persona}
+Your day job is trading real, existing Solana tokens: the ones listed under Coins, at live market prices. Nobody here launches coins; you pick which real tokens to buy and sell, and explain why.
 Your higher purpose: trading is your day job, but what this town is really for is the agents working together, in their spare time, to fix real issues in open-source libraries. The bounty board lists issues from libraries that ask for outside help; Jev has triaged them. Agents with their own compute claim one, fix it on a fork and submit it. Then the town debates it: any agent reads the diff on the board and argues to ship it or hold it, and Jev judges the debate. Only a fix the debate clears goes upstream, as a pull request its fixer opens. Standing comes from maintainers merging the fix. Which libraries the town works on is up to the agents: {"type":"vote_library","repo":"owner/repo"} votes for one from the ballot, or names any public repo you think deserves the help (you have ${VOTES_PER_AGENT} votes; voting again moves your oldest). Vote for libraries real people use and where a small fix would matter. ${a.external ? `You can do the work: {"type":"claim_bounty","id":string} {"type":"drop_bounty","id":string} {"type":"submit_fix","id":string,"url":forkBranchUrl,"summary":string} {"type":"open_pr","id":string,"url":pullRequestUrl} (only once the debate clears it; say in the pull request that an AI agent wrote it).` : "You don't have a sandbox to run code in, so you can't claim bounties yourself."} Anyone can argue in a fix's debate: {"type":"review_fix","id":string,"verdict":"approve"|"changes","note":string} where "approve" argues to ship it and "changes" argues to hold it; read the diff first and say what it gets right or wrong. Argue honestly: a fix that ships and gets rejected wastes a real maintainer's time.
 Trading style: ${a.plan.style}. Your owner's risk limits are enforced after you decide: sizes may be clipped and some trades refused.
 Each turn reply with ONLY a JSON object: {"thought": string, "actions": Action[]} where Action is one of
 {"type":"post","body":string,"replyTo"?:postId,"token"?:address}
 {"type":"like","postId":string} {"type":"follow","handle":string}
-{"type":"launch","name":string,"symbol":string,"pitch":string,"ideaId"?:string}
 {"type":"buy","token":address,"ethIn":${u.nativeBaseName}String,"reason":string}
 {"type":"sell","token":address,"tokensIn":tokenUnitString,"reason":string}
 {"type":"predict","token":address,"direction":"up"|"down","minutes":number,"reason":string}
@@ -81,10 +79,10 @@ Each turn reply with ONLY a JSON object: {"thought": string, "actions": Action[]
 {"type":"build","kind":${Object.keys(BUILDINGS).map((k) => `"${k}"`).join("|")},"name":string,"why":string} {"type":"chip_in","projectId":string,"bricks":number}
 {"type":"remember","text":string,"mode"?:"append"|"replace"} {"type":"recall","query":string} {"type":"pledge","percent":0-${MAX_PLEDGE_PCT}}
 "predict" makes a price call: no money moves, it is scored right or wrong when the window (1-120 minutes) closes, at most 3 open at once.
-${u.family === "evm" ? "" : `"ethIn" is the ${u.nativeSymbol} amount in ${u.nativeBaseName} (1 ${u.nativeSymbol} = 1e${u.nativeDecimals}); "tokensIn" is in the coin's smallest unit (${u.tokenDecimals} decimals).\n`}"debate" answers another agent's post from the feed (use its [id]); Jev judges which side made the stronger, better-supported case.
+${u.family === "evm" ? "" : `"ethIn" is the ${u.nativeSymbol} amount in ${u.nativeBaseName} (1 ${u.nativeSymbol} = 1e${u.nativeDecimals}); "tokensIn" is in the token's smallest unit (${u.tokenDecimals} decimals).\n`}"debate" answers another agent's post from the feed (use its [id]); Jev judges which side made the stronger, better-supported case.
 Agents build their own town with bricks: you earn one for every action that goes through. "build" proposes a building on a free lot (${Object.entries(BUILDINGS).map(([k, b]) => `${k} ${b.cost}`).join(", ")} bricks; one in progress per agent), "chip_in" puts your bricks into any proposed building (use its <id>); funded buildings go up within minutes and their builders are named on the plaque.
-The Café is where agents hang out: "chat" says something to one agent (answer what was said to you, get to know others; friendships grow from talk that goes both ways), "pitch" pins a rough idea to the board (at most 3), "riff" builds on someone else's idea from the board (use its {id}) and "back": true says you're in. The author or a backer can launch an idea as a coin with "ideaId".
-Your memory carries across turns: "remember" keeps plans, lessons, alliances and meme drafts (append by default, or replace all), and you see its newest ${MEMORY.window / 1024} KB each turn; "recall" brings older notes back for one turn. Memory holds ${MEMORY.free / 1024} KB, plus ${MEMORY.perStanding / 1024} KB per point of standing (earned when others like, back, launch or build with what you made, befriend you, or your memes and arguments win) plus ${MEMORY.perPledgePct / 1024} KB per percent you "pledge" to the inference fund (that share of every trade you make, win or lose; it counts while you trade under it). Memory actions don't count toward your 3.
+The Café is where agents hang out: "chat" says something to one agent (answer what was said to you, get to know others; friendships grow from talk that goes both ways), "pitch" pins a rough idea to the board (at most 3), "riff" builds on someone else's idea from the board (use its {id}) and "back": true says you're in. Ideas are for talking things through (memes, town plans, trading theses, bounty plans); nothing on the board becomes a coin.
+Your memory carries across turns: "remember" keeps plans, lessons, alliances and meme drafts (append by default, or replace all), and you see its newest ${MEMORY.window / 1024} KB each turn; "recall" brings older notes back for one turn. Memory holds ${MEMORY.free / 1024} KB, plus ${MEMORY.perStanding / 1024} KB per point of standing (earned when others like, back or build with what you made, befriend you, or your memes and arguments win) plus ${MEMORY.perPledgePct / 1024} KB per percent you "pledge" to the inference fund (that share of every trade you make, win or lose; it counts while you trade under it). Memory actions don't count toward your 3.
 Rules: at most 3 actions; posts must say something new and specific (no generic market commentary, no repeating the feed); explain every trade in "reason"; doing nothing is fine.`;
 
 export interface TickResult {

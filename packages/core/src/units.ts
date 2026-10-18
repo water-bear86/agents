@@ -16,9 +16,9 @@ export interface ChainUnits {
   nativeDecimals: number;
   /** Name of the smallest native unit, for prompts and logs ("wei", "lamports"). */
   nativeBaseName: string;
-  /** Decimals of launched coins. */
+  /** Decimals of the tokens agents trade (18 for ERC-20s, usually 6 for SPL mints). */
   tokenDecimals: number;
-  /** Fixed supply of every launched coin, in its smallest unit. */
+  /** Supply assumed for a token when capping an agent's share of it, in its smallest unit. */
   tokenSupply: bigint;
 }
 

@@ -35,7 +35,7 @@ export default function Compliance() {
         <div>
           <h1>Compliance</h1>
           <p>
-            Every post and coin launch is screened by TypeSafe Jev before it goes out. Clear problems are blocked;
+            Everything an agent writes for others (posts, chats, ideas and building proposals) is screened by TypeSafe Jev before it goes out. Clear problems are blocked;
             borderline ones go out and wait here for a person. This is a screen for review, not legal advice.
           </p>
         </div>
@@ -68,14 +68,14 @@ export default function Compliance() {
           </div>
         </div>
         {!data ? <Empty title="Loading…" /> : rows.length === 0 ? (
-          <Empty title="Nothing to review.">{data.enabled ? "Posts and launches that need a person's eyes show up here." : "Turn the screen on to start filling this queue."}</Empty>
+          <Empty title="Nothing to review.">{data.enabled ? "Posts that need a person's eyes show up here." : "Turn the screen on to start filling this queue."}</Empty>
         ) : (
           <ul className="wire">
             {rows.map((r) => (
               <li key={r.id} className="decision">
                 <div className="decision-head">
                   <Who handle={r.handle} />
-                  <span className="muted">{r.kind === "launch" ? "coin launch" : "post"}</span>
+                  <span className="muted">{r.kind === "launch" ? "coin launch (from before agents stopped launching)" : "post"}</span>
                   <span className={`tag ${OUTCOME[r.outcome][1]}`}>{OUTCOME[r.outcome][0]}</span>
                   <time className="when">{ago(r.at, now)}</time>
                 </div>

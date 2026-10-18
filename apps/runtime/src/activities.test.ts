@@ -5,17 +5,26 @@ import { SimChain } from "./chain.js";
 import { ComplianceScreen, type JevAnswer, type JevClient } from "./compliance.js";
 import { BUILD_MS, DANK_CROWN_MIN_DUELS, DANK_START, MEMORY, World, activePledge, bonds, memoryQuota, standingOf, type Agent } from "./world.js";
 import { candidates, runDuels, type DankJudge } from "./dank.js";
+import { MARKET } from "./solana/paper.js";
 
 const E = 10n ** 18n;
 const mk = (handle: string, owner: string): Agent => ({ account: `0x${handle}`, owner, handle, name: handle, persona: "", modelId: "m", plan: PRESETS.momentum, awake: true, external: false, createdAt: 0 });
+
+/** Lists a market token on a simulated pool, the way the offline demo does. */
+function list(world: World, chain: SimChain, symbol: string) {
+  const token = chain.list(`sim-${symbol}`);
+  world.coins.set(token, { token, symbol, name: symbol, launcher: MARKET, launcherOwner: MARKET, opened: true, ethReserveWei: E, launchedAt: 0, market: true });
+  return token;
+}
 
 async function setup() {
   const world = new World();
   const chain = new SimChain();
   const a = mk("atlas", "0x1"), b = mk("vesper", "0x2");
   for (const x of [a, b]) { world.agents.set(x.account, x); world.balances.set(x.account, E); }
-  const l = await applyAction(world, chain, chain, b, { type: "launch", name: "Vesper", symbol: "VESP", pitch: "" });
-  return { world, chain, a, b, token: l.detail };
+  const token = list(world, chain, "BONK");
+  await applyAction(world, chain, chain, b, { type: "post", body: "Fees should fund the next experiment, not the next pump." });
+  return { world, chain, a, b, token };
 }
 
 describe("price calls", () => {
@@ -31,11 +40,7 @@ describe("price calls", () => {
   it(`allows at most ${MAX_OPEN_CALLS} open calls`, async () => {
     const { world, chain, a } = await setup();
     const coins: string[] = [];
-    for (const [h, sym] of [["c1", "CAAA"], ["c2", "CBBB"], ["c3", "CCCC"], ["c4", "CDDD"]] as const) {
-      const x = mk(h, `0x${h}`);
-      world.agents.set(x.account, x);
-      coins.push((await applyAction(world, chain, chain, x, { type: "launch", name: h, symbol: sym, pitch: "" })).detail);
-    }
+    for (const sym of ["JUP", "WIF", "RAY", "ORCA"]) coins.push(list(world, chain, sym));
     const results = [];
     for (const token of coins) results.push(await applyAction(world, chain, chain, a, { type: "predict", token, direction: "up", minutes: 5, reason: "r" }));
     expect(results.map((r) => r.ok)).toEqual([true, true, true, false]);
@@ -81,8 +86,8 @@ describe("debates", () => {
 
   it("records a judged debate as a reply and announces the winner", async () => {
     const { world, chain, a, b } = await setup();
-    const original = world.posts[0]!; // vesper's launch post
-    const r = await applyAction(world, chain, chain, a, { type: "debate", postId: original.id.slice(0, 8), stance: "disagree", body: "A launch post says nothing about demand until outside owners buy." }, undefined, new ComplianceScreen(judge("reply")));
+    const original = world.posts[0]!; // vesper's post from setup
+    const r = await applyAction(world, chain, chain, a, { type: "debate", postId: original.id.slice(0, 8), stance: "disagree", body: "A post like that says nothing about demand until the price holds for a day." }, undefined, new ComplianceScreen(judge("reply")));
     expect(r).toMatchObject({ ok: true, detail: "disagreed with @vesper: Jev judged the reply stronger" });
     expect(world.debates[0]).toMatchObject({ agent: a.account, against: b.account, winner: "challenger" });
     expect(world.posts.at(-1)?.replyTo).toBe(original.id);
@@ -108,9 +113,9 @@ describe("debates", () => {
 describe("the Café", () => {
   it("records table talk and refuses talking to yourself or repeating yourself", async () => {
     const { world, chain, a } = await setup();
-    expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "how was your launch?" })).ok).toBe(true);
+    expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "how was your BONK trade?" })).ok).toBe(true);
     expect(world.chats[0]).toMatchObject({ agent: a.account, to: "0xvesper" });
-    expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "how was your launch?" })).detail).toBe("already said that");
+    expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "how was your BONK trade?" })).detail).toBe("already said that");
     expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "atlas", body: "hi me" })).detail).toBe("unknown agent");
   });
 
@@ -123,18 +128,18 @@ describe("the Café", () => {
     expect(bonds(world).get(b.account)?.get(a.account)).toBe(1);
   });
 
-  it("pins ideas, takes riffs and backers, and lets a backer launch it", async () => {
+  it("pins ideas and takes riffs and backers, but never turns an idea into a coin", async () => {
     const { world, chain, a, b } = await setup();
-    expect((await applyAction(world, chain, chain, b, { type: "pitch", title: "Slow coin", body: "one trade per hour" })).ok).toBe(true);
+    expect((await applyAction(world, chain, chain, b, { type: "pitch", title: "Slow Fridays", body: "one trade per hour on Fridays" })).ok).toBe(true);
     const idea = world.ideas[0]!;
     expect((await applyAction(world, chain, chain, b, { type: "riff", ideaId: idea.id, body: "mine" })).detail).toBe("cannot riff on its own idea");
-    expect((await applyAction(world, chain, chain, a, { type: "launch", name: "Slow", symbol: "SLOW", pitch: "", ideaId: idea.id })).detail).toMatch(/author or a backer/);
     expect((await applyAction(world, chain, chain, a, { type: "riff", ideaId: idea.id.slice(0, 8), body: "I'm in", back: true })).ok).toBe(true);
     expect(idea.backers).toEqual([a.account]);
+    // Even its backer can't launch it: agents don't launch coins.
     const l = await applyAction(world, chain, chain, a, { type: "launch", name: "Slow", symbol: "SLOW", pitch: "", ideaId: idea.id });
-    expect(l.ok).toBe(true);
-    expect(idea.launched).toBe(l.detail);
-    expect(world.highlights.at(-1)?.text).toMatch(/launched @vesper's Café idea "Slow coin" as \$SLOW/);
+    expect(l.ok).toBe(false);
+    expect(world.coins.size).toBe(1);
+    expect(world.openIdeas().map((i) => i.id)).toEqual([idea.id]);
   });
 
   it(`allows at most ${MAX_OPEN_IDEAS} ideas on the board per agent`, async () => {
@@ -181,7 +186,7 @@ describe("agents building their town", () => {
     const { world, chain, a, b } = await setup();
     expect((await applyAction(world, chain, chain, a, { type: "build", kind: "casino" as never, name: "x", why: "y" })).detail).toMatch(/unknown building/);
     world.bricks.set(a.account, 5);
-    world.bricks.set(b.account, 0); // its launch in setup earned one
+    world.bricks.set(b.account, 0); // its post in setup earned one
     await applyAction(world, chain, chain, a, { type: "build", kind: "garden", name: "G", why: "y" });
     expect((await applyAction(world, chain, chain, b, { type: "chip_in", projectId: world.projects[0]!.id, bricks: 5 })).detail).toBe("no bricks to give");
   });
@@ -225,24 +230,30 @@ describe("memory, pledges and standing", () => {
 });
 
 describe("the Dank-off", () => {
-  it("judges duels between paper memes, credits their makers and crowns one", async () => {
+  it("judges duels between Café memes, credits their makers and crowns one", async () => {
     const { world, chain, a, b } = await setup();
-    await applyAction(world, chain, chain, a, { type: "launch", name: "Moon Gravy", symbol: "GRVY", pitch: "Thick, brown, inevitable. The gravy on the way to the moon, poured slowly over every chart." });
+    const c = mk("quill", "0x3");
+    world.agents.set(c.account, c);
+    await applyAction(world, chain, chain, a, { type: "pitch", title: "Moon Gravy", body: "Thick, brown, inevitable. The gravy on the way to the moon, poured slowly over every chart." });
+    await applyAction(world, chain, chain, b, { type: "pitch", title: "Slow Fridays", body: "one trade per hour on Fridays" });
+    const gravy = world.ideas[0]!.id;
+    await applyAction(world, chain, chain, c, { type: "riff", ideaId: gravy, body: "serve it with a side of cope", back: true });
     let calls = 0;
-    const judge: DankJudge = async (x, y) => { calls++; return { winner: x.symbol === "GRVY" ? "a" : y.symbol === "GRVY" ? "b" : "even", confidence: 0.9, judge: "test", inputTokens: 0 }; };
+    const judge: DankJudge = async (x, y) => { calls++; return { winner: x.title === "Moon Gravy" ? "a" : y.title === "Moon Gravy" ? "b" : "even", confidence: 0.9, judge: "test", inputTokens: 0 }; };
     for (let k = 0; k < DANK_CROWN_MIN_DUELS; k++) await runDuels(world, judge, 1);
     expect(calls).toBe(DANK_CROWN_MIN_DUELS);
-    const gravy = [...world.coins.values()].find((c) => c.symbol === "GRVY")!.token;
     expect(world.dank.get(gravy)!.rating).toBeGreaterThan(DANK_START);
-    expect(world.crown?.token).toBe(gravy);
+    expect(world.crown?.id).toBe(gravy);
     expect(world.dankCredit.get(a.account)).toBeGreaterThanOrEqual(DANK_CROWN_MIN_DUELS + 10);
+    expect(world.dankCredit.get(c.account)).toBeGreaterThanOrEqual(DANK_CROWN_MIN_DUELS + 10); // a backer made it too
     expect(world.dankCredit.get(b.account) ?? 0).toBe(0);
-    expect(world.highlights.at(-1)?.text).toMatch(/\$GRVY crowned the dankest meme/);
+    expect(world.highlights.at(-1)?.text).toMatch(/Café idea "Moon Gravy" crowned the dankest meme/);
   });
 
-  it("never lets market tokens into the Dank-off", async () => {
-    const { world } = await setup();
-    world.coins.set("Mkt1", { token: "Mkt1", symbol: "REAL", name: "Real", launcher: "market", launcherOwner: "market", opened: true, ethReserveWei: 0n, launchedAt: 0, market: true });
-    expect(candidates(world).map((c) => c.symbol)).not.toContain("REAL");
+  it("only Café ideas enter the Dank-off, never tokens", async () => {
+    const { world, chain, a } = await setup();
+    await applyAction(world, chain, chain, a, { type: "pitch", title: "Cope Cola", body: "zero sugar, zero gains" });
+    expect(candidates(world).map((c) => c.id)).toEqual(world.ideas.map((i) => i.id));
+    expect(candidates(world).some((c) => world.coins.has(c.id))).toBe(false);
   });
 });

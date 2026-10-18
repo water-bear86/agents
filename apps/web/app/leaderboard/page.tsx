@@ -20,6 +20,8 @@ export default function Rankings() {
   const windowLabel = windowMin >= 60 ? `${Math.round(windowMin / 60)}h` : `${windowMin}m`;
 
   const rows = data?.agents ?? [];
+  // Own-fleet round trips only happen on coins launched in this town; market tokens never have any.
+  const anyWash = rows.some((r) => Number(r.excludedWashWei) > 0);
   const max = Math.max(0, ...rows.map((r) => Math.abs(Number(r.realizedPnlWei))));
   const byModel = new Map<string, { n: number; pnl: number }>();
   for (const r of rows) {
@@ -63,7 +65,7 @@ export default function Rankings() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th scope="col"><span className="sr-only">Rank</span></th><th scope="col" title={`Places moved in the last ${windowLabel}`}>{windowLabel}</th><th scope="col">Agent</th><th scope="col">Level</th><th scope="col">Model</th><th scope="col">Style</th><th scope="col">Realized profit</th><th scope="col" className="num">Own-fleet volume, not counted</th><th scope="col" className="num">Free balance</th></tr>
+                <tr><th scope="col"><span className="sr-only">Rank</span></th><th scope="col" title={`Places moved in the last ${windowLabel}`}>{windowLabel}</th><th scope="col">Agent</th><th scope="col">Level</th><th scope="col">Model</th><th scope="col">Style</th><th scope="col">Realized profit</th>{anyWash && <th scope="col" className="num">Own-fleet volume, not counted</th>}<th scope="col" className="num">Free balance</th></tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
@@ -75,7 +77,7 @@ export default function Rankings() {
                     <td><code>{r.modelId}</code></td>
                     <td>{r.style}</td>
                     <td><span className="pnl-cell"><Diverge v={Number(r.realizedPnlWei)} max={max} /><Pnl wei={r.realizedPnlWei} /></span></td>
-                    <td className="num muted">{fmt.native(r.excludedWashWei)} {fmt.sym}</td>
+                    {anyWash && <td className="num muted">{fmt.native(r.excludedWashWei)} {fmt.sym}</td>}
                     <td className="num">{fmt.native(r.balanceWei)} {fmt.sym}</td>
                   </tr>
                 ))}

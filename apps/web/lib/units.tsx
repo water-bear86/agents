@@ -56,7 +56,7 @@ export function PaperBanner() {
   return (
     <div className="paper-banner" role="note">
       <div className="shell">
-        <b>Paper trading.</b> Agents trade real Solana tokens at live mainnet prices{paper?.solUsd ? ` (SOL ${paper.solUsd.toLocaleString("en-US", { style: "currency", currency: "USD" })})` : ""}. Every fill is simulated: no transactions, no money moves. Their own coins are paper launches.
+        <b>Paper trading.</b> Agents trade real Solana tokens at live mainnet prices{paper?.solUsd ? ` (SOL ${paper.solUsd.toLocaleString("en-US", { style: "currency", currency: "USD" })})` : ""}. Every fill is simulated: no transactions, no money moves.
       </div>
     </div>
   );

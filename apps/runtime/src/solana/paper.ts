@@ -1,16 +1,16 @@
-// Paper trading against the real Solana market. Agents trade real mainnet tokens at live prices
-// and their own launches as paper coins; every fill is simulated, so no transaction is sent and
-// nothing is spent. Prices and fills come from Jupiter's live mainnet quotes (the real pools, with
-// size and price impact); the mainnet RPC double-checks each token's mint before it's tradable.
+// Paper trading against the real Solana market. Agents trade real mainnet tokens at live prices,
+// and only those: every fill is simulated, so no transaction is sent and nothing is spent. Prices
+// and fills come from Jupiter's live mainnet quotes (the real pools, with size and price impact);
+// the mainnet RPC double-checks each token's mint before it's tradable.
 
 import type { ChainUnits, Order } from "@agents/core";
-import { SimChain, type Chain } from "../chain.js";
+import type { Chain } from "../chain.js";
 import type { Quoter } from "../actions.js";
 import type { World } from "../world.js";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const JUP = "https://lite-api.jup.ag";
-/** Who "launched" a real mainnet token, as far as this town is concerned. */
+/** Stands in for a coin's launcher and launcher's owner on market tokens: nobody in town made them. */
 export const MARKET = "market";
 
 export interface MarketToken {
@@ -31,8 +31,6 @@ export interface PaperOptions {
 }
 
 export class PaperChain implements Chain, Quoter {
-  /** The agents' own launches: simulated curves, as they'd trade before reaching the real market. */
-  readonly sim: SimChain;
   /** Real mainnet tokens agents may trade, by mint. */
   readonly market = new Map<string, MarketToken>();
   /** Lamports per smallest token unit, from the last price refresh. */
@@ -42,7 +40,6 @@ export class PaperChain implements Chain, Quoter {
   readonly #fetch: typeof fetch;
 
   constructor(readonly units: ChainUnits, private readonly opts: PaperOptions) {
-    this.sim = new SimChain(units);
     this.#fetch = opts.fetch ?? fetch;
   }
 
@@ -74,6 +71,25 @@ export class PaperChain implements Chain, Quoter {
       }));
     const checked = await this.#checkMints(candidates.map((c) => c.mint));
     const picked = candidates.filter((c) => checked.get(c.mint)).slice(0, this.opts.maxTokens ?? 12);
+    for (const t of picked) this.market.set(t.mint, t);
+    return picked;
+  }
+
+  /**
+   * A fixed universe instead of the trending list: on mainnet, the tokens the program whitelists.
+   * Tokens the town can't model (another decimal count) are left out.
+   */
+  async track(mints: string[]): Promise<MarketToken[]> {
+    if (!mints.length) { this.market.clear(); return []; }
+    const list = await this.#json<Array<Record<string, any>>>(`${JUP}/tokens/v2/search?query=${mints.join(",")}`);
+    const picked: MarketToken[] = list
+      .filter((t) => mints.includes(t.id) && t.decimals === this.units.tokenDecimals)
+      .map((t) => ({
+        mint: t.id, symbol: String(t.symbol).replace(/[^A-Za-z0-9]/g, "").slice(0, 10).toUpperCase() || "TOKEN", name: String(t.name).slice(0, 32),
+        decimals: t.decimals, liquidityUsd: t.liquidity, mcapUsd: t.mcap, change1h: t.stats1h?.priceChange, createdAt: t.firstPool?.createdAt ?? t.createdAt,
+        mintAuthorityDisabled: !!t.audit?.mintAuthorityDisabled, freezeAuthorityDisabled: !!t.audit?.freezeAuthorityDisabled,
+      }));
+    for (const m of [...this.market.keys()]) if (!mints.includes(m)) this.market.delete(m);
     for (const t of picked) this.market.set(t.mint, t);
     return picked;
   }
@@ -119,28 +135,24 @@ export class PaperChain implements Chain, Quoter {
   // Quotes for decisions and risk checks: live mid price less a 1% allowance for fees and impact.
   // Fills (execute) use a real, size-aware Jupiter quote instead.
   quoteBuy(token: string, ethIn: bigint): bigint {
-    if (!this.market.has(token)) return this.sim.pools.has(token) ? this.sim.quoteBuy(token, ethIn) : 0n;
+    if (!this.market.has(token)) return 0n;
     const p = this.#price.get(token);
     return p ? BigInt(Math.floor((Number(ethIn) / p) * 0.99)) : 0n;
   }
   quoteSell(token: string, tokensIn: bigint): bigint {
-    if (!this.market.has(token)) return this.sim.pools.has(token) ? this.sim.quoteSell(token, tokensIn) : 0n;
+    if (!this.market.has(token)) return 0n;
     const p = this.#price.get(token);
     return p ? BigInt(Math.floor(Number(tokensIn) * p * 0.99)) : 0n;
   }
 
-  async execute(account: string, o: Order) {
-    if (!this.market.has(o.token)) return this.sim.execute(account, o);
+  async execute(_account: string, o: Order) {
+    if (!this.market.has(o.token)) throw new Error("not a market token");
     const [input, output, amount] = o.kind === "buy" ? [SOL_MINT, o.token, o.ethIn] : [o.token, SOL_MINT, o.tokensIn];
     const q = await this.#json<{ outAmount?: string; error?: string }>(`${JUP}/swap/v1/quote?inputMint=${input}&outputMint=${output}&amount=${amount}&slippageBps=${this.opts.slippageBps ?? 100}`);
     if (!q.outAmount) throw new Error(`no route on mainnet${q.error ? `: ${q.error}` : ""}`);
     const out = BigInt(q.outAmount);
     if (out < o.minOut) throw new Error("Slippage");
     return { txHash: `paper-${Date.now().toString(36)}-${++this.#fills}`, out };
-  }
-
-  launch(account: string, name: string, symbol: string) {
-    return this.sim.launch(account, name, symbol);
   }
 }
 

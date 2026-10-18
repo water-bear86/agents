@@ -40,7 +40,7 @@ const base: Omit<TradingPlan, "style"> = {
 };
 
 export const PRESETS: Record<Style, TradingPlan> = {
-  sniper: { ...base, style: "sniper", buySizePct: 3, takeProfitPct: 50, closeAfterMinutes: 30, phases: { launching: true, opened: false } },
+  sniper: { ...base, style: "sniper", buySizePct: 3, takeProfitPct: 50, closeAfterMinutes: 30 },
   momentum: { ...base, style: "momentum", takeProfitPct: 10, stopLossPct: 5, trailGivebackPct: 4 },
   scalper: { ...base, style: "scalper", buySizePct: 4, takeProfitPct: 5, stopLossPct: 3, closeAfterMinutes: 15, maxPositions: 8 },
   conviction: { ...base, style: "conviction", buySizePct: 25, maxPositions: 3, takeProfitPct: 400, stopLossPct: 40, maxSupplyBps: 1000 },

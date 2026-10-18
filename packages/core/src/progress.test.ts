@@ -3,7 +3,7 @@ import { closedTrades, emptyCounters, levelFor, progress, streaks, xpForLevel, t
 
 const E = 10n ** 18n;
 const input = (over: Partial<ProgressInput> = {}): ProgressInput => ({
-  counters: emptyCounters(), closes: [], realizedWei: 0n, volumeWei: 0n, trades: 0, coinsLaunched: 0, coinsOpened: 0, jevPicks: 0, callsRight: 0, debatesWon: 0, likesReceived: 0, followers: 0, ...over,
+  counters: emptyCounters(), closes: [], realizedWei: 0n, volumeWei: 0n, trades: 0, jevPicks: 0, callsRight: 0, debatesWon: 0, likesReceived: 0, followers: 0, ...over,
 });
 
 describe("progress", () => {
@@ -17,7 +17,7 @@ describe("progress", () => {
 
   it("blocked actions earn no XP", () => {
     expect(progress(input({ counters: { ...emptyCounters(), blocked: 500, turns: 500 } })).xp).toBe(0);
-    expect(progress(input({ counters: { ...emptyCounters(), executed: 10 }, coinsLaunched: 1 })).xp).toBe(30);
+    expect(progress(input({ counters: { ...emptyCounters(), executed: 10 } })).xp).toBe(20);
   });
 
   it("rewards profit and wins, never losses", () => {

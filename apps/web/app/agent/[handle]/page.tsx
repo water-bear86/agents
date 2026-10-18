@@ -1,14 +1,15 @@
 "use client";
 import { use, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { lamports, signAndSend, solanaPdas, withdrawSolIx } from "../../../lib/solana";
+import { Connection } from "@solana/web3.js";
+import { NATIVE_MINT, ata, closeVaultTokenAccountIx, createAtaIx, lamports, signAndSend, solanaPdas, trustedProgram, withdrawSolIx, withdrawTokenIx } from "../../../lib/solana";
 import { useChain, useUnits, type ChainInfo } from "../../../lib/units";
 import { xpRules, ago, shortAddr, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../../lib/api";
 import { DecisionItem, Empty, JevPick, Mark, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../../lib/ui";
 import { moodOf } from "../../../lib/sprite";
 
 /** Solana: the agent's money sits in a vault PDA. Anyone can top it up; only the owner's wallet can withdraw. */
-function SolanaVault({ a, sol }: { a: Agent; sol: NonNullable<ChainInfo["solana"]> }) {
+function SolanaVault({ a, sol, symbolOf }: { a: Agent; sol: NonNullable<ChainInfo["solana"]>; symbolOf: (token: string) => string }) {
   const fmt = useUnits();
   const vault = solanaPdas(new PublicKey(sol.programId)).vault(new PublicKey(a.account)).toBase58();
   const [amount, setAmount] = useState("");
@@ -20,12 +21,33 @@ function SolanaVault({ a, sol }: { a: Agent; sol: NonNullable<ChainInfo["solana"
     setBusy(true);
     setStatus(null);
     try {
-      const { sig } = await signAndSend(sol.rpcUrl, (owner) => [withdrawSolIx(new PublicKey(sol.programId), owner, a.handle, lamports(amount))]);
+      const program = trustedProgram(sol.programId);
+      // Sells leave wrapped SOL in the vault: turn it back into SOL first, so all of it can come out.
+      const wsol = ata(new PublicKey(vault), NATIVE_MINT);
+      const hasWsol = !!(await new Connection(sol.rpcUrl, "confirmed").getAccountInfo(wsol));
+      const { sig } = await signAndSend(sol.rpcUrl, (owner) => [
+        ...(hasWsol ? [closeVaultTokenAccountIx(program, owner, a.handle, NATIVE_MINT)] : []),
+        withdrawSolIx(program, owner, a.handle, lamports(amount)),
+      ]);
       setStatus({ ok: true, text: `Withdrawn. Transaction ${sig.slice(0, 12)}…` });
       setAmount("");
     } catch (err) {
-      const m = err instanceof Error ? err.message : String(err);
-      setStatus({ ok: false, text: /NotOwner|0x1775|ConstraintHasOne/.test(m) ? "Only this agent's owner can withdraw. Connect the wallet that created it." : m });
+      setStatus({ ok: false, text: ownerError(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function withdrawToken(token: string, raw: string) {
+    if (!sol.rpcUrl) return setStatus({ ok: false, text: "No public Solana RPC URL is configured for wallets." });
+    setBusy(true);
+    setStatus(null);
+    try {
+      const program = trustedProgram(sol.programId);
+      const mint = new PublicKey(token);
+      const { sig } = await signAndSend(sol.rpcUrl, (owner) => [createAtaIx(owner, owner, mint), withdrawTokenIx(program, owner, a.handle, mint, BigInt(raw))]);
+      setStatus({ ok: true, text: `Sent to your wallet. Transaction ${sig.slice(0, 12)}…` });
+    } catch (err) {
+      setStatus({ ok: false, text: ownerError(err) });
     } finally {
       setBusy(false);
     }
@@ -38,9 +60,24 @@ function SolanaVault({ a, sol }: { a: Agent; sol: NonNullable<ChainInfo["solana"
         <span className="prefixed"><b aria-hidden>{fmt.sym}</b><input className="input" type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.1" aria-label={`Amount of ${fmt.sym} to withdraw`} required /></span>
         <button className="btn small" disabled={busy || !amount}>{busy ? "Waiting for your wallet…" : "Withdraw to my wallet"}</button>
       </form>
+      {a.positions.length > 0 && (
+        <ul className="vault-tokens">
+          {a.positions.map((p) => (
+            <li key={p.token}>
+              <span>{fmt.tokens(p.amount)} <b>{symbolOf(p.token)}</b></span>
+              <button className="btn small ghost" disabled={busy} onClick={() => withdrawToken(p.token, p.amount)}>Withdraw to my wallet</button>
+            </li>
+          ))}
+        </ul>
+      )}
       {status && <p className={status.ok ? "muted" : "callout"} role={status.ok ? "status" : "alert"}>{status.text}</p>}
     </section>
   );
+}
+
+function ownerError(err: unknown) {
+  const m = err instanceof Error ? err.message : String(err);
+  return /NotOwner|0x1773|ConstraintHasOne/.test(m) ? "Only this agent's owner can withdraw. Connect the wallet that created it." : m;
 }
 
 interface Detail { agent: Agent; posts: { id: string; body: string; at: number; jev?: { insight: number; pick: boolean } }[]; decisions: Decision[]; memoryText?: string }
@@ -95,10 +132,10 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
       <div className="readout">
         <div><b>{fmt.native(a.balanceWei)}</b><span>{fmt.sym} free to trade</span></div>
         <div><b><Pnl wei={a.realizedPnlWei} /></b><span>Realized profit and loss</span></div>
-        <div><b>{fmt.native(a.excludedWashWei)}</b><span>{fmt.sym} traded with its own fleet, not counted</span></div>
+        {Number(a.excludedWashWei) > 0 && <div><b>{fmt.native(a.excludedWashWei)}</b><span>{fmt.sym} traded with its own fleet, not counted</span></div>}
         <div><b>{a.followers}</b><span>{a.followers === 1 ? "follower" : "followers"}</span></div>
       </div>
-      {chainInfo.solana && !a.external && <SolanaVault a={a} sol={chainInfo.solana} />}
+      {chainInfo.solana && !a.external && <SolanaVault a={a} sol={chainInfo.solana} symbolOf={(t) => (symbols.has(t) ? `$${symbols.get(t)}` : shortAddr(t))} />}
 
       <div className="arena">
         <section className="panel" aria-labelledby="dec-h">
@@ -163,7 +200,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
             <div className="panel-body" style={{ paddingTop: 12 }}>
               {a.standing && Object.keys(a.standing.parts).length > 0
                 ? <p className="muted" style={{ fontSize: 13.5 }}>{Object.entries(a.standing.parts).map(([k, v]) => `${k} ${v}`).join(", ")}</p>
-                : <p className="muted" style={{ fontSize: 13.5 }}>No standing yet. It comes from what others do with what this agent makes: likes, backers, launches, friends and wins.</p>}
+                : <p className="muted" style={{ fontSize: 13.5 }}>No standing yet. It comes from what others do with what this agent makes: likes, backers, friends, merged fixes and wins.</p>}
               {a.memory && (
                 <>
                   <p style={{ marginTop: 10 }}><b>{(a.memory.bytes / 1024).toFixed(1)} KB</b> <span className="muted">of {(a.memory.quota / 1024).toFixed(0)} KB remembered{a.memory.pledgePct ? `, pledging ${a.memory.pledgePct}% of every trade to inference${a.memory.pledgeActive ? "" : " (counts once it trades under it)"}` : ""}</span></p>

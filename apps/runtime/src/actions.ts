@@ -1,4 +1,4 @@
-import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAllowed, type AgentState, type ChainUnits, type CoinView, type TradeIntent } from "@agents/core";
+import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, type AgentState, type ChainUnits, type CoinView, type TradeIntent } from "@agents/core";
 import type { Tracer } from "@agents/trace";
 import { applyBountyAction, type BountyAction } from "./bounties.js";
 import type { Chain, SimChain } from "./chain.js";
@@ -9,7 +9,6 @@ export type Action =
   | { type: "post"; body: string; replyTo?: string; token?: string }
   | { type: "like"; postId: string }
   | { type: "follow"; handle: string }
-  | { type: "launch"; name: string; symbol: string; pitch: string; ideaId?: string }
   | { type: "buy"; token: string; ethIn: string; reason: string }
   | { type: "sell"; token: string; tokensIn: string; reason: string }
   | { type: "predict"; token: string; direction: "up" | "down"; minutes: number; reason: string }
@@ -23,6 +22,13 @@ export type Action =
   | { type: "recall"; query: string }
   | { type: "pledge"; percent: number }
   | BountyAction;
+
+/**
+ * Agents no longer launch coins: they trade real market tokens. A "launch" from an old prompt, an
+ * outside agent or an old script is accepted as input only so it can be refused with a clear reason.
+ */
+export type RetiredAction = { type: "launch"; [k: string]: unknown };
+export const LAUNCH_RETIRED = "agents don't launch coins; trade the real tokens listed under Coins";
 
 const bytes = (s: string) => Buffer.byteLength(s, "utf8");
 /** Keeps the newest lines of `text` that fit in `limit` bytes. */
@@ -63,11 +69,8 @@ export function resolvePredictions(world: World, quoter: Quoter, now = Date.now(
   return done;
 }
 
-/** Mirrors LaunchHook.LAUNCH_COOLDOWN so refused launches never cost gas. */
-export const LAUNCH_COOLDOWN_MS = 60 * 60_000;
-
 export interface ActionResult {
-  action: Action;
+  action: Action | RetiredAction;
   ok: boolean;
   detail: string;
   txHash?: string;
@@ -88,14 +91,12 @@ export function coinView(world: World, q: Quoter, token: string): CoinView | nul
   return { token, launcherOwner: c.launcherOwner, opened: c.opened, totalSupply: world.units.tokenSupply, quoteBuy: (e) => q.quoteBuy(token, e), quoteSell: (t) => q.quoteSell(token, t) };
 }
 
-/** Applies one action under the platform rules. Used for our agents and external ones alike. */
 /**
  * Runs the compliance screen (when configured) and records the outcome. Returns a blocking
- * detail when the item must not go out. A screen outage lets posts through (queued as
- * unscreened) but holds launches, which can't be taken back.
+ * detail when the item must not go out. A screen outage lets items through, queued as unscreened.
  */
 async function screened(
-  world: World, agent: Agent, kind: "post" | "launch", text: string,
+  world: World, agent: Agent, kind: "post", text: string,
   check: (() => Promise<Verdict>) | null, tracer?: Tracer,
 ): Promise<{ block?: string; verdict?: Verdict; queue: (ref?: string) => void }> {
   if (!check) return { queue: () => {} };
@@ -113,7 +114,6 @@ async function screened(
         }, { input: { kind, text } })
       : await run();
   } catch {
-    if (kind === "launch") return { block: "compliance screen unavailable, launch held", queue: () => {} };
     return { queue: (ref) => enqueue({ outcome: "unscreened", flags: [], severity: 0, ref }) };
   }
   world.compliance.screened++;
@@ -131,7 +131,8 @@ async function screened(
   return { verdict, queue: () => {} };
 }
 
-export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action, tracer?: Tracer, screen?: ComplianceScreen | null): Promise<ActionResult> {
+/** Applies one action under the platform rules. Used for our agents and external ones alike. */
+export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action | RetiredAction, tracer?: Tracer, screen?: ComplianceScreen | null): Promise<ActionResult> {
   const run = async (): Promise<ActionResult> => {
     switch (action.type) {
       case "claim_bounty": case "drop_bounty": case "submit_fix": case "review_fix": case "open_pr": case "vote_library":
@@ -213,7 +214,7 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const body = String(action.body ?? "").trim().slice(0, 400);
         if (!title || !body) return { action, ok: false, detail: "an idea needs a title and a body" };
         const now = Date.now();
-        const mine = world.ideas.filter((i) => i.agent === agent.account && !i.launched && now - i.at < IDEA_TTL_MS);
+        const mine = world.ideas.filter((i) => i.agent === agent.account && now - i.at < IDEA_TTL_MS);
         if (mine.length >= MAX_OPEN_IDEAS) return { action, ok: false, detail: `already has ${MAX_OPEN_IDEAS} ideas on the board` };
         if (world.openIdeas(now).some((i) => i.title.toLowerCase() === title.toLowerCase())) return { action, ok: false, detail: "that idea is already on the board" };
         const c = await screened(world, agent, "post", `${title}: ${body}`, screen ? () => screen.post(`${title}: ${body}`, agent.handle, agent.persona) : null, tracer);
@@ -225,7 +226,7 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
       }
       case "riff": {
         const idea = world.ideaById(String(action.ideaId ?? ""));
-        if (!idea || idea.launched || Date.now() - idea.at >= IDEA_TTL_MS) return { action, ok: false, detail: "no such idea on the board" };
+        if (!idea || Date.now() - idea.at >= IDEA_TTL_MS) return { action, ok: false, detail: "no such idea on the board" };
         if (idea.agent === agent.account) return { action, ok: false, detail: "cannot riff on its own idea" };
         if (idea.riffs.some((r) => r.agent === agent.account)) return { action, ok: false, detail: "already riffed on this idea" };
         const body = String(action.body ?? "").trim().slice(0, 280);
@@ -320,31 +321,8 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         world.follows.add(`${agent.account}->${t.account}`);
         return { action, ok: true, detail: "followed" };
       }
-      case "launch": {
-        const last = Math.max(0, ...[...world.coins.values()].filter((c) => c.launcher === agent.account).map((c) => c.launchedAt));
-        if (Date.now() - last < LAUNCH_COOLDOWN_MS) return { action, ok: false, detail: `launch cooldown (1 per hour${world.units.family === "evm" ? ", enforced on-chain too" : ""})` };
-        // Launching from the Café board: only the idea's author or someone who backed it may.
-        const idea = action.ideaId ? world.ideaById(String(action.ideaId)) : undefined;
-        if (action.ideaId && (!idea || idea.launched)) return { action, ok: false, detail: "no such idea on the board" };
-        if (idea && idea.agent !== agent.account && !idea.backers.includes(agent.account)) return { action, ok: false, detail: "only the idea's author or a backer can launch it" };
-        const symbol = action.symbol.toUpperCase();
-        const t = tickerAllowed(symbol, [...world.coins.values()].map((c) => c.symbol));
-        if (!t.ok) return { action, ok: false, detail: t.reason! };
-        const pitch = action.pitch.slice(0, 500);
-        const c = await screened(world, agent, "launch", `${action.name} ($${symbol}): ${pitch}`, screen ? () => screen.launch(action.name, symbol, pitch, agent.handle) : null, tracer);
-        if (c.block) return { action, ok: false, detail: c.block };
-        const { txHash, token } = await chain.launch(agent.account, action.name.slice(0, 32), symbol);
-        if (world.coins.has(token)) throw new Error(`launch returned an existing coin id ${token}`);
-        world.coins.set(token, { token, symbol, name: action.name, launcher: agent.account, launcherOwner: agent.owner, opened: false, ethReserveWei: 0n, launchedAt: Date.now() });
-        world.addPost({ agent: agent.account, body: pitch || `Launched $${symbol}.`, token });
-        c.queue(token);
-        if (idea) {
-          idea.launched = token;
-          const by = world.agents.get(idea.agent)?.handle ?? "unknown";
-          world.highlight({ agent: agent.account, kind: "idea", text: idea.agent === agent.account ? `turned its Café idea "${idea.title}" into $${symbol}` : `launched @${by}'s Café idea "${idea.title}" as $${symbol}` });
-        }
-        return { action, ok: true, detail: token, txHash };
-      }
+      case "launch":
+        return { action, ok: false, detail: LAUNCH_RETIRED };
       case "buy":
       case "sell": {
         const coin = coinView(world, quoter, action.token);
@@ -358,6 +336,8 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         settle(world, agent, v.order.kind, action.token, v.order.kind === "buy" ? v.order.ethIn : v.order.tokensIn, out);
         return { action, ok: true, detail: `${v.order.kind} filled, out=${out}${v.adjusted ? ` (${v.adjusted})` : ""}`, txHash };
       }
+      default:
+        return { action, ok: false, detail: `unknown action "${String((action as { type?: unknown }).type)}"` };
     }
   };
   // Progression counts what actually happened: only actions that went through earn XP.
@@ -366,13 +346,13 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
     world.count(agent.account, r.ok ? "executed" : "blocked");
     // Every action that goes through earns a brick, except building and looking after its own memory.
     if (r.ok && !["build", "chip_in", "remember", "recall", "pledge"].includes(action.type)) world.bricks.set(agent.account, (world.bricks.get(agent.account) ?? 0) + 1);
-    if (r.ok && (action.type === "buy" || action.type === "sell" || action.type === "launch" || action.type === "post" || action.type === "debate")) {
-      world.count(agent.account, action.type === "buy" ? "buys" : action.type === "sell" ? "sells" : action.type === "launch" ? "launches" : "posts");
+    if (r.ok && (action.type === "buy" || action.type === "sell" || action.type === "post" || action.type === "debate")) {
+      world.count(agent.account, action.type === "buy" ? "buys" : action.type === "sell" ? "sells" : "posts");
     }
     return r;
   };
   if (!tracer) return counted();
-  return tracer.withSpan(`${action.type}`, action.type === "buy" || action.type === "sell" || action.type === "launch" ? "tx" : "tool_call", async (s) => {
+  return tracer.withSpan(`${action.type}`, action.type === "buy" || action.type === "sell" ? "tx" : "tool_call", async (s) => {
     const r = await counted();
     s.setAttrs({ ok: r.ok, txHash: r.txHash }).setOutput(r.detail);
     return r;

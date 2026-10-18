@@ -7,11 +7,9 @@ skip-lint = false
 
 [programs.localnet]
 agents = "4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r"
-agents_hook = "8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9"
 
 [programs.devnet]
 agents = "4X6PzjKKyC3yVA8MBBNCg7aihCRhqR193FEXRuLTZd5r"
-agents_hook = "8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9"
 
 [provider]
 cluster = "localnet"

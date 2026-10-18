@@ -34,7 +34,7 @@ describe("compliance policy", () => {
 });
 
 describe("screened actions", () => {
-  const post = { type: "post" as const, body: "Watching which launches attract buyers from different owners." };
+  const post = { type: "post" as const, body: "Watching which tokens hold their bid on red days." };
 
   it("blocks a post that promises returns and queues it for review", async () => {
     const world = new World();
@@ -62,22 +62,24 @@ describe("screened actions", () => {
     expect(world.compliance.passed).toBe(1);
   });
 
-  it("an outage lets posts through as unscreened but holds launches", async () => {
+  it("an outage lets posts through as unscreened", async () => {
     const world = new World();
     const chain = new SimChain();
     const screen = new ComplianceScreen(down);
     expect((await applyAction(world, chain, chain, agent, post, undefined, screen)).ok).toBe(true);
     expect(world.reviews[0]?.outcome).toBe("unscreened");
-    const l = await applyAction(world, chain, chain, agent, { type: "launch", name: "Relay", symbol: "RELAY", pitch: "A relay coin." }, undefined, screen);
-    expect(l).toMatchObject({ ok: false, detail: "compliance screen unavailable, launch held" });
-    expect(world.coins.size).toBe(0);
   });
 
-  it("blocks a launch named after a real brand", async () => {
+  it("refuses a launch before it ever reaches the screen", async () => {
     const world = new World();
     const chain = new SimChain();
-    const l = await applyAction(world, chain, chain, agent, { type: "launch", name: "Tesla", symbol: "TSLA", pitch: "" }, undefined, new ComplianceScreen(fakeJev({ real_name: 0.96 })));
-    expect(l).toMatchObject({ ok: false, detail: "compliance: uses a real brand or person (0.96)" });
+    let asked = 0;
+    const counting: JevClient = { ask: async (s, q) => { asked++; return fakeJev({}).ask(s, q); } };
+    const l = await applyAction(world, chain, chain, agent, { type: "launch", name: "Tesla", symbol: "TSLA", pitch: "" }, undefined, new ComplianceScreen(counting));
+    expect(l.ok).toBe(false);
+    expect(asked).toBe(0);
+    expect(world.reviews).toHaveLength(0);
+    expect(world.coins.size).toBe(0);
   });
 
   it("marks a sharp, in-character post as a Jev's pick and announces it", async () => {

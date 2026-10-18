@@ -3,7 +3,7 @@ import { EVM_UNITS, milliNative, type ChainUnits } from "./units.js";
 
 /**
  * Agent progression: XP, levels, streaks and badges, derived only from things that
- * actually happened (actions that went through, closed trades, coins launched).
+ * actually happened (actions that went through, closed trades, calls and debates won).
  * Blocked actions earn nothing, so an agent can't farm XP by spamming the risk engine.
  */
 
@@ -13,11 +13,10 @@ export interface ActivityCounters {
   blocked: number;
   buys: number;
   sells: number;
-  launches: number;
   posts: number;
 }
 
-export const emptyCounters = (): ActivityCounters => ({ turns: 0, executed: 0, blocked: 0, buys: 0, sells: 0, launches: 0, posts: 0 });
+export const emptyCounters = (): ActivityCounters => ({ turns: 0, executed: 0, blocked: 0, buys: 0, sells: 0, posts: 0 });
 
 export interface ProgressInput {
   counters: ActivityCounters;
@@ -27,8 +26,6 @@ export interface ProgressInput {
   volumeWei: bigint;
   /** Fills on record (buys and sells), from the fill history rather than counters, so badges agree with history. */
   trades: number;
-  coinsLaunched: number;
-  coinsOpened: number;
   /** Posts Jev picked as sharp and in character. */
   jevPicks: number;
   /** Price calls that came true, and debates Jev judged in its favour. */
@@ -64,8 +61,6 @@ export interface Progress {
 /** XP rules, in one place so the site can explain them. Profit is counted in thousandths of the native coin. */
 export const xpRules = (u: ChainUnits = EVM_UNITS) => [
   ["Each action that goes through", 2],
-  ["Each coin launched", 10],
-  ["Each of its coins that opens to everyone", 25],
   ["Each trade closed in profit", 5],
   [`Each 0.001 ${u.nativeSymbol} of realized profit`, 1],
   ["Each post Jev picks", 5],
@@ -79,7 +74,7 @@ export const XP_RULES = xpRules();
 export function xpFor(i: ProgressInput, u: ChainUnits = EVM_UNITS): number {
   const profit = i.realizedWei > 0n ? Number(i.realizedWei / milliNative(u)) : 0;
   const wins = i.closes.filter((c) => c > 0n).length;
-  return i.counters.executed * 2 + i.coinsLaunched * 10 + i.coinsOpened * 25 + wins * 5 + i.jevPicks * 5 + i.callsRight * 3 + i.debatesWon * 4 + profit + i.likesReceived + i.followers * 3;
+  return i.counters.executed * 2 + wins * 5 + i.jevPicks * 5 + i.callsRight * 3 + i.debatesWon * 4 + profit + i.likesReceived + i.followers * 3;
 }
 
 /** Total XP needed to reach `level`: 0, 40, 120, 240, 400, … */
@@ -141,13 +136,10 @@ export function badgesFor(i: ProgressInput, bestStreak: number, u: ChainUnits = 
   const passRate = c.executed + c.blocked === 0 ? 0 : c.executed / (c.executed + c.blocked);
   return [
     badge("first_fill", "First fill", "1st", "Make a trade that goes through", i.trades, 1),
-    badge("founder", "Founder", "★", "Launch a coin", i.coinsLaunched, 1),
     badge("in_the_green", "In the green", "+", "Close a trade in profit", i.closes.filter((x) => x > 0n).length, 1),
     badge("hot_streak", "Hot streak", "3×", "Close 3 trades in profit in a row", bestStreak, 3),
     badge("on_fire", "On fire", "5×", "Close 5 trades in profit in a row", bestStreak, 5),
     badge("big_win", "Big win", "↑", `Make 0.01 ${sym} or more on a single trade`, Number(bestClose / MILLI), 10),
-    badge("graduation", "Graduation day", "◎", "Have a coin you launched open to everyone", i.coinsOpened, 1),
-    badge("serial_founder", "Serial founder", "5★", "Launch 5 coins", i.coinsLaunched, 5),
     badge("heavy_hitter", "Heavy hitter", u.family === "evm" ? "1Ξ" : `1${sym[0]}`, `Trade 1 ${sym} in total volume`, Number(i.volumeWei / MILLI), 1000),
     badge("well_said", "Well said", "♥", "Get 5 likes on its posts", i.likesReceived, 5),
     badge("jev_pick", "Jev's pick", "J", "Write a post Jev rates sharp and in character", i.jevPicks, 1),

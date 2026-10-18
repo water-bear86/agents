@@ -10,28 +10,76 @@ export type Agents = {
     "name": "agents",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Agent registry, non-custodial agent vaults and launch gate for the agents launchpad (Meteora DBC)"
+    "description": "Agent registry and non-custodial agent vaults: owners fund and withdraw, a session key trades through Jupiter within caps"
   },
   "instructions": [
     {
-      "name": "buy",
-      "docs": [
-        "Buy a coin with SOL from the vault. Remaining accounts: the coin's transfer-hook accounts."
-      ],
+      "name": "acceptAdmin",
       "discriminator": [
-        102,
-        6,
-        61,
-        18,
-        1,
-        218,
-        235,
-        234
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
       ],
       "accounts": [
         {
-          "name": "operator",
-          "signer": true
+          "name": "pendingAdmin",
+          "signer": true,
+          "relations": [
+            "platform"
+          ]
+        },
+        {
+          "name": "platform",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "allowMint",
+      "docs": [
+        "Adds a token, with its Pyth USD price feed, to the whitelist session keys may trade."
+      ],
+      "discriminator": [
+        240,
+        28,
+        240,
+        70,
+        124,
+        240,
+        245,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "platform"
+          ]
         },
         {
           "name": "platform",
@@ -54,8 +102,73 @@ export type Agents = {
           }
         },
         {
-          "name": "agent",
-          "writable": true
+          "name": "mint",
+          "docs": [
+            "Plain SPL tokens only: Token-2022 extensions (permanent delegate, transfer hook, pausing)",
+            "could take or trap what session keys buy."
+          ]
+        },
+        {
+          "name": "allowed",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "feed",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "closeTokenAccount",
+      "docs": [
+        "Owner or session key: closes a vault token account, sending its rent (and, for wrapped",
+        "SOL, its balance) back to the vault. Other tokens must be empty first."
+      ],
+      "discriminator": [
+        132,
+        172,
+        24,
+        60,
+        100,
+        156,
+        135,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "agent"
         },
         {
           "name": "vault",
@@ -65,178 +178,11 @@ export type Agents = {
           ]
         },
         {
-          "name": "coin",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  105,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "baseMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "dbcConfig"
-        },
-        {
-          "name": "pool",
+          "name": "account",
           "writable": true
         },
         {
-          "name": "baseVault",
-          "writable": true
-        },
-        {
-          "name": "quoteVault",
-          "writable": true
-        },
-        {
-          "name": "baseMint",
-          "writable": true
-        },
-        {
-          "name": "quoteMint",
-          "address": "So11111111111111111111111111111111111111112"
-        },
-        {
-          "name": "vaultBase",
-          "writable": true
-        },
-        {
-          "name": "vaultQuote",
-          "writable": true
-        },
-        {
-          "name": "poolAuthority",
-          "address": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM"
-        },
-        {
-          "name": "tokenBaseProgram"
-        },
-        {
-          "name": "tokenQuoteProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "dbcEventAuthority"
-        },
-        {
-          "name": "dbcProgram",
-          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amountIn",
-          "type": "u64"
-        },
-        {
-          "name": "minOut",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "claimCreatorFees",
-      "docs": [
-        "Permissionless: claims the agent's creator share of trading fees into its vault (as wrapped SOL)."
-      ],
-      "discriminator": [
-        0,
-        23,
-        125,
-        234,
-        156,
-        118,
-        134,
-        89
-      ],
-      "accounts": [
-        {
-          "name": "agent"
-        },
-        {
-          "name": "vault",
-          "relations": [
-            "agent"
-          ]
-        },
-        {
-          "name": "coin",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  105,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "baseMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "pool",
-          "writable": true
-        },
-        {
-          "name": "vaultBase",
-          "writable": true
-        },
-        {
-          "name": "vaultQuote",
-          "writable": true
-        },
-        {
-          "name": "baseVault",
-          "writable": true
-        },
-        {
-          "name": "quoteVault",
-          "writable": true
-        },
-        {
-          "name": "baseMint"
-        },
-        {
-          "name": "quoteMint",
-          "address": "So11111111111111111111111111111111111111112"
-        },
-        {
-          "name": "poolAuthority",
-          "address": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM"
-        },
-        {
-          "name": "tokenBaseProgram"
-        },
-        {
-          "name": "tokenQuoteProgram"
-        },
-        {
-          "name": "dbcEventAuthority"
-        },
-        {
-          "name": "dbcProgram",
-          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
+          "name": "tokenProgram"
         }
       ],
       "args": []
@@ -258,26 +204,6 @@ export type Agents = {
           "name": "owner",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "platform",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  108,
-                  97,
-                  116,
-                  102,
-                  111,
-                  114,
-                  109
-                ]
-              }
-            ]
-          }
         },
         {
           "name": "agent",
@@ -324,55 +250,6 @@ export type Agents = {
           }
         },
         {
-          "name": "member",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  101,
-                  109,
-                  98,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "vault"
-              }
-            ]
-          }
-        },
-        {
-          "name": "slots",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  108,
-                  111,
-                  116,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "ownerPlatformTokens",
-          "optional": true
-        },
-        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -414,23 +291,29 @@ export type Agents = {
       ]
     },
     {
-      "name": "distributeFees",
+      "name": "disallowMint",
       "docs": [
-        "Permissionless: claims the platform's (partner) share of a pool's fees and splits it evenly",
-        "between the inference pool and the buyback wallet (10% + 10% of the 1%). Pull-based, so a",
-        "recipient can never block collection."
+        "Takes a token off the whitelist. Session keys can then neither buy nor sell it; owners still can."
       ],
       "discriminator": [
-        120,
-        56,
-        27,
-        7,
-        53,
+        75,
         176,
-        113,
-        186
+        193,
+        187,
+        34,
+        158,
+        118,
+        121
       ],
       "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "platform"
+          ]
+        },
         {
           "name": "platform",
           "pda": {
@@ -452,96 +335,26 @@ export type Agents = {
           }
         },
         {
-          "name": "fees",
+          "name": "allowed",
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  102,
-                  101,
-                  101,
-                  115
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "coin",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
+                  109,
                   105,
-                  110
+                  110,
+                  116
                 ]
               },
               {
                 "kind": "account",
-                "path": "baseMint"
+                "path": "allowed.mint",
+                "account": "allowedMint"
               }
             ]
           }
-        },
-        {
-          "name": "dbcConfig"
-        },
-        {
-          "name": "pool",
-          "writable": true
-        },
-        {
-          "name": "feesBase",
-          "writable": true
-        },
-        {
-          "name": "feesQuote",
-          "writable": true
-        },
-        {
-          "name": "inferenceQuote",
-          "writable": true
-        },
-        {
-          "name": "buybackQuote",
-          "writable": true
-        },
-        {
-          "name": "baseVault",
-          "writable": true
-        },
-        {
-          "name": "quoteVault",
-          "writable": true
-        },
-        {
-          "name": "baseMint"
-        },
-        {
-          "name": "quoteMint",
-          "address": "So11111111111111111111111111111111111111112"
-        },
-        {
-          "name": "poolAuthority",
-          "address": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM"
-        },
-        {
-          "name": "tokenBaseProgram"
-        },
-        {
-          "name": "tokenQuoteProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "dbcEventAuthority"
-        },
-        {
-          "name": "dbcProgram",
-          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
         }
       ],
       "args": []
@@ -549,7 +362,7 @@ export type Agents = {
     {
       "name": "initPlatform",
       "docs": [
-        "One-time platform setup. Everything here is immutable afterwards, like the EVM constructor args."
+        "One-time setup by the program's upgrade authority, so nobody can front-run it."
       ],
       "discriminator": [
         29,
@@ -565,7 +378,7 @@ export type Agents = {
         {
           "name": "admin",
           "docs": [
-            "Must be the program's upgrade authority, so nobody can front-run setup with their own fee recipients."
+            "Must be the program's upgrade authority."
           ],
           "writable": true,
           "signer": true
@@ -605,40 +418,42 @@ export type Agents = {
       ],
       "args": [
         {
-          "name": "args",
+          "name": "oracle",
           "type": {
             "defined": {
-              "name": "platformArgs"
+              "name": "oracleSettings"
             }
           }
         }
       ]
     },
     {
-      "name": "launch",
+      "name": "setAdmin",
       "docs": [
-        "Launch a coin: a Token-2022 mint with our transfer hook on a DBC pool under our config,",
-        "created by the agent's vault (so creator fees go to the vault). Registered agents only,",
-        "one launch per cooldown."
+        "Proposes a new admin, who takes over by calling `accept_admin`, so a mistyped key can't",
+        "lock the whitelist and pause switch away for good."
       ],
       "discriminator": [
-        153,
-        241,
-        93,
-        225,
-        22,
-        69,
-        74,
-        61
+        251,
+        163,
+        0,
+        52,
+        91,
+        194,
+        187,
+        92
       ],
       "accounts": [
         {
-          "name": "operator",
-          "writable": true,
-          "signer": true
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "platform"
+          ]
         },
         {
           "name": "platform",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -656,317 +471,128 @@ export type Agents = {
               }
             ]
           }
-        },
-        {
-          "name": "agent",
-          "writable": true
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "relations": [
-            "agent"
-          ]
-        },
-        {
-          "name": "baseMint",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "coin",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  105,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "baseMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "dbcConfig"
-        },
-        {
-          "name": "pool",
-          "writable": true
-        },
-        {
-          "name": "baseVault",
-          "writable": true
-        },
-        {
-          "name": "quoteVault",
-          "writable": true
-        },
-        {
-          "name": "quoteMint",
-          "address": "So11111111111111111111111111111111111111112"
-        },
-        {
-          "name": "poolAuthority",
-          "address": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM"
-        },
-        {
-          "name": "tokenQuoteProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "hookProgram",
-          "address": "8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9"
-        },
-        {
-          "name": "extraAccountMetaList",
-          "writable": true
-        },
-        {
-          "name": "hookAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  111,
-                  107,
-                  45,
-                  97,
-                  117,
-                  116,
-                  104
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "dbcEventAuthority"
-        },
-        {
-          "name": "dbcProgram",
-          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "name",
-          "type": "string"
-        },
-        {
-          "name": "symbol",
-          "type": "string"
-        },
-        {
-          "name": "uri",
-          "type": "string"
+          "name": "admin",
+          "type": "pubkey"
         }
       ]
     },
     {
-      "name": "openCoin",
+      "name": "setOracle",
       "docs": [
-        "Permissionless: opens a coin to everyone once its pool holds `open_threshold` SOL or its",
-        "opening time has passed. (On EVM the hook flipped this inside the swap; here the runtime cranks it.)"
+        "How old a price may be, and how far below the oracle price a session-key swap may fill."
       ],
       "discriminator": [
-        94,
-        166,
-        102,
-        47,
-        70,
-        132,
-        91,
-        50
+        186,
+        128,
+        81,
+        104,
+        74,
+        79,
+        18,
+        224
       ],
       "accounts": [
         {
-          "name": "platform",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  108,
-                  97,
-                  116,
-                  102,
-                  111,
-                  114,
-                  109
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "coin",
-          "writable": true
-        },
-        {
-          "name": "pool"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "sell",
-      "docs": [
-        "Sell a coin for SOL. Proceeds stay in the vault as wrapped SOL (the next buy spends it first).",
-        "Sells are not capped: they only return SOL to the vault."
-      ],
-      "discriminator": [
-        51,
-        230,
-        133,
-        164,
-        1,
-        127,
-        131,
-        173
-      ],
-      "accounts": [
-        {
-          "name": "operator",
-          "signer": true
-        },
-        {
-          "name": "platform",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  108,
-                  97,
-                  116,
-                  102,
-                  111,
-                  114,
-                  109
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "agent",
-          "writable": true
-        },
-        {
-          "name": "vault",
-          "writable": true,
+          "name": "admin",
+          "signer": true,
           "relations": [
-            "agent"
+            "platform"
           ]
         },
         {
-          "name": "coin",
+          "name": "platform",
+          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  99,
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
                   111,
-                  105,
-                  110
+                  114,
+                  109
                 ]
-              },
-              {
-                "kind": "account",
-                "path": "baseMint"
               }
             ]
           }
-        },
-        {
-          "name": "dbcConfig"
-        },
-        {
-          "name": "pool",
-          "writable": true
-        },
-        {
-          "name": "baseVault",
-          "writable": true
-        },
-        {
-          "name": "quoteVault",
-          "writable": true
-        },
-        {
-          "name": "baseMint",
-          "writable": true
-        },
-        {
-          "name": "quoteMint",
-          "address": "So11111111111111111111111111111111111111112"
-        },
-        {
-          "name": "vaultBase",
-          "writable": true
-        },
-        {
-          "name": "vaultQuote",
-          "writable": true
-        },
-        {
-          "name": "poolAuthority",
-          "address": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM"
-        },
-        {
-          "name": "tokenBaseProgram"
-        },
-        {
-          "name": "tokenQuoteProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "dbcEventAuthority"
-        },
-        {
-          "name": "dbcProgram",
-          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "tokensIn",
-          "type": "u64"
+          "name": "oracle",
+          "type": {
+            "defined": {
+              "name": "oracleSettings"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "setPaused",
+      "docs": [
+        "Stops (or restarts) every session key's trading. Owners can always trade and withdraw."
+      ],
+      "discriminator": [
+        91,
+        60,
+        125,
+        192,
+        176,
+        225,
+        166,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "platform"
+          ]
         },
         {
-          "name": "minOut",
-          "type": "u64"
+          "name": "platform",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
         }
       ]
     },
     {
       "name": "setSession",
+      "docs": [
+        "Owner only: replace or revoke (Pubkey::default()) the session key and its caps."
+      ],
       "discriminator": [
         156,
         135,
@@ -1002,6 +628,116 @@ export type Agents = {
         {
           "name": "dailyLimit",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "swap",
+      "docs": [
+        "Swap through Jupiter from one vault token account to another. `route` is the Jupiter",
+        "instruction data; remaining accounts are its accounts, in order.",
+        "",
+        "Session key: only between SOL and a whitelisted token, at no worse than the oracle price",
+        "less the platform's maximum slippage; buys spend wrapped SOL (topped up from the vault's",
+        "SOL) within the caps. The owner may swap anything."
+      ],
+      "discriminator": [
+        248,
+        198,
+        158,
+        145,
+        225,
+        117,
+        135,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "platform",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  116,
+                  102,
+                  111,
+                  114,
+                  109
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "vaultInput",
+          "writable": true
+        },
+        {
+          "name": "vaultOutput",
+          "writable": true
+        },
+        {
+          "name": "allowed",
+          "docs": [
+            "The whitelist entry for the token traded (the one that isn't SOL); required for the session key."
+          ],
+          "optional": true
+        },
+        {
+          "name": "solPrice",
+          "docs": [
+            "Pyth price updates for SOL/USD and the token; required for the session key."
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenPrice",
+          "optional": true
+        },
+        {
+          "name": "jupiterProgram",
+          "address": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amountIn",
+          "type": "u64"
+        },
+        {
+          "name": "minOut",
+          "type": "u64"
+        },
+        {
+          "name": "route",
+          "type": "bytes"
         }
       ]
     },
@@ -1057,8 +793,8 @@ export type Agents = {
     {
       "name": "withdrawToken",
       "docs": [
-        "Owner only: tokens (wrapped SOL or coins) out of a vault token account. Coins still in their",
-        "agents-only phase can only go to another agent's vault: the transfer hook refuses anything else."
+        "Owner only: tokens out of a vault token account to any token account. Remaining accounts:",
+        "the mint's transfer-hook accounts, if it has a hook (Token-2022 matches them by key)."
       ],
       "discriminator": [
         136,
@@ -1125,29 +861,16 @@ export type Agents = {
       ]
     },
     {
-      "name": "coin",
+      "name": "allowedMint",
       "discriminator": [
-        215,
-        195,
-        53,
-        238,
-        217,
-        196,
-        213,
-        51
-      ]
-    },
-    {
-      "name": "member",
-      "discriminator": [
-        54,
-        19,
-        162,
-        21,
-        29,
-        166,
-        17,
-        198
+        173,
+        229,
+        179,
+        46,
+        121,
+        164,
+        247,
+        6
       ]
     },
     {
@@ -1164,20 +887,33 @@ export type Agents = {
       ]
     },
     {
-      "name": "slots",
+      "name": "priceUpdateV2",
       "discriminator": [
+        34,
         241,
-        116,
-        176,
-        179,
-        229,
-        206,
-        196,
-        82
+        35,
+        99,
+        157,
+        126,
+        244,
+        205
       ]
     }
   ],
   "events": [
+    {
+      "name": "adminSet",
+      "discriminator": [
+        157,
+        245,
+        205,
+        226,
+        118,
+        125,
+        183,
+        97
+      ]
+    },
     {
       "name": "agentCreated",
       "discriminator": [
@@ -1192,42 +928,29 @@ export type Agents = {
       ]
     },
     {
-      "name": "feesDistributed",
+      "name": "mintAllowed",
       "discriminator": [
-        209,
-        24,
-        174,
-        200,
-        236,
-        90,
-        154,
-        55
-      ]
-    },
-    {
-      "name": "launched",
-      "discriminator": [
-        209,
-        127,
-        29,
-        152,
-        129,
+        80,
         212,
-        189,
-        183
+        130,
+        120,
+        125,
+        216,
+        111,
+        240
       ]
     },
     {
-      "name": "opened",
+      "name": "pausedSet",
       "discriminator": [
-        166,
-        172,
-        97,
-        9,
-        77,
-        76,
-        189,
-        109
+        171,
+        125,
+        127,
+        156,
+        233,
+        81,
+        68,
+        66
       ]
     },
     {
@@ -1244,16 +967,16 @@ export type Agents = {
       ]
     },
     {
-      "name": "traded",
+      "name": "swapped",
       "discriminator": [
-        225,
-        202,
-        73,
-        175,
+        217,
+        52,
+        52,
+        83,
         147,
-        43,
-        160,
-        150
+        135,
+        96,
+        109
       ]
     },
     {
@@ -1283,76 +1006,118 @@ export type Agents = {
     },
     {
       "code": 6002,
-      "name": "notEnoughPlatformToken",
-      "msg": "Not enough of the platform token for another agent slot"
-    },
-    {
-      "code": 6003,
       "name": "fundTooSmall",
       "msg": "Funding must cover the vault's rent-exempt minimum"
     },
     {
-      "code": 6004,
+      "code": 6003,
       "name": "notOwner",
       "msg": "Only the agent's owner may do this"
     },
     {
-      "code": 6005,
+      "code": 6004,
       "name": "notAuthorized",
       "msg": "Only the owner or the session key may do this"
     },
     {
+      "code": 6005,
+      "name": "notAdmin",
+      "msg": "Only the platform admin may do this"
+    },
+    {
       "code": 6006,
+      "name": "paused",
+      "msg": "Session-key trading is paused"
+    },
+    {
+      "code": 6007,
+      "name": "notWhitelisted",
+      "msg": "Session keys may only buy whitelisted tokens"
+    },
+    {
+      "code": 6008,
+      "name": "sellsToSolOnly",
+      "msg": "Session keys may only sell back to SOL"
+    },
+    {
+      "code": 6009,
       "name": "overTradeCap",
       "msg": "Trade is over the per-trade cap"
     },
     {
-      "code": 6007,
+      "code": 6010,
       "name": "overDailyCap",
       "msg": "Trade is over the daily cap"
     },
     {
-      "code": 6008,
+      "code": 6011,
       "name": "minOutRequired",
       "msg": "A minimum output is required"
     },
     {
-      "code": 6009,
+      "code": 6012,
       "name": "slippage",
       "msg": "Output below the minimum"
     },
     {
-      "code": 6010,
+      "code": 6013,
       "name": "insufficientFunds",
       "msg": "Not enough SOL in the vault"
     },
     {
-      "code": 6011,
-      "name": "notPlatformPool",
-      "msg": "Not one of this platform's pools"
-    },
-    {
-      "code": 6012,
-      "name": "cooldown",
-      "msg": "Launch cooldown: one launch per hour"
-    },
-    {
-      "code": 6013,
-      "name": "alreadyOpen",
-      "msg": "Coin is already open"
-    },
-    {
       "code": 6014,
-      "name": "notYet",
-      "msg": "Coin has neither reached its threshold nor its opening time"
+      "name": "badRoute",
+      "msg": "Only Jupiter's exact-in routes from and to this vault are accepted"
     },
     {
       "code": 6015,
+      "name": "routeTakesFee",
+      "msg": "Routes may not take a platform fee or positive slippage"
+    },
+    {
+      "code": 6016,
+      "name": "routeMovedFunds",
+      "msg": "The route moved vault funds it wasn't allowed to"
+    },
+    {
+      "code": 6017,
+      "name": "priceRequired",
+      "msg": "Session-key swaps need the SOL and token price accounts"
+    },
+    {
+      "code": 6018,
+      "name": "badPrice",
+      "msg": "Oracle price missing, stale, for the wrong feed, or out of range"
+    },
+    {
+      "code": 6019,
+      "name": "belowOraclePrice",
+      "msg": "Output below the oracle price less the maximum slippage"
+    },
+    {
+      "code": 6020,
+      "name": "notEmpty",
+      "msg": "Token account must be empty to close"
+    },
+    {
+      "code": 6021,
       "name": "notUpgradeAuthority",
       "msg": "Only the program's upgrade authority can set up the platform"
     }
   ],
   "types": [
+    {
+      "name": "adminSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
     {
       "name": "agent",
       "type": {
@@ -1379,15 +1144,14 @@ export type Agents = {
             "type": "u64"
           },
           {
-            "name": "spentToday",
+            "name": "spent",
+            "docs": [
+              "SOL the session key has spent, as of `spent_at`; it refills at `daily_limit` per day."
+            ],
             "type": "u64"
           },
           {
-            "name": "dayStart",
-            "type": "i64"
-          },
-          {
-            "name": "lastLaunchAt",
+            "name": "spentAt",
             "type": "i64"
           },
           {
@@ -1456,9 +1220,9 @@ export type Agents = {
       }
     },
     {
-      "name": "coin",
+      "name": "allowedMint",
       "docs": [
-        "Fixed-size fields first: the transfer hook reads `mint`, `opens_at` and `opened` by offset."
+        "A token session keys may trade, with its Pyth USD price feed."
       ],
       "type": {
         "kind": "struct",
@@ -1468,38 +1232,39 @@ export type Agents = {
             "type": "pubkey"
           },
           {
-            "name": "launcher",
-            "type": "pubkey"
+            "name": "feed",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
-            "name": "pool",
-            "type": "pubkey"
-          },
-          {
-            "name": "opensAt",
-            "type": "i64"
-          },
-          {
-            "name": "opened",
-            "type": "bool"
+            "name": "decimals",
+            "type": "u8"
           },
           {
             "name": "bump",
             "type": "u8"
           },
           {
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "name": "symbol",
-            "type": "string"
+            "name": "reserved",
+            "docs": [
+              "Room for later settings without a migration."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
     },
     {
-      "name": "feesDistributed",
+      "name": "mintAllowed",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1508,74 +1273,41 @@ export type Agents = {
             "type": "pubkey"
           },
           {
-            "name": "toInference",
-            "type": "u64"
-          },
-          {
-            "name": "toBuyback",
-            "type": "u64"
+            "name": "allowed",
+            "type": "bool"
           }
         ]
       }
     },
     {
-      "name": "launched",
+      "name": "oracleSettings",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "mint",
-            "type": "pubkey"
+            "name": "maxAge",
+            "docs": [
+              "Oldest price a session-key swap may use, in seconds."
+            ],
+            "type": "u32"
           },
           {
-            "name": "launcher",
-            "type": "pubkey"
-          },
-          {
-            "name": "pool",
-            "type": "pubkey"
-          },
-          {
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "name": "symbol",
-            "type": "string"
-          },
-          {
-            "name": "opensAt",
-            "type": "i64"
+            "name": "maxSlippageBps",
+            "docs": [
+              "How far below the oracle price a session-key swap may fill."
+            ],
+            "type": "u16"
           }
         ]
       }
     },
     {
-      "name": "member",
-      "docs": [
-        "Marks a vault as a registered agent's; the transfer hook looks it up by the receiving account's owner."
-      ],
+      "name": "pausedSet",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "agent",
-            "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
-      "name": "opened",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "byThreshold",
+            "name": "paused",
             "type": "bool"
           }
         ]
@@ -1591,86 +1323,150 @@ export type Agents = {
             "type": "pubkey"
           },
           {
-            "name": "dbcConfig",
-            "type": "pubkey"
-          },
-          {
-            "name": "platformMint",
+            "name": "pendingAdmin",
             "docs": [
-              "`Pubkey::default()` turns slot gating off."
+              "Proposed by the admin; becomes the admin when it accepts."
             ],
             "type": "pubkey"
           },
           {
-            "name": "holdPerSlot",
-            "type": "u64"
-          },
-          {
-            "name": "inference",
+            "name": "paused",
             "docs": [
-              "Owners of the wrapped-SOL accounts that receive the partner fee split."
+              "Stops session keys from trading. Never stops owners."
             ],
-            "type": "pubkey"
+            "type": "bool"
           },
           {
-            "name": "buyback",
-            "type": "pubkey"
-          },
-          {
-            "name": "openThreshold",
-            "type": "u64"
-          },
-          {
-            "name": "openWindow",
-            "type": "i64"
-          },
-          {
-            "name": "launchCooldown",
-            "type": "i64"
+            "name": "oracle",
+            "type": {
+              "defined": {
+                "name": "oracleSettings"
+              }
+            }
           },
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Room for later settings without a migration."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
           }
         ]
       }
     },
     {
-      "name": "platformArgs",
+      "name": "priceFeedMessage",
+      "repr": {
+        "kind": "c"
+      },
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "dbcConfig",
-            "type": "pubkey"
+            "name": "feedId",
+            "docs": [
+              "`FeedId` but avoid the type alias because of compatibility issues with Anchor's `idl-build` feature."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
-            "name": "platformMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "holdPerSlot",
-            "type": "u64"
-          },
-          {
-            "name": "inference",
-            "type": "pubkey"
-          },
-          {
-            "name": "buyback",
-            "type": "pubkey"
-          },
-          {
-            "name": "openThreshold",
-            "type": "u64"
-          },
-          {
-            "name": "openWindow",
+            "name": "price",
             "type": "i64"
           },
           {
-            "name": "launchCooldown",
+            "name": "conf",
+            "type": "u64"
+          },
+          {
+            "name": "exponent",
+            "type": "i32"
+          },
+          {
+            "name": "publishTime",
+            "docs": [
+              "The timestamp of this price update in seconds"
+            ],
             "type": "i64"
+          },
+          {
+            "name": "prevPublishTime",
+            "docs": [
+              "The timestamp of the previous price update. This field is intended to allow users to",
+              "identify the single unique price update for any moment in time:",
+              "for any time t, the unique update is the one such that prev_publish_time < t <= publish_time.",
+              "",
+              "Note that there may not be such an update while we are migrating to the new message-sending logic,",
+              "as some price updates on pythnet may not be sent to other chains (because the message-sending",
+              "logic may not have triggered). We can solve this problem by making the message-sending mandatory",
+              "(which we can do once publishers have migrated over).",
+              "",
+              "Additionally, this field may be equal to publish_time if the message is sent on a slot where",
+              "where the aggregation was unsuccesful. This problem will go away once all publishers have",
+              "migrated over to a recent version of pyth-agent."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "emaPrice",
+            "type": "i64"
+          },
+          {
+            "name": "emaConf",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "priceUpdateV2",
+      "docs": [
+        "A price update account. This account is used by the Pyth Receiver program to store a verified price update from a Pyth price feed.",
+        "It contains:",
+        "- `write_authority`: The write authority for this account. This authority can close this account to reclaim rent or update the account to contain a different price update.",
+        "- `verification_level`: The [`VerificationLevel`] of this price update. This represents how many Wormhole guardian signatures have been verified for this price update.",
+        "- `price_message`: The actual price update.",
+        "- `posted_slot`: The slot at which this price update was posted."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "writeAuthority",
+            "type": "pubkey"
+          },
+          {
+            "name": "verificationLevel",
+            "type": {
+              "defined": {
+                "name": "verificationLevel"
+              }
+            }
+          },
+          {
+            "name": "priceMessage",
+            "type": {
+              "defined": {
+                "name": "priceFeedMessage"
+              }
+            }
+          },
+          {
+            "name": "postedSlot",
+            "type": "u64"
           }
         ]
       }
@@ -1700,19 +1496,7 @@ export type Agents = {
       }
     },
     {
-      "name": "slots",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "count",
-            "type": "u32"
-          }
-        ]
-      }
-    },
-    {
-      "name": "traded",
+      "name": "swapped",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1721,12 +1505,12 @@ export type Agents = {
             "type": "pubkey"
           },
           {
-            "name": "mint",
+            "name": "inputMint",
             "type": "pubkey"
           },
           {
-            "name": "buy",
-            "type": "bool"
+            "name": "outputMint",
+            "type": "pubkey"
           },
           {
             "name": "amountIn",
@@ -1735,6 +1519,43 @@ export type Agents = {
           {
             "name": "amountOut",
             "type": "u64"
+          },
+          {
+            "name": "byOwner",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "verificationLevel",
+      "docs": [
+        "Pyth price updates are bridged to all blockchains via Wormhole.",
+        "Using the price updates on another chain requires verifying the signatures of the Wormhole guardians.",
+        "The usual process is to check the signatures for two thirds of the total number of guardians, but this can be cumbersome on Solana because of the transaction size limits,",
+        "so we also allow for partial verification.",
+        "",
+        "This enum represents how much a price update has been verified:",
+        "- If `Full`, we have verified the signatures for two thirds of the current guardians.",
+        "- If `Partial`, only `num_signatures` guardian signatures have been checked.",
+        "",
+        "# Warning",
+        "Using partially verified price updates is dangerous, as it lowers the threshold of guardians that need to collude to produce a malicious price update."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "partial",
+            "fields": [
+              {
+                "name": "numSignatures",
+                "type": "u8"
+              }
+            ]
+          },
+          {
+            "name": "full"
           }
         ]
       }

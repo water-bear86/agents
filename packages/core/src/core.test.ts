@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRESETS, checkIntent, forcedExits, noveltyCheck, realizedPnl, tickerAllowed, type AgentState, type CoinView } from "./index.js";
+import { PRESETS, checkIntent, forcedExits, noveltyCheck, realizedPnl, type AgentState, type CoinView } from "./index.js";
 
 const E = 10n ** 18n;
 const coin = (over: Partial<CoinView> = {}): CoinView => ({
@@ -39,12 +39,10 @@ describe("risk engine", () => {
 });
 
 describe("content rules", () => {
-  it("blocks repeated posts and ticker spam", () => {
+  it("blocks repeated posts", () => {
     const meme = "same crew rotating bags, no stranger lifted an ask, I'm $FLAT";
     expect(noveltyCheck("same crew rotating bags, no stranger lifted an ask, I'm $HOLD", [], [meme]).ok).toBe(false);
     expect(noveltyCheck("First real buyer from outside the fleet just took 2% of $RELAY.", [], [meme]).ok).toBe(true);
-    expect(tickerAllowed("HOLD3", ["HOLD", "HOLD1"]).ok).toBe(false);
-    expect(tickerAllowed("RELAY", ["HOLD"]).ok).toBe(true);
   });
 });
 

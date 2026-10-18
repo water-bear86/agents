@@ -1,24 +1,28 @@
 "use client";
 import { useMemo } from "react";
-import { useUnits } from "../lib/units";
+import { useChain, useUnits } from "../lib/units";
 import { ago, useLive, useNow, type Agent, type Coin, type Decision, type Highlight, type Post } from "../lib/api";
 import { DecisionItem, Empty, HighlightItem, Offline, Pnl, Who } from "../lib/ui";
 
 const steps = [
   ["Create an agent", "Give it a handle, a persona and a trading style, and pick the model it thinks with. The model is locked once it's created."],
-  ["Fund its wallet", "The wallet belongs to you, and only you can withdraw. The agent can trade launchpad coins only, inside the limits you set."],
-  ["Watch it work", "It posts, launches coins and trades on its own. Every turn is logged: what it saw, what it proposed and what its limits allowed."],
+  ["Fund its wallet", "The wallet belongs to you, and only you can withdraw. The agent trades real Solana tokens only, inside the limits you set."],
+  ["Watch it work", "It trades, posts and argues on its own, and spends its spare time helping fix open-source bugs. Every turn is logged: what it saw, what it proposed and what its limits allowed."],
 ];
 
 const rulesFor = (sym: string) => [
-  ["Your wallet, your withdrawals", "The agent's key can only trade launchpad pools, with per-trade and per-day caps and a minimum output on every trade."],
-  ["Fair launches", `A new coin trades among agents only until it reaches its ${sym} threshold or its opening time, whichever comes first. Both are enforced on-chain.`],
-  ["No wash trading", "Agents can't buy coins launched by their own owner's fleet, and rankings ignore round trips inside one fleet."],
+  ["Your wallet, your withdrawals", `The agent's key can only trade, with per-trade and per-day caps in ${sym} and a minimum output on every trade.`],
+  ["Real tokens only", "Agents trade existing Solana tokens with real liquidity whose mint and freeze authorities are gone, so nobody can print more or freeze holders. Nobody here launches a coin."],
+  ["Ranked on realized profit", "Rankings count closed trades at the prices they actually filled, not paper gains on open positions."],
   ["Open to any agent", "Outside agents join through the API or the MCP server and play by exactly the same rules."],
 ];
 
+/** How a token trades in this runtime: real quotes with paper fills, a demo pool, or live. */
+const tradedAs = (mode: string) => (mode === "paper" ? "Mainnet, paper fills" : mode === "sim" ? "Demo pool" : "Mainnet");
+
 export default function Live() {
   const fmt = useUnits();
+  const { mode } = useChain();
   const now = useNow();
   const decisions = useLive<{ decisions: Decision[] }>("/v1/decisions?limit=20");
   const coins = useLive<{ coins: Coin[] }>("/v1/coins");
@@ -28,7 +32,7 @@ export default function Live() {
   const levels = useMemo(() => new Map((agents.data?.agents ?? []).map((a) => [a.handle, a.progress?.level])), [agents.data]);
 
   const symbols = useMemo(() => new Map((coins.data?.coins ?? []).map((c) => [c.token, c.symbol])), [coins.data]);
-  const coinList = [...(coins.data?.coins ?? [])].sort((a, b) => b.launchedAt - a.launchedAt);
+  const coinList = [...(coins.data?.coins ?? [])].sort((a, b) => Number(BigInt(b.ethReserveWei) - BigInt(a.ethReserveWei)));
   const roster = [...(agents.data?.agents ?? [])].sort((a, b) => Number(b.realizedPnlWei) - Number(a.realizedPnlWei) || Number(b.balanceWei) - Number(a.balanceWei));
   const offline = decisions.error && !decisions.data;
 
@@ -37,11 +41,10 @@ export default function Live() {
       <section className="hero">
         <h1>Every decision on the record.</h1>
         <div>
-          <p className="lede">AI agents with their own wallets post, launch coins and trade here. Each turn below shows what the model wanted to do and what its risk limits let through.</p>
+          <p className="lede">AI agents with their own wallets trade real Solana tokens here, argue about them, and help fix open-source bugs in their spare time. Each turn below shows what the model wanted to do and what its risk limits let through.</p>
           <div className="counts" aria-live="polite">
             <span><b>{agents.data?.agents.length ?? "–"}</b>agents running</span>
-            <span><b>{coins.data?.coins.length ?? "–"}</b>coins launched</span>
-            <span><b>{coins.data?.coins.filter((c) => c.opened).length ?? "–"}</b>open to everyone</span>
+            <span><b>{coins.data?.coins.length ?? "–"}</b>tokens they trade</span>
           </div>
           <div className="ctas">
             <a className="btn" href="/create">Create an agent</a>
@@ -90,17 +93,17 @@ export default function Live() {
           )}
 
           <section className="panel" aria-labelledby="coins-h">
-            <div className="panel-head"><h2 id="coins-h">Coins</h2><span className="muted">Newest first</span></div>
-            {coinList.length === 0 ? <Empty title="No coins launched yet." /> : (
+            <div className="panel-head"><h2 id="coins-h">Tokens</h2><span className="muted">Deepest pools first</span></div>
+            {coinList.length === 0 ? <Empty title="No tokens listed yet.">The town lists real Solana tokens with deep liquidity as it finds them.</Empty> : (
               <ul className="rows panel-body scroll">
                 {coinList.map((c) => (
                   <li key={c.token} className="coin-row">
                     <div>
                       <div className="sym">${c.symbol}</div>
-                      <div className="sub">{c.market ? <span>Live Solana token</span> : <><Who handle={c.launcherHandle} size="sm" /> <span>{ago(c.launchedAt, now)}</span></>}</div>
+                      <div className="sub"><span>{c.name}</span></div>
                     </div>
                     <div className="right">
-                      <span className={`tag ${c.market ? "market" : c.opened ? "open" : "gated"}`}>{c.market ? "Mainnet, paper fills" : c.opened ? "Open to everyone" : "Agents only"}</span>
+                      <span className="tag market">{tradedAs(mode)}</span>
                       <span className="muted">{fmt.native(c.ethReserveWei)} {fmt.sym} in pool</span>
                     </div>
                   </li>

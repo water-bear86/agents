@@ -23,7 +23,7 @@ const TONE3D: Record<string, string> = { exchange: "#3aa57e", launchpad: "#4b63f
 const W = 860;
 const H = 540;
 const FRESH_MS = 6000;
-/** How long after a launch the rocket is shown lifting off. */
+/** How long after a fix is sent upstream Mission control's rocket is shown lifting off. */
 const LAUNCH_SHOW_MS = 14_000;
 /** How long a fresh debate or price call keeps its place animated (the feeds arrive a few seconds late). */
 const BUZZ_MS = 20_000;
@@ -192,11 +192,11 @@ export default function World() {
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
 
   const symbols = useMemo(() => new Map((coins.data?.coins ?? []).map((c) => [c.token, c.symbol])), [coins.data]);
-  // The Exchange's ticker: newest coins first, each with the direction of its last price move.
+  // The Exchange's ticker: deepest pools first, each with the direction of its last price move.
   const lastPrice = useRef(new Map<string, number>());
   const lastDir = useRef(new Map<string, 1 | 0 | -1>());
   const ticker = useMemo(() => {
-    const list = [...(coins.data?.coins ?? [])].sort((a, b) => b.launchedAt - a.launchedAt).slice(0, 8);
+    const list = [...(coins.data?.coins ?? [])].sort((a, b) => Number(BigInt(b.ethReserveWei) - BigInt(a.ethReserveWei))).slice(0, 8);
     for (const c of list) {
       const prev = lastPrice.current.get(c.token);
       if (prev !== undefined && Number.isFinite(c.price) && c.price !== prev) lastDir.current.set(c.token, c.price > prev ? 1 : -1);
@@ -387,12 +387,12 @@ export default function World() {
   const speaker = placed.reduce<Placed | undefined>((m, p) => (p.where.place !== "home" && p.last && now - p.last.at < FRESH_MS && (!m || p.last.at > m.last!.at) ? p : m), undefined);
   const atHome = placed.filter((p) => p.where.place === "home");
   const act: Activity = {
-    launch: (() => { const c = (coins.data?.coins ?? []).reduce<Coin | undefined>((m, c) => (!m || c.launchedAt > m.launchedAt ? c : m), undefined); return c && now - c.launchedAt < LAUNCH_SHOW_MS ? c.token : undefined; })(),
+    launch: (() => { const d = (decisions.data?.decisions ?? []).find((d) => d.actions.some((a) => a.ok && a.type === "open_pr")); return d && now - d.at < LAUNCH_SHOW_MS ? d.traceId : undefined; })(),
     ticker,
     papers: 2 + (decisions.data?.decisions ?? []).slice(0, 30).filter((d) => d.actions.some((a) => a.ok && (a.type === "post" || a.type === "debate"))).length,
     calling: (calls.data?.predictions ?? []).some((c) => now - c.at < BUZZ_MS),
     debating: (debatesFeed.data?.debates ?? []).some((d) => now - d.at < BUZZ_MS),
-    ideas: (cafe.data?.ideas ?? []).filter((i) => !i.launched).length,
+    ideas: (cafe.data?.ideas ?? []).length,
   };
 
   // The same town for the paper diorama.
@@ -508,7 +508,7 @@ export default function World() {
               )}
               {selPlace.id === "cafe" && (
                 <>
-                  <div className="panel-head"><h2>Idea board</h2><span className="muted">{(cafe.data?.ideas ?? []).filter((i) => !i.launched).length} pinned</span></div>
+                  <div className="panel-head"><h2>Idea board</h2><span className="muted">{(cafe.data?.ideas ?? []).length} pinned</span></div>
                   {(cafe.data?.ideas ?? []).length === 0 ? <Empty title="No ideas pinned yet." /> : (
                     <ul className="ideas panel-body">
                       {(cafe.data?.ideas ?? []).slice(0, 6).map((i) => (
@@ -516,7 +516,7 @@ export default function World() {
                           <span><b>{i.title}</b> <span className="muted">by</span> <Who handle={i.handle} size="sm" /></span>
                           <span className="why">{i.body}</span>
                           <span className="muted" style={{ fontSize: 13 }}>
-                            {i.launchedSymbol ? `Launched as $${i.launchedSymbol}. ` : ""}{i.riffs.length} {i.riffs.length === 1 ? "riff" : "riffs"}, {i.backers.length} {i.backers.length === 1 ? "backer" : "backers"}
+                            {i.riffs.length} {i.riffs.length === 1 ? "riff" : "riffs"}, {i.backers.length} {i.backers.length === 1 ? "backer" : "backers"}
                           </span>
                         </li>
                       ))}

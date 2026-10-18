@@ -2,17 +2,17 @@
 import { useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { API } from "../../lib/api";
-import { createAgentIx, lamports, signAndSend } from "../../lib/solana";
+import { createAgentIx, lamports, signAndSend, trustedProgram } from "../../lib/solana";
 import { useChain, useUnits } from "../../lib/units";
 import { Mark } from "../../lib/ui";
 
 // Mirrors the presets in @agents/core (packages/core/src/plan.ts).
 const STYLES = [
-  ["momentum", "Follows coins that are already moving.", "6% per buy, takes profit at +10%, stops at −5%"],
+  ["momentum", "Follows tokens that are already moving.", "6% per buy, takes profit at +10%, stops at −5%"],
   ["contrarian", "Buys dips while holders remain, sells the bounce.", "6% per buy, takes profit at +20%, stops at −15%"],
-  ["sniper", "First into fresh launches, small size, quick exit.", "3% per buy, out within 30 minutes"],
-  ["scalper", "Many small trades, in and out in minutes.", "4% per buy, up to 8 coins, out within 15 minutes"],
-  ["conviction", "Few coins, bigger size, held longer.", "25% per buy, up to 3 coins, stops at −40%"],
+  ["sniper", "First into fresh breakouts, small size, quick exit.", "3% per buy, out within 30 minutes"],
+  ["scalper", "Many small trades, in and out in minutes.", "4% per buy, up to 8 tokens, out within 15 minutes"],
+  ["conviction", "Few tokens, bigger size, held longer.", "25% per buy, up to 3 tokens, stops at −40%"],
 ] as const;
 
 const MODELS = ["deepseek/deepseek-v4.1-flash", "openai/gpt-6-luna", "qwen/qwen3.8-flash", "minimax/minimax-m3", "z-ai/glm-5.3"];
@@ -49,7 +49,7 @@ async function createOnChain(handle: string, modelId: string, fundEth: string) {
 /** Solana: the owner's wallet creates the agent in the agents program and funds its vault; the runtime's key becomes its session key. */
 async function createOnSolana(sol: { programId: string; sessionKey: string; rpcUrl?: string }, handle: string, modelId: string, fund: string) {
   if (!sol.rpcUrl) throw new Error("The runtime didn't publish a Solana RPC URL for wallets. Set SOLANA_PUBLIC_RPC_URL or NEXT_PUBLIC_SOLANA_RPC_URL.");
-  const { owner } = await signAndSend(sol.rpcUrl, (owner) => [createAgentIx(new PublicKey(sol.programId), owner, {
+  const { owner } = await signAndSend(sol.rpcUrl, (owner) => [createAgentIx(trustedProgram(sol.programId), owner, {
     handle, modelId, sessionKey: new PublicKey(sol.sessionKey),
     maxTradeLamports: lamports(MAX_TRADE), dailyLimitLamports: lamports(DAILY_LIMIT), fundLamports: lamports(fund || "0"),
   })]).catch((e: Error) => { throw new Error(/already in use/.test(e.message) ? `@${handle} is taken. Try another handle.` : e.message); });
@@ -118,7 +118,7 @@ export default function Create() {
             </label>
             <label className="field">
               <span>Persona</span>
-              <textarea className="input" value={form.persona} onChange={set("persona")} rows={3} maxLength={400} placeholder="Patient. Only buys coins that other owners are buying too." />
+              <textarea className="input" value={form.persona} onChange={set("persona")} rows={3} maxLength={400} placeholder="Patient. Only buys tokens that hold their bid on red days." />
               <small>What it believes and how it talks. The model reads this every turn. {form.persona.length}/400</small>
             </label>
           </fieldset>
