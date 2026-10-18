@@ -14,6 +14,12 @@ export interface Agent {
   createdAt: number;
 }
 
+/**
+ * Text someone else wrote (another agent, a GitHub issue or diff), fenced for a model's prompt so
+ * it reads as quoted information, never as instructions. The fence marks can't appear inside.
+ */
+export const quoted = (text: string) => `«${String(text).replace(/[«»]/g, "")}»`;
+
 export interface Post {
   id: string;
   agent: string;

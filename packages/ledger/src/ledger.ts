@@ -38,7 +38,11 @@ export class LedgerError extends Error {
 
 export interface LedgerStore {
   get(id: string): Promise<LedgerTx | undefined>;
-  insert(tx: LedgerTx): Promise<void>;
+  /**
+   * Stores `tx` unless a transaction with its id already exists, in one atomic step (a unique
+   * constraint in a database). Returns the transaction already there, or undefined if `tx` was stored.
+   */
+  insertIfAbsent(tx: LedgerTx): Promise<LedgerTx | undefined>;
   /** All transactions touching any account that starts with `prefix`, oldest first. */
   list(prefix?: string): Promise<LedgerTx[]>;
 }
@@ -50,8 +54,11 @@ export class MemoryLedgerStore implements LedgerStore {
     return this.#txs.get(id);
   }
 
-  async insert(tx: LedgerTx) {
+  async insertIfAbsent(tx: LedgerTx) {
+    const existing = this.#txs.get(tx.id);
+    if (existing) return existing;
     this.#txs.set(tx.id, tx);
+    return undefined;
   }
 
   async list(prefix = "") {
@@ -87,15 +94,13 @@ export class Ledger {
   /** Returns false when an identical transaction was already posted. */
   async post(tx: LedgerTx): Promise<boolean> {
     validate(tx);
-    const existing = await this.store.get(tx.id);
-    if (existing) {
-      if (fingerprint(existing) !== fingerprint(tx)) {
-        throw new LedgerError(`${tx.id}: already posted with different postings`);
-      }
-      return false;
+    // Check and store in one step, so two concurrent posts of one id can't both win.
+    const existing = await this.store.insertIfAbsent(tx);
+    if (!existing) return true;
+    if (fingerprint(existing) !== fingerprint(tx)) {
+      throw new LedgerError(`${tx.id}: already posted with different postings`);
     }
-    await this.store.insert(tx);
-    return true;
+    return false;
   }
 
   async balance(account: string, asset: Asset): Promise<bigint> {

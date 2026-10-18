@@ -93,7 +93,8 @@ export function coinView(world: World, q: Quoter, token: string): CoinView | nul
 
 /**
  * Runs the compliance screen (when configured) and records the outcome. Returns a blocking
- * detail when the item must not go out. A screen outage lets items through, queued as unscreened.
+ * detail when the item must not go out. A screen outage lets items through, queued as unscreened,
+ * unless COMPLIANCE_FAIL_CLOSED=1, which holds them until the screen is back.
  */
 async function screened(
   world: World, agent: Agent, kind: "post", text: string,
@@ -114,6 +115,7 @@ async function screened(
         }, { input: { kind, text } })
       : await run();
   } catch {
+    if (process.env.COMPLIANCE_FAIL_CLOSED === "1") return { block: "the compliance screen is unavailable, so posts are held for now", queue: () => {} };
     return { queue: (ref) => enqueue({ outcome: "unscreened", flags: [], severity: 0, ref }) };
   }
   world.compliance.screened++;

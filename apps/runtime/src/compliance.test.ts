@@ -70,6 +70,20 @@ describe("screened actions", () => {
     expect(world.reviews[0]?.outcome).toBe("unscreened");
   });
 
+  it("with COMPLIANCE_FAIL_CLOSED=1 an outage holds posts instead", async () => {
+    const world = new World();
+    const chain = new SimChain();
+    process.env.COMPLIANCE_FAIL_CLOSED = "1";
+    try {
+      const r = await applyAction(world, chain, chain, agent, post, undefined, new ComplianceScreen(down));
+      expect(r.ok).toBe(false);
+      expect(r.detail).toMatch(/held/);
+      expect(world.posts).toHaveLength(0);
+    } finally {
+      delete process.env.COMPLIANCE_FAIL_CLOSED;
+    }
+  });
+
   it("refuses a launch before it ever reaches the screen", async () => {
     const world = new World();
     const chain = new SimChain();

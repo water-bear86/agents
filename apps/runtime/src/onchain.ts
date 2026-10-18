@@ -72,7 +72,6 @@ const events = {
   created: parseAbiItem("event AgentCreated(address indexed account, address indexed owner, string handle, string modelId, bytes32 profileHash)"),
   launched: parseAbiItem("event Launched(address indexed token, address indexed launcher, bytes32 indexed id, string name, string symbol, uint64 opensAt)"),
   opened: parseAbiItem("event Opened(bytes32 indexed id, bool byThreshold)"),
-  traded: parseAbiItem("event Traded(address indexed token, bool buy, uint256 amountIn, uint256 amountOut)"),
 };
 
 /**
@@ -81,7 +80,6 @@ const events = {
  */
 export class Indexer {
   from: bigint;
-  readonly seenTx = new Set<string>();
   constructor(private readonly client: PublicClient, private readonly registry: Address, private readonly hook: Address, private readonly world: World, fromBlock = 0n) {
     this.from = fromBlock;
   }
@@ -90,11 +88,12 @@ export class Indexer {
     const head = await this.client.getBlockNumber();
     const to = head > confirmations ? head - confirmations : head;
     if (to < this.from) return;
-    const [created, launched, opened, traded] = await Promise.all([
+    // Trades aren't read from logs: reserves come from the hook and balances from each account, so a
+    // chain-wide Traded query (which any contract could spam) would add nothing.
+    const [created, launched, opened] = await Promise.all([
       this.client.getLogs({ address: this.registry, event: events.created, fromBlock: this.from, toBlock: to }),
       this.client.getLogs({ address: this.hook, event: events.launched, fromBlock: this.from, toBlock: to }),
       this.client.getLogs({ address: this.hook, event: events.opened, fromBlock: this.from, toBlock: to }),
-      this.client.getLogs({ event: events.traded, fromBlock: this.from, toBlock: to }),
     ]);
     for (const l of created) {
       const a = l.args;
@@ -111,14 +110,9 @@ export class Indexer {
     for (const l of opened) {
       for (const c of this.world.coins.values()) if (poolId(c.token as Address, this.hook) === l.args.id) c.opened = true;
     }
-    for (const l of traded) {
-      const key = `${l.transactionHash}:${l.logIndex}`;
-      if (this.seenTx.has(key)) continue;
-      this.seenTx.add(key);
-    }
     await this.syncReserves();
     this.from = to + 1n;
-    return { created: created.length, launched: launched.length, opened: opened.length, traded: traded.length };
+    return { created: created.length, launched: launched.length, opened: opened.length };
   }
 
   /** Reserve and phase come straight from the hook, so internal and external trades both count exactly once. */

@@ -33,7 +33,10 @@ export class ViemAgentChain implements Chain {
       address: account as Address, abi: accountAbi, functionName: fn, args: [this.#key(order.token), amount, order.minOut], account: this.wallet.account,
     });
     const txHash = await this.wallet.writeContract(request);
-    await this.pub.waitForTransactionReceipt({ hash: txHash });
+    const receipt = await this.pub.waitForTransactionReceipt({ hash: txHash });
+    // The simulation predicted the output; only a successful receipt makes it a fill. (The indexer's
+    // balance sync then reconciles the vault with what the chain actually holds.)
+    if (receipt.status !== "success") throw new Error(`trade ${txHash} reverted`);
     return { txHash, out: result };
   }
 

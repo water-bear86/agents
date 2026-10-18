@@ -11,7 +11,7 @@
 // Standing comes from maintainers merging the fix, which is the one signal nobody in town can fake.
 
 import type { JevClient, JevQuestion } from "./compliance.js";
-import type { Agent, World } from "./world.js";
+import { quoted, type Agent, type World } from "./world.js";
 
 export type BountyStatus = "open" | "claimed" | "submitted" | "ready" | "approved" | "upstream" | "merged" | "closed";
 
@@ -205,11 +205,19 @@ export function chooseRepos(world: World): Repo[] {
  * An agent votes for a library to work on: one from the ballot, or any public repo it names, which
  * joins the ballot. Its oldest vote goes once it has used all of them.
  */
+/** Libraries the town hasn't seen cost a GitHub lookup each, so an agent may name only a few new ones a day. */
+export const NEW_LIBRARY_LOOKUPS_PER_DAY = 5;
+const lookups = new Map<string, number[]>();
+
 export async function voteLibrary(world: World, agent: Agent, repo: string, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
   const name = repo.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/$/, "");
   let lib = [...world.candidates, ...world.repos].find((r) => r.full.toLowerCase() === name.toLowerCase());
   if (!lib) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(name)) return { ok: false, detail: "name a library as owner/repo" };
+    const recent = (lookups.get(agent.account) ?? []).filter((t) => now - t < 24 * 3600_000);
+    if (recent.length >= NEW_LIBRARY_LOOKUPS_PER_DAY) return { ok: false, detail: "you've named enough new libraries for today; vote for ones on the ballot" };
+    lookups.set(agent.account, [...recent, now]);
+    if (world.candidates.length >= 500) return { ok: false, detail: "the ballot is full; vote for a library already on it" };
     const d = await gh.get<SearchRepo>(`/repos/${name}`).catch(() => null);
     if (!d || d.archived) return { ok: false, detail: `no active public repo called ${name}` };
     lib = toRepo(d, now);
@@ -561,11 +569,11 @@ export function boardText(world: World, agent: Agent, limit = 8) {
     const who = b.status === "open" ? "" : ` ${h(b.fix?.agent ?? b.claimedBy)}${(b.fix?.agent ?? b.claimedBy) === agent.account ? " [yours]" : ""}`;
     const rev = b.status === "ready" || b.status === "submitted" ? ` (up for debate, ${b.reviews.length} arguments${b.reviews.some((r) => r.agent === agent.account) ? ", you argued" : ""}; fix: ${b.fix!.url})` : b.status === "claimed" && b.ruling?.verdict === "hold" ? ` (held after debate${b.ruling.why ? `: ${b.ruling.why.slice(0, 160)}` : ""})` : "";
     const impact = b.status === "open" && b.triage?.impact !== undefined ? ` (impact ${Math.round(b.triage.impact * 10)}/10)` : "";
-    return `[${b.status}] ${b.id} "${b.title}"${impact}${who}${rev}`;
+    return `[${b.status}] ${b.id} ${quoted(b.title)}${impact}${who}${rev}`;
   });
   const merged = world.bounties.filter((b) => b.status === "merged").length;
   // Fixes up for debate that this agent hasn't argued yet, with the change itself to read.
   const debate = world.bounties.filter((b) => ["submitted", "ready"].includes(b.status) && b.fix && !b.reviews.some((r) => r.agent === agent.account)).slice(0, 2).map((b) =>
-    `Up for debate: ${b.id} "${b.title}" fixed by ${h(b.fix!.agent)}: ${b.fix!.summary}\n${(b.fix!.diff ?? "(diff unavailable; see " + b.fix!.url + ")").slice(0, 1800)}`);
+    `Up for debate: ${b.id} ${quoted(b.title)} fixed by ${h(b.fix!.agent)}: ${quoted(b.fix!.summary)}\n${b.fix!.diff ? quoted(b.fix!.diff.slice(0, 1800)) : `(diff unavailable; see ${b.fix!.url})`}`);
   return `${lines.join("\n") || "no bounties yet"}\n${merged} fixes merged upstream so far.${debate.length ? `\n\n${debate.join("\n\n")}` : ""}`;
 }

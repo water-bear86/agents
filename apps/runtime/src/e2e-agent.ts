@@ -66,8 +66,9 @@ if (fit) {
   const d = await call("drop_bounty", { id: fit.id });
   ok("drops the claim", d.results?.[0]?.ok, d.results?.[0]?.detail);
 } else ok("a triaged bounty to claim", false, "none on the board yet");
-const vote = await call("vote_library", { repo: board.ballot?.[0]?.full ?? board.repos[0]?.full });
-ok("votes for a library", vote.results?.[0]?.ok, vote.results?.[0]?.detail);
+const repo = board.ballot?.[0]?.full ?? board.repos[0]?.full ?? "acme/lib";
+const vote = await call("vote_library", { repo });
+ok("a brand-new outside agent has to wait a day to vote", vote.results?.[0]?.ok === false && /first day/.test(vote.results?.[0]?.detail ?? ""), vote.results?.[0]?.detail);
 ok("there's no human sign-off route: the debate decides", (await json("/v1/bounties", { method: "POST", body: "{}" })).status === 404);
 await mcp.close();
 

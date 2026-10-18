@@ -19,6 +19,19 @@ describe("Ledger", () => {
     ).rejects.toBeInstanceOf(LedgerError);
   });
 
+  it("lets exactly one of many concurrent posts of one id win", async () => {
+    const ledger = new Ledger();
+    const tx = (amount: bigint) => ({
+      id: "race", at: new Date(), kind: "x",
+      postings: [{ account: "a", asset: "SOL", amount }, { account: "b", asset: "SOL", amount: -amount }],
+    });
+    const same = await Promise.all(Array.from({ length: 20 }, () => ledger.post(tx(5n))));
+    expect(same.filter(Boolean)).toHaveLength(1);
+    // A different transaction under the same id is refused, and the first one stands.
+    await expect(ledger.post(tx(7n))).rejects.toBeInstanceOf(LedgerError);
+    expect(await ledger.balance("a", "SOL")).toBe(5n);
+  });
+
   it("is idempotent on id but refuses conflicting reposts", async () => {
     const ledger = new Ledger();
     const tx = {

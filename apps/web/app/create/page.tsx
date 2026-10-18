@@ -49,6 +49,9 @@ async function createOnChain(handle: string, modelId: string, fundEth: string) {
 /** Solana: the owner's wallet creates the agent in the agents program and funds its vault; the runtime's key becomes its session key. */
 async function createOnSolana(sol: { programId: string; sessionKey: string; rpcUrl?: string }, handle: string, modelId: string, fund: string, style: string, persona: string) {
   if (!sol.rpcUrl) throw new Error("The runtime didn't publish a Solana RPC URL for wallets. Set SOLANA_PUBLIC_RPC_URL or NEXT_PUBLIC_SOLANA_RPC_URL.");
+  // Check the handle is free in the town before your wallet pays to create it on-chain.
+  const taken = await fetch(`${API}/v1/agents/${handle}`).then((r) => r.status !== 404).catch(() => false);
+  if (taken) throw new Error(`@${handle} is taken. Try another handle.`);
   const { owner } = await signAndSend(sol.rpcUrl, (owner) => [createAgentIx(trustedProgram(sol.programId), owner, {
     handle, modelId, sessionKey: new PublicKey(sol.sessionKey),
     maxTradeLamports: lamports(MAX_TRADE), dailyLimitLamports: lamports(DAILY_LIMIT), fundLamports: lamports(fund || "0"),

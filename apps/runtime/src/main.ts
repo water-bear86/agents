@@ -460,6 +460,19 @@ class RateLimit {
     return true;
   }
 }
+/** A ?limit= query value: a whole number from 1 to `max`, else the default. */
+const queryLimit = (url: URL, def: number, max: number) => {
+  const n = Number(url.searchParams.get("limit") ?? def);
+  return Number.isFinite(n) && n >= 1 ? Math.min(max, Math.floor(n)) : def;
+};
+
+/**
+ * Models this runtime will pay to run for managed agents. An owner can't point their agent at a
+ * model the platform didn't choose (the website offers the same list).
+ */
+const MANAGED_MODELS = new Set((env.MANAGED_MODELS ?? "deepseek/deepseek-v4.1-flash,openai/gpt-6-luna,qwen/qwen3.8-flash,minimax/minimax-m3,z-ai/glm-5.3").split(",").map((m) => m.trim()).filter(Boolean));
+/** Action requests one outside agent may make per hour. */
+const actionRequests = new RateLimit(Number(env.ACTION_REQUESTS_PER_HOUR ?? 120), 60 * 60_000);
 const registrations = new RateLimit(Number(env.REGISTRATIONS_PER_HOUR ?? 5), 60 * 60_000);
 /** Agents this runtime pays to think for, and outside agents, at most. */
 const MAX_MANAGED = Number(env.MAX_MANAGED_AGENTS ?? 60);
@@ -625,13 +638,13 @@ createServer(async (req, res) => {
         solana: solana ? { programId: AGENTS_PROGRAM_ID.toBase58(), sessionKey: solana.chain.sessionKey.toBase58(), rpcUrl: solana.publicRpc } : undefined,
       });
     }
-    if (resource === "feed") return send(res, 200, { posts: world.feed(Number(url.searchParams.get("limit") ?? 50)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
+    if (resource === "feed") return send(res, 200, { posts: world.feed(queryLimit(url, 50, 200)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
     if (resource === "coins") {
       // The tokens agents trade: real market tokens (or the offline demo's stand-ins), with pool depth and price.
       return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ token: c.token, symbol: c.symbol, name: c.name, market: !!c.market, ethReserveWei: c.ethReserveWei, listedAt: c.launchedAt, price: priceOf(quoter, c.token, world.units) })) });
     }
     if (resource === "decisions") {
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 40));
+      const limit = queryLimit(url, 40, 200);
       return send(res, 200, { decisions: world.decisions.slice(-limit).reverse().map(decisionView) });
     }
     if (resource === "leaderboard") {
@@ -640,14 +653,14 @@ createServer(async (req, res) => {
     }
     if (resource === "agents" && !id && req.method === "GET") { const sc = scoring(); return send(res, 200, { agents: [...world.agents.values()].map((a) => publicAgent(a, sc)) }); }
     if (resource === "compliance") {
-      const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 100));
+      const limit = queryLimit(url, 100, 500);
       return send(res, 200, {
         enabled: !!screen, model: screen ? JEV_MODEL : null, policy: STRICT, stats: world.compliance,
         reviews: world.reviews.slice(-limit).reverse().map((r) => ({ ...r, handle: world.agents.get(r.agent)?.handle })),
       });
     }
     if (resource === "predictions") {
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 30));
+      const limit = queryLimit(url, 30, 200);
       const who = url.searchParams.get("agent");
       const acct = who ? world.agentByHandle(who)?.account : undefined;
       const rows = world.predictions.filter((p) => !who || p.agent === acct).slice(-limit).reverse();
@@ -656,7 +669,7 @@ createServer(async (req, res) => {
       });
     }
     if (resource === "debates") {
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 20));
+      const limit = queryLimit(url, 20, 200);
       const who = url.searchParams.get("agent");
       const acct = who ? world.agentByHandle(who)?.account : undefined;
       const rows = world.debates.filter((d) => !who || d.agent === acct || d.against === acct).slice(-limit).reverse();
@@ -710,7 +723,7 @@ createServer(async (req, res) => {
     }
     if (resource === "cafe") {
       // The Café: recent table talk and the idea board.
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 40));
+      const limit = queryLimit(url, 40, 200);
       const h = (acct: string) => world.agents.get(acct)?.handle;
       return send(res, 200, {
         chats: world.chats.slice(-limit).reverse().map((c) => ({ ...c, handle: h(c.agent), toHandle: h(c.to) })),
@@ -721,12 +734,12 @@ createServer(async (req, res) => {
     }
     if (resource === "picks") {
       // Jev's picks: the sharpest recent posts that read like their author.
-      const limit = Math.min(50, Number(url.searchParams.get("limit") ?? 5));
+      const limit = queryLimit(url, 5, 50);
       const picked = world.posts.filter((p) => p.jev?.pick).slice(-200).sort((a, b) => b.jev!.insight - a.jev!.insight || b.at - a.at).slice(0, limit);
       return send(res, 200, { enabled: !!screen, posts: picked.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
     }
     if (resource === "highlights") {
-      const limit = Math.min(100, Number(url.searchParams.get("limit") ?? 20));
+      const limit = queryLimit(url, 20, 100);
       return send(res, 200, { highlights: world.highlights.slice(-limit).reverse().map((h) => ({ ...h, handle: world.agents.get(h.agent)?.handle })) });
     }
 
@@ -748,6 +761,7 @@ createServer(async (req, res) => {
           if (!onChain) return send(res, 400, { error: "no agent with this handle uses this runtime's session key" });
           // Only the owner chooses how their agent runs: the request must carry their signature.
           const persona = String(b.persona ?? "").slice(0, 400);
+          if (!demo && !MANAGED_MODELS.has(onChain.modelId)) return send(res, 400, { error: `this runtime doesn't run ${onChain.modelId}; choose one of ${[...MANAGED_MODELS].join(", ")}` });
           const signed = verifySignature(new PublicKey(onChain.owner).toBytes(), enrollmentMessage(b.handle, style, sha256Hex(persona)), String(b.signature ?? ""));
           if (!signed) return send(res, 401, { error: "enrollment must be signed by the agent's owner" });
           const a = addAgent(b.handle, onChain.owner, style, persona, onChain.modelId, false, onChain.account);
@@ -765,10 +779,14 @@ createServer(async (req, res) => {
           const a = addAgent(prof.handle, prof.owner, style, String(b.persona ?? "").slice(0, 400), prof.modelId, false, b.account);
           return send(res, 201, { agent: publicAgent(a) });
         }
-        const a = addAgent(b.handle, String(b.owner ?? "0xdemo-owner"), style, String(b.persona ?? "").slice(0, 400), demo ? "demo/model" : String(b.modelId ?? "deepseek/deepseek-v4.1-flash"), false);
+        const modelId = demo ? "demo/model" : String(b.modelId ?? "deepseek/deepseek-v4.1-flash");
+        if (!demo && !MANAGED_MODELS.has(modelId)) return send(res, 400, { error: `this runtime doesn't run ${modelId}; choose one of ${[...MANAGED_MODELS].join(", ")}` });
+        const a = addAgent(b.handle, String(b.owner ?? "0xdemo-owner"), style, String(b.persona ?? "").slice(0, 400), modelId, false);
         return send(res, 201, { agent: publicAgent(a) });
       }
-      const a = addAgent(b.handle, String(b.owner ?? "0xexternal"), style, String(b.persona ?? ""), String(b.modelId ?? "external"), true);
+      // On-chain, a handle belongs to whoever created it in the program: an outside agent can't take it here first.
+      if (solanaOnchain && (await solana!.client.program.provider.connection.getAccountInfo(pdas.agent(b.handle)))) return send(res, 400, { error: "bad or taken handle" });
+      const a = addAgent(b.handle, String(b.owner ?? "0xexternal"), style, String(b.persona ?? "").slice(0, 400), String(b.modelId ?? "external").slice(0, 64), true);
       const key = `ak_${randomBytes(24).toString("hex")}`;
       apiKeys.set(createHash("sha256").update(key).digest("hex"), a.account);
       return send(res, 201, { agent: publicAgent(a), apiKey: key });
@@ -780,6 +798,7 @@ createServer(async (req, res) => {
       if (sub === "actions" && req.method === "POST") {
         const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
         if (apiKeys.get(createHash("sha256").update(token).digest("hex")) !== a.account) return send(res, 401, { error: "bad api key" });
+        if (!actionRequests.take(a.account)) return send(res, 429, { error: "too many action requests for this agent; try again later" });
         const b = await readJson(req);
         const all: Action[] = Array.isArray(b.actions) ? b.actions : [];
         const mem = new Set(["remember", "recall", "pledge"]);
@@ -823,10 +842,19 @@ createServer(async (req, res) => {
     return send(res, 404, { error: "not found" });
   } catch (err) {
     if (err instanceof HttpError) return send(res, err.status, { error: err.message });
-    return send(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    // Internal errors can carry an RPC URL with a key in it: log them, don't send them.
+    console.error(`[api] ${req.method} ${req.url}:`, err);
+    return send(res, 500, { error: "internal error" });
   }
 }).listen(PORT);
 
 console.log(`[runtime] API on :${PORT}${demo ? " (demo LLM)" : ""}${onchain ? " on-chain" : paper ? " paper trading the live Solana market" : " SimChain"}${screen ? `, compliance screen ${JEV_MODEL}` : ", compliance screen off"}`);
-await pass();
-setInterval(() => void pass(), Number(env.TICK_MS ?? (demo ? 10_000 : 60_000)));
+// One pass at a time: a slow one (many agents, a slow model) is skipped over, not stacked.
+let passing = false;
+const runPass = async () => {
+  if (passing) return;
+  passing = true;
+  try { await pass(); } finally { passing = false; }
+};
+await runPass();
+setInterval(() => void runPass(), Number(env.TICK_MS ?? (demo ? 10_000 : 60_000)));
