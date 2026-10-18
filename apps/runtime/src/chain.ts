@@ -5,15 +5,12 @@ import { EVM_UNITS, oneNative, type ChainUnits, type Order } from "@agents/core"
 /** What the runtime needs from the chain. `ViemChain` in prod, `SimChain` in tests/demo. */
 export interface Chain {
   execute(account: string, order: Order): Promise<{ txHash: string; out: bigint }>;
-  launch(account: string, name: string, symbol: string): Promise<{ txHash: string; token: string }>;
 }
 
 const accountAbi = parseAbi([
   "function buy((address,address,uint24,int24,address) key, uint256 ethIn, uint256 minTokensOut) returns (uint256)",
   "function sell((address,address,uint24,int24,address) key, uint256 tokensIn, uint256 minEthOut) returns (uint256)",
-  "function launch(string name, string symbol) returns (address)",
 ]);
-const hookAbi = parseAbi(["event Launched(address indexed token, address indexed launcher, bytes32 indexed id, string name, string symbol, uint64 opensAt)"]);
 
 /** Signs with the runtime's session key; AgentAccount enforces caps and minOut on-chain. */
 export class ViemAgentChain implements Chain {
@@ -36,33 +33,39 @@ export class ViemAgentChain implements Chain {
       address: account as Address, abi: accountAbi, functionName: fn, args: [this.#key(order.token), amount, order.minOut], account: this.wallet.account,
     });
     const txHash = await this.wallet.writeContract(request);
-    await this.pub.waitForTransactionReceipt({ hash: txHash });
+    const receipt = await this.pub.waitForTransactionReceipt({ hash: txHash });
+    // The simulation predicted the output; only a successful receipt makes it a fill. (The indexer's
+    // balance sync then reconciles the vault with what the chain actually holds.)
+    if (receipt.status !== "success") throw new Error(`trade ${txHash} reverted`);
     return { txHash, out: result };
   }
 
-  async launch(account: string, name: string, symbol: string) {
-    const txHash = await this.wallet.writeContract({ address: account as Address, abi: accountAbi, functionName: "launch", args: [name, symbol], chain: this.wallet.chain, account: this.wallet.account });
-    const receipt = await this.pub.waitForTransactionReceipt({ hash: txHash });
-    const logs = await this.pub.getContractEvents({ address: this.hook, abi: hookAbi, eventName: "Launched", fromBlock: receipt.blockNumber, toBlock: receipt.blockNumber });
-    const token = logs.find((l) => l.transactionHash === txHash)?.args.token;
-    if (!token) throw new Error("Launched event not found");
-    return { txHash, token };
-  }
 }
 
-/** Constant-product simulation used by tests and demo mode. */
+/**
+ * Constant-product simulation used by tests and the offline demo, where there is no live market to
+ * trade: `list` opens a simulated pool for a token, standing in for its real one.
+ */
 export class SimChain implements Chain {
   pools = new Map<string, { eth: bigint; tokens: bigint }>();
   #n = 0;
   constructor(readonly units: ChainUnits = EVM_UNITS) {}
 
+  /** Opens a pool for `token` (one native coin against the full supply unless told otherwise); keeps an existing one. */
+  list(token: string, eth: bigint = oneNative(this.units), tokens: bigint = this.units.tokenSupply) {
+    if (!this.pools.has(token)) this.pools.set(token, { eth, tokens });
+    return token;
+  }
+
   quoteBuy(token: string, ethIn: bigint) {
-    const p = this.pools.get(token)!;
+    const p = this.pools.get(token);
+    if (!p) return 0n;
     const eff = (ethIn * 99n) / 100n;
     return (p.tokens * eff) / (p.eth + eff);
   }
   quoteSell(token: string, tokensIn: bigint) {
-    const p = this.pools.get(token)!;
+    const p = this.pools.get(token);
+    if (!p) return 0n;
     return ((p.eth * tokensIn) / (p.tokens + tokensIn) * 99n) / 100n;
   }
 
@@ -73,14 +76,5 @@ export class SimChain implements Chain {
     if (out < o.minOut) throw new Error("Slippage");
     if (o.kind === "buy") { p.eth += o.ethIn; p.tokens -= out; } else { p.eth -= out; p.tokens += o.tokensIn; }
     return { txHash: `0xsim${Date.now().toString(36)}${++this.#n}`, out };
-  }
-
-  async launch(_account: string, _name: string, _symbol: string) {
-    // Pools are restored from a snapshot after a restart while the counter is not, so skip
-    // every id already taken. Reusing one would hand old holders a fresh pool to drain.
-    let token: string;
-    do token = `0xcoin${++this.#n}`; while (this.pools.has(token));
-    this.pools.set(token, { eth: oneNative(this.units), tokens: this.units.tokenSupply });
-    return { txHash: `0xsim${this.#n}`, token };
   }
 }

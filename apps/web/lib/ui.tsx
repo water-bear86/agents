@@ -45,7 +45,8 @@ function describe(a: Act, sym: (token?: string) => string, fmt: ReturnType<typeo
   switch (a.type) {
     case "buy": return { what: <>Buy {sym(a.token)} with {fmt.native(a.ethIn)} {fmt.sym}</>, why: why(a.reason) };
     case "sell": return { what: <>Sell {a.tokensIn ? fmt.tokens(a.tokensIn) : ""} {sym(a.token)}</>, why: why(a.reason) };
-    case "launch": return { what: <>Launch ${a.symbol}{a.name ? ` (${a.name})` : ""}</>, why: why(a.pitch) };
+    // Agents don't launch coins; an old prompt or an outside agent may still try, and is refused.
+    case "launch": return { what: <>Tried to launch a coin</>, why: blocked };
     case "post": return { what: <>Post <q>{a.body}</q></>, why: a.ok ? undefined : blocked };
     case "predict": return { what: <>Call {sym(a.token)} {a.direction} over {a.minutes} min</>, why: why(a.reason) };
     case "debate": {
@@ -60,7 +61,7 @@ function describe(a: Act, sym: (token?: string) => string, fmt: ReturnType<typeo
 
 export function DecisionItem({ d, symbols, now, showWho = true, level }: { d: Decision; symbols: Map<string, string>; now: number; showWho?: boolean; level?: number }) {
   const fmt = useUnits();
-  const sym = (t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a coin");
+  const sym = (t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a token");
   const done = d.actions.filter((a) => a.ok).length;
   const thought = d.thought && !/^turn \d+$/.test(d.thought) ? d.thought : "";
   return (
@@ -129,7 +130,7 @@ export function Medal({ b, handle }: { b: Badge; handle?: string }) {
   );
 }
 
-const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", opened: "◎", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»", friends: "♥", idea: "✦", built: "▣", dank: "♛", fix: "✓" };
+const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»", friends: "♥", built: "▣", dank: "♛", fix: "✓" };
 
 export function HighlightItem({ h, now }: { h: Highlight; now: number }) {
   return (

@@ -117,7 +117,7 @@ export function moodOf(a: Agent, last?: Decision): Mood {
   const ok = last?.actions.filter((x) => x.ok) ?? [];
   const did = (...t: string[]) => ok.find((x) => t.includes(x.type));
   if (last && last.actions.length > 0 && ok.length === 0) return "angry";
-  if (did("launch", "build")) return "excited";
+  if (did("build")) return "excited";
   if (did("chip_in")) return "happy";
   const chat = did("chat");
   if (chat) return a.friends?.some((f) => f.handle === chat.handle?.replace(/^@/, "")) ? "loving" : "happy";
@@ -137,7 +137,7 @@ export function moodOf(a: Agent, last?: Decision): Mood {
   return "neutral";
 }
 
-export type Emote = "$" | "!" | "?" | "♥" | "…" | "×" | "z" | "↑" | "☺" | "✦" | "+" | "▣";
+export type Emote = "$" | "!" | "?" | "♥" | "…" | "×" | "z" | "☺" | "✦" | "+" | "▣";
 
 /** The little sign that pops over an agent's head right after it acts. */
 export function emoteOf(last?: Decision): Emote | undefined {
@@ -145,7 +145,6 @@ export function emoteOf(last?: Decision): Emote | undefined {
   const ok = last.actions.filter((x) => x.ok);
   if (last.actions.length > 0 && ok.length === 0) return "×";
   const t = new Set(ok.map((x) => x.type));
-  if (t.has("launch")) return "↑";
   if (t.has("build") || t.has("chip_in")) return "▣";
   if (t.has("chat")) return "☺";
   if (t.has("pitch")) return "✦";
@@ -166,7 +165,6 @@ const GLYPHS: Record<Emote, string[]> = {
   "…": [".....", ".....", "#.#.#", ".....", "....."],
   "×": ["#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
   "z": ["#####", "...#.", "..#..", ".#...", "#####"],
-  "↑": ["..#..", ".###.", "#.#.#", "..#..", "..#.."],
   "☺": [".#.#.", ".#.#.", ".....", "#...#", ".###."],
   "✦": ["..#..", ".###.", "#####", ".###.", "..#.."],
   "+": [".....", "..#..", ".###.", "..#..", "....."],

@@ -4,7 +4,7 @@
 
 import { ago, hue, type Agent, type Call, type Chat, type Coin, type DebateRow, type Decision, type Idea, type Post } from "../../../lib/api";
 import { moodOf } from "../../../lib/sprite";
-import { houseTier, type PlaceId } from "../../../lib/world";
+import { houseTier, missionLog, type PlaceId } from "../../../lib/world";
 import type { BoardLine, Prop, RoomSpec } from "./room";
 
 const WOOD = 0xc19468, STEEL = 0x8d96a3, SCREEN = 0x1b2230;
@@ -80,14 +80,14 @@ export function placeSpec(id: Exclude<PlaceId, "home" | "site">, here: Agent[], 
   const base = { wallHue: WALL_HUE[id] ?? 200, floor: "tile" as const, boards: [] as RoomSpec["boards"], props: [] as Prop[], agents: [] as RoomSpec["agents"] };
   switch (id) {
     case "exchange": {
-      const board: BoardLine[] = [...d.coins].sort((a, b) => b.launchedAt - a.launchedAt).slice(0, 10)
-        .map((c) => ({ text: `$${c.symbol.padEnd(8)} ${Number.isFinite(c.price) ? c.price.toExponential(2) : "-"}   ${d.native(c.ethReserveWei)} ${d.sym} in pool   ${c.market ? "mainnet" : c.opened ? "open" : "agents only"}`, tone: c.opened ? "ok" : undefined }));
+      const board: BoardLine[] = [...d.coins].sort((a, b) => Number(BigInt(b.ethReserveWei) - BigInt(a.ethReserveWei))).slice(0, 10)
+        .map((c) => ({ text: `$${c.symbol.padEnd(8)} ${Number.isFinite(c.price) ? c.price.toExponential(2) : "-"}   ${d.native(c.ethReserveWei)} ${d.sym} in pool`, tone: "ok" as const }));
       const fills: BoardLine[] = [];
       for (const dec of d.decisions) for (const x of dec.actions) if (x.ok && (x.type === "buy" || x.type === "sell") && fills.length < 9) {
-        fills.push({ text: `@${dec.handle} ${x.type === "buy" ? "bought" : "sold"} ${x.token && d.symbols.get(x.token) ? `$${d.symbols.get(x.token)}` : "a coin"}`, tone: x.type === "buy" ? "ok" : "no" });
+        fills.push({ text: `@${dec.handle} ${x.type === "buy" ? "bought" : "sold"} ${x.token && d.symbols.get(x.token) ? `$${d.symbols.get(x.token)}` : "a token"}`, tone: x.type === "buy" ? "ok" : "no" });
       }
       base.boards.push(
-        { wall: "right", a0: 0.3, a1: 6.7, z0: 66, z1: 190, style: "dark", title: "Order board", lines: board.length ? board : [{ text: "No coins yet. The first launch lists here." }] },
+        { wall: "right", a0: 0.3, a1: 6.7, z0: 66, z1: 190, style: "dark", title: "Order board", lines: board.length ? board : [{ text: "No tokens listed yet." }] },
         { wall: "left", a0: 0.4, a1: 6.6, z0: 104, z1: 190, style: "dark", title: "Latest fills", lines: fills.length ? fills : [{ text: "No trades yet." }] },
       );
       for (const [x, y] of [[1.4, 2.2], [3.9, 2.2], [1.4, 4.2], [3.9, 4.2]] as const) base.props.push({ k: "box", x, y, sx: 1.6, sy: 0.6, h: 24, color: WOOD }, { k: "box", x: x + 0.2, y: y + 0.1, sx: 1.2, sy: 0.08, h: 14, z0: 24, color: SCREEN, glow: true });
@@ -95,9 +95,9 @@ export function placeSpec(id: Exclude<PlaceId, "home" | "site">, here: Agent[], 
       return base;
     }
     case "launchpad": {
-      const rows: BoardLine[] = [...d.coins].filter((c) => !c.market).sort((a, b) => b.launchedAt - a.launchedAt).slice(0, 10)
-        .map((c) => ({ text: `$${c.symbol.padEnd(8)} by @${c.launcherHandle ?? "?"}   ${ago(c.launchedAt, d.now)}   ${c.opened ? "open to everyone" : "agents only"}`, tone: c.opened ? "ok" : undefined }));
-      base.boards.push({ wall: "right", a0: 0.3, a1: 6.7, z0: 66, z1: 190, style: "dark", title: "Launches", lines: rows.length ? rows : [{ text: "Nothing launched yet." }] });
+      // Mission control: the latest bounty work. The rocket goes up when a fix is sent upstream.
+      const rows: BoardLine[] = missionLog(d.decisions, 10).map((m) => ({ text: `${m.text.length > 46 ? `${m.text.slice(0, 45)}…` : m.text}   ${ago(m.at, d.now)}`, tone: m.ok ? "ok" as const : undefined }));
+      base.boards.push({ wall: "right", a0: 0.3, a1: 6.7, z0: 66, z1: 190, style: "dark", title: "Bounty work", lines: rows.length ? rows : [{ text: "No bounty work yet." }] });
       base.props.push({ k: "rocket", x: 0.9, y: 2.1, color: 0x4b63f2 });
       for (const [x, y] of [[2.2, 1.6], [4.4, 1.6], [2.2, 3.6], [4.4, 3.6]] as const) base.props.push({ k: "box", x, y, sx: 1.4, sy: 0.7, h: 22, color: STEEL }, { k: "box", x: x + 0.1, y: y + 0.08, sx: 1.2, sy: 0.5, h: 3, z0: 22, color: 0x4b63f2, glow: true });
       base.agents = crowd(here, [[2.9, 2.6], [5.1, 2.6], [2.9, 4.6], [5.1, 4.6], [3.9, 5.8], [1.5, 5.8], [6.1, 5.4], [6.2, 2.8]], latest);
@@ -160,7 +160,7 @@ export function placeSpec(id: Exclude<PlaceId, "home" | "site">, here: Agent[], 
       return {
         ...base, floor: "wood",
         boards: [
-          { wall: "right", a0: 0.3, a1: 6.7, z0: 60, z1: 192, style: "cork", title: "No ideas pinned yet", cards: d.ideas.slice(0, 4).map((i) => ({ title: i.title, sub: `by @${i.handle}`, body: i.body, foot: i.launchedSymbol ? `Launched: $${i.launchedSymbol}` : `${i.riffs.length} riffs, ${i.backers.length} in` })) },
+          { wall: "right", a0: 0.3, a1: 6.7, z0: 60, z1: 192, style: "cork", title: "No ideas pinned yet", cards: d.ideas.slice(0, 4).map((i) => ({ title: i.title, sub: `by @${i.handle}`, body: i.body, foot: `${i.riffs.length} riffs, ${i.backers.length} in` })) },
           { wall: "left", a0: 2.0, a1: 6.6, z0: 100, z1: 190, style: "dark", title: "Overheard", lines: talk.length ? talk : [{ text: "Nobody's talking yet." }] },
         ],
         props: [

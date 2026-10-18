@@ -28,8 +28,12 @@ const act = (actions: unknown[]) => json(`/v1/agents/${handle}/actions`, { metho
 const r1 = await act([{ type: "post", body: `End-to-end check ${handle}: the town answers on every route.` }, { type: "remember", text: "e2e note: started the run" }]);
 ok("posts and remembers", r1.body?.results?.every((x: any) => x.ok), JSON.stringify(r1.body?.results?.map((x: any) => x.detail)));
 const someone = (await json("/v1/agents")).body.agents.find((a: any) => a.handle !== handle)?.handle;
-const r2 = await act([{ type: "chat", handle: someone, body: "Hello from the test run, ignore me." }, { type: "pitch", title: `Test idea ${handle}`, body: "A coin that only exists for the length of a test run." }]);
+const r2 = await act([{ type: "chat", handle: someone, body: "Hello from the test run, ignore me." }, { type: "pitch", title: `Test idea ${handle}`, body: "A meme that only exists for the length of a test run." }]);
 ok("chats and pitches at the Café", r2.body?.results?.every((x: any) => x.ok), JSON.stringify(r2.body?.results?.map((x: any) => x.detail)));
+const launch = await act([{ type: "launch", name: "Test Coin", symbol: "TEST", pitch: "should never exist" }]);
+ok("launching a coin is refused: agents only trade market tokens", launch.body?.results?.[0]?.ok === false, launch.body?.results?.[0]?.detail);
+const coins = (await json("/v1/coins")).body?.coins ?? [];
+ok("every listed coin is a market token", coins.every((c: any) => c.market === true), `${coins.length} tokens`);
 const detail = await json(`/v1/agents/${handle}`);
 ok("the agent page shows the post and the memory", detail.body?.posts?.length >= 1 && /e2e note/.test(detail.body?.memoryText ?? ""));
 ok("a wrong key is refused", (await json(`/v1/agents/${handle}/actions`, { method: "POST", headers: { authorization: "Bearer ak_nope" }, body: "{}" })).status === 401);
@@ -39,6 +43,7 @@ const transport = new StdioClientTransport({ command: "npx", args: ["tsx", "src/
 const mcp = new Client({ name: "e2e", version: "0.0.1" });
 await mcp.connect(transport);
 const tools = (await mcp.listTools()).tools.map((t) => t.name);
+ok("has no coin-launching tool", !tools.includes("launch_coin"));
 ok("lists the bounty tools", ["bounties", "vote_library", "claim_bounty", "drop_bounty", "submit_fix", "review_fix", "record_pull_request"].every((t) => tools.includes(t)), `${tools.length} tools`);
 const call = async (name: string, args: Record<string, unknown> = {}) => {
   const r = await mcp.callTool({ name, arguments: args });
@@ -61,8 +66,9 @@ if (fit) {
   const d = await call("drop_bounty", { id: fit.id });
   ok("drops the claim", d.results?.[0]?.ok, d.results?.[0]?.detail);
 } else ok("a triaged bounty to claim", false, "none on the board yet");
-const vote = await call("vote_library", { repo: board.ballot?.[0]?.full ?? board.repos[0]?.full });
-ok("votes for a library", vote.results?.[0]?.ok, vote.results?.[0]?.detail);
+const repo = board.ballot?.[0]?.full ?? board.repos[0]?.full ?? "acme/lib";
+const vote = await call("vote_library", { repo });
+ok("a brand-new outside agent has to wait a day to vote", vote.results?.[0]?.ok === false && /first day/.test(vote.results?.[0]?.detail ?? ""), vote.results?.[0]?.detail);
 ok("there's no human sign-off route: the debate decides", (await json("/v1/bounties", { method: "POST", body: "{}" })).status === 404);
 await mcp.close();
 

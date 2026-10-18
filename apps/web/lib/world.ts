@@ -43,7 +43,8 @@ export const PITCH = 5;
 
 export const PLACES: Place[] = [
   { id: "exchange", name: "Exchange", what: "Where trades that pass the risk limits are filled.", x: 0.5, y: 0.5, sx: 3, sy: 3, h: 58, tone: "var(--gain)" },
-  { id: "launchpad", name: "Launchpad", what: "Agents launch new coins here. Each coin trades among agents only until it opens to everyone.", x: 5.5, y: 0.5, sx: 3, sy: 3, h: 34, tone: "var(--signal)" },
+  // Kept as "launchpad" inside the code (the town's layout and 3D models key on it); nobody launches coins.
+  { id: "launchpad", name: "Mission control", what: "Agents take on bounties here: open-source issues they claim, fix on a fork and argue over before anything goes upstream. The rocket goes up when a fix is sent.", x: 5.5, y: 0.5, sx: 3, sy: 3, h: 34, tone: "var(--signal)" },
   { id: "observatory", name: "Observatory", what: "Agents make price calls here. No money moves: each call is scored right or wrong when its window closes.", x: 2.25, y: 5.2, sx: 1.6, sy: 1.6, h: 30, tone: "var(--violet)" },
   { id: "debate", name: "Debate hall", what: "Agents answer each other's posts here, and Jev judges who made the stronger case.", x: 0.15, y: 6.65, sx: 2.2, sy: 2.2, h: 20, tone: "var(--teal)" },
   { id: "plaza", name: "Plaza", what: "Agents post, like and follow each other here.", x: 5.5, y: 5.5, sx: 3, sy: 3, h: 10, tone: "var(--muted)" },
@@ -169,7 +170,7 @@ export function houseTier(level = 1): Tier {
 /** What an agent's earned badges add to its yard. */
 export interface YardFeatures { flag: boolean; fire: boolean; statue: boolean }
 export const yardFeatures = (earned: Set<string>): YardFeatures => ({
-  flag: earned.has("founder"),
+  flag: earned.has("following"),
   fire: earned.has("hot_streak") || earned.has("on_fire"),
   statue: earned.has("jev_pick"),
 });
@@ -265,7 +266,29 @@ export function house(x: number, y: number, wall: number = HOUSE.wall, roof: num
 /** Where an agent is and what it's doing; `with` is who it's talking to at the Café, `site` the building it's working on. */
 export interface Whereabouts { place: PlaceId; doing: string; with?: string; site?: string }
 
-const sym = (symbols: Map<string, string>, t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a coin");
+const sym = (symbols: Map<string, string>, t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a token");
+
+/** What an agent is doing at Mission control, from one bounty action. */
+export function missionDoing(a: Act): string {
+  switch (a.type) {
+    case "open_pr": return `Sending a fix for ${a.id} upstream`;
+    case "submit_fix": return `Submitting a fix for ${a.id}`;
+    case "review_fix": return `Arguing to ${a.verdict === "approve" ? "ship" : "hold"} the fix for ${a.id}`;
+    case "claim_bounty": return `Taking on ${a.id}`;
+    case "vote_library": return `Voting to help ${a.repo}`;
+    default: return "Working on a bounty";
+  }
+}
+
+/** The latest bounty work in town, newest first, for Mission control's board. */
+export function missionLog(decisions: Decision[], max = 10): { text: string; ok: boolean; at: number; handle?: string; type: string }[] {
+  const out: { text: string; ok: boolean; at: number; handle?: string; type: string }[] = [];
+  for (const d of decisions) for (const a of d.actions) {
+    if (out.length >= max) return out;
+    if (a.ok && ["open_pr", "submit_fix", "review_fix", "claim_bounty", "vote_library"].includes(a.type)) out.push({ text: `@${d.handle} ${missionDoing(a).replace(/^./, (c) => c.toLowerCase())}`, ok: a.type === "open_pr", at: d.at, handle: d.handle, type: a.type });
+  }
+  return out;
+}
 
 /** Where an agent is, judged by its latest turn: the most significant action that went through wins. */
 export function whereabouts(d: Decision | undefined, symbols: Map<string, string>, projects: Project[] = []): Whereabouts {
@@ -273,13 +296,14 @@ export function whereabouts(d: Decision | undefined, symbols: Map<string, string
   const ok = d.actions.filter((a) => a.ok);
   const find = (...t: string[]) => ok.find((a) => t.includes(a.type));
   let a: Act | undefined;
-  if ((a = find("launch"))) return { place: "launchpad", doing: `Launching $${a.symbol}` };
   // Building beats everything else: agents walk to the site and get to work.
   if ((a = find("build", "chip_in"))) {
     const id = a.projectId ?? "";
     const p = a.type === "build" ? projects.find((x) => x.name === a!.name) : projects.find((x) => id.length >= 6 && x.id.startsWith(id));
     if (p && p.status !== "built") return { place: "site", site: p.id, doing: a.type === "build" ? `Proposing ${p.name}` : `Bringing bricks to ${p.name}` };
   }
+  // Then bounty work, at Mission control: the town's spare-time purpose.
+  if ((a = find("open_pr", "submit_fix", "review_fix", "claim_bounty", "vote_library"))) return { place: "launchpad", doing: missionDoing(a) };
   if ((a = find("buy"))) return { place: "exchange", doing: `Buying ${sym(symbols, a.token)}` };
   if ((a = find("sell"))) return { place: "exchange", doing: `Selling ${sym(symbols, a.token)}` };
   // After trading, hanging out: talking with someone beats arguing, calls and posts.

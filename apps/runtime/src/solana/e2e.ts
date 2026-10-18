@@ -1,273 +1,222 @@
-// End to end on a real cluster: sets up the platform (DBC config with our transfer hook, the
-// agents program's Platform), creates two agents from their owners' wallets, then drives
-// launches and trades through the runtime's own applyAction path and checks every rule the
-// EVM contracts enforce, now enforced by the Solana programs.
+// End-to-end check of the agents program against real Jupiter routes, on a local mainnet fork
+// (Surfpool): mainnet's Jupiter and pools, our program deployed locally. Nothing touches mainnet.
 //
-//   Local validator (programs from `anchor build`, DBC and Token Metadata cloned from devnet):
-//     pnpm --filter @agents/runtime solana:validator      # in another terminal
-//     SOLANA_RPC_URL=http://127.0.0.1:8899 pnpm --filter @agents/runtime solana:e2e
-//   Devnet (after `anchor deploy --provider.cluster devnet` from solana/, with a funded key):
-//     SOLANA_RPC_URL=https://api.devnet.solana.com pnpm --filter @agents/runtime solana:e2e
-//
-// Keys live outside the repo in ~/.config/agents-solana-devnet (override with SOLANA_KEY_DIR).
-// It refuses to run against mainnet.
+//   surfpool start --rpc-url https://api.mainnet-beta.solana.com --no-deploy --ci --airdrop-keypair-path ~/.config/agents-solana-devnet/runtime.json
+//   solana program deploy -u localhost -k ~/.config/agents-solana-devnet/runtime.json --program-id solana/target/deploy/agents-keypair.json solana/target/deploy/agents.so
+//   SOLANA_RPC_URL=http://127.0.0.1:8899 pnpm --filter @agents/runtime solana:e2e
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SOLANA_UNITS, formatUnits, planFor, type Style } from "@agents/core";
-import { DynamicBondingCurveClient } from "@meteora-ag/dynamic-bonding-curve-sdk";
+import { NATIVE_MINT, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAccount, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
-  NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createSyncNativeInstruction,
-} from "@solana/spl-token";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, type TransactionInstruction } from "@solana/web3.js";
-import { applyAction } from "../actions.js";
-import { World, type Agent } from "../world.js";
-import { SolanaAgentChain, isMainnet } from "./chain.js";
-import { MeteoraDbcVenue } from "./dbc.js";
-import { SolanaIndexer, SolanaQuoter, programSource } from "./indexer.js";
-import { AgentsClient, DBC_PROGRAM_ID, agentsProgram, bn, coinAta, dbc, hookAccounts, pdas, wsolAta } from "./program.js";
-import { createAgentIx, programDataAddress, sendIxs, setupPlatform } from "./setup.js";
+  ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction,
+  type AddressLookupTableAccount, type TransactionInstruction,
+} from "@solana/web3.js";
+import { programError, isMainnet } from "./chain.js";
+import { routeLayout, vaultRoute, type VaultRoute } from "./jupiter.js";
+import { SOL_USD_FEED, feedAccount, feedIds } from "./pyth.js";
+import { readPlatform, readWhitelist } from "../../../web/lib/solana.js";
+import { AgentsClient, agentsProgram, createAgentIx, parseEvents, pdas, vaultAta, withdrawSolIx, withdrawTokenIx, wsolAta } from "./program.js";
 
-const url = process.env.SOLANA_RPC_URL ?? "http://127.0.0.1:8899";
-if (isMainnet(url)) throw new Error("refusing to run against mainnet");
-const cluster = /127\.0\.0\.1|localhost/.test(url) ? "localnet" : /devnet/.test(url) ? "devnet" : "custom";
-const dir = process.env.SOLANA_KEY_DIR ?? join(homedir(), ".config", "agents-solana-devnet");
-mkdirSync(dir, { recursive: true, mode: 0o700 });
-const local = cluster === "localnet";
-// Off localnet, fund test wallets lightly: devnet SOL is scarce. Each vault still covers a launch and the cap checks.
-const AGENT_FUND = BigInt(local ? LAMPORTS_PER_SOL / 2 : LAMPORTS_PER_SOL / 5);
-const OUTSIDER_FUND = local ? LAMPORTS_PER_SOL / 5 : LAMPORTS_PER_SOL * 0.06;
-
-const sol = (l: bigint | number) => `${formatUnits(BigInt(l), 9)} SOL`;
-const link = (sig: string) => local ? sig.slice(0, 16) + "…" : `https://explorer.solana.com/tx/${sig}?cluster=${cluster}`;
-let failures = 0;
-const ok = (what: string, detail = "") => console.log(`  ✓ ${what}${detail ? `: ${detail}` : ""}`);
-const bad = (what: string, detail = "") => { failures++; console.log(`  ✗ ${what}${detail ? `: ${detail}` : ""}`); };
-async function refused(what: string, expect: RegExp, run: () => Promise<unknown>) {
-  try { await run(); bad(what, "went through"); } catch (e) {
-    const m = (e as Error).message;
-    if (expect.test(m)) ok(what, `refused (${m.slice(0, 80)})`); else bad(what, `refused for the wrong reason: ${m.slice(0, 200)}`);
-  }
-}
-
-function keypair(name: string): Keypair {
-  const f = join(dir, `${name}.json`);
-  if (!existsSync(f)) writeFileSync(f, JSON.stringify([...Keypair.generate().secretKey]), { mode: 0o600 });
-  return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(f, "utf8")) as number[]));
-}
-
-const conn = new Connection(url, "confirmed");
-const admin = keypair("runtime"); // pays for setup; also the runtime's session key
-const run = Date.now().toString(36).slice(-4);
-console.log(`cluster ${cluster} (${url})\nadmin/session key ${admin.publicKey.toBase58()}`);
-
-let balance = await conn.getBalance(admin.publicKey);
-if (local && balance < 20 * LAMPORTS_PER_SOL) {
-  await conn.confirmTransaction(await conn.requestAirdrop(admin.publicKey, 50 * LAMPORTS_PER_SOL), "confirmed");
-  balance = await conn.getBalance(admin.publicKey);
-}
-if (balance < (local ? 1.5 : 0.7) * LAMPORTS_PER_SOL) throw new Error(`fund ${admin.publicKey.toBase58()} on ${cluster} (has ${sol(balance)})`);
-console.log(`balance ${sol(balance)}`);
-
+// The fork caches each pool when it first reads it, while Jupiter quotes the live market, so allow wide slippage here.
+const RPC = process.env.SOLANA_RPC_URL ?? "http://127.0.0.1:8899";
+if (isMainnet(RPC) || !/127\.0\.0\.1|localhost/.test(RPC)) throw new Error("run this against a local fork only");
+const conn = new Connection(RPC, "confirmed");
+const load = (p: string) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(p, "utf8")) as number[]));
+const admin = load(join(homedir(), ".config/agents-solana-devnet/runtime.json"));
 const program = agentsProgram(conn);
-for (const id of [program.programId, new PublicKey("8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9"), DBC_PROGRAM_ID]) {
-  if (!(await conn.getAccountInfo(id))?.executable) throw new Error(`program ${id.toBase58()} is not deployed on ${cluster}`);
-}
+const client = new AgentsClient(program);
 
-// ---------------------------------------------------------------- platform (once per deployment)
-const inference = keypair("inference").publicKey;
-const buyback = keypair("buyback").publicKey;
-const OPEN_THRESHOLD = BigInt(LAMPORTS_PER_SOL / 20); // 0.05 SOL: tiny so the test can open a coin
-const stateFile = join(dir, `platform-${cluster}.json`);
-let config: PublicKey;
-const existing = await program.account.platform.fetchNullable(pdas.platform());
-if (existing) {
-  config = existing.dbcConfig;
-  console.log(`\nplatform exists, DBC config ${config.toBase58()}`);
-} else {
-  console.log("\nsetting up the platform");
-  const intruder = keypair("outsider");
-  if (await conn.getBalance(intruder.publicKey) < OUTSIDER_FUND) {
-    await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: intruder.publicKey, lamports: OUTSIDER_FUND })], [admin]);
+let pass = 0, fail = 0;
+const ok = (name: string, cond: unknown, extra = "") => { if (cond) pass++; else fail++; console.log(`  ${cond ? "✓" : "✗"} ${name}${extra ? `: ${extra}` : ""}`); };
+const sol = (n: number) => BigInt(Math.round(n * LAMPORTS_PER_SOL));
+
+async function send(ixs: TransactionInstruction[], signers: Keypair[], tables: PublicKey[] = []) {
+  const alts: AddressLookupTableAccount[] = [];
+  for (const t of tables) { const a = (await conn.getAddressLookupTable(t)).value; if (a) alts.push(a); }
+  const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+  const msg = new TransactionMessage({ payerKey: signers[0]!.publicKey, recentBlockhash: blockhash, instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ...ixs] }).compileToV0Message(alts);
+  const tx = new VersionedTransaction(msg);
+  tx.sign(signers);
+  let sig: string;
+  try { sig = await conn.sendTransaction(tx); } catch (e) {
+    const code = programError(e);
+    if (process.env.DEBUG) console.log(((e as { logs?: string[] }).logs ?? (await (e as { getLogs?: (c: Connection) => Promise<string[]> }).getLogs?.(conn)) ?? []).join("\n"));
+    throw new Error(code);
   }
-  await refused("a stranger front-runs platform setup", /NotUpgradeAuthority/, async () => sendIxs(conn, [await program.methods.initPlatform({
-    dbcConfig: intruder.publicKey, platformMint: PublicKey.default, holdPerSlot: bn(0), inference: intruder.publicKey, buyback: intruder.publicKey,
-    openThreshold: bn(1), openWindow: bn(1), launchCooldown: bn(0),
-  }).accountsStrict({ admin: intruder.publicKey, platform: pdas.platform(), program: program.programId, programData: programDataAddress(), systemProgram: PublicKey.default }).instruction()], [intruder]));
-  const r = await setupPlatform(conn, program, admin, {
-    migrationThresholdSol: 5, openThresholdLamports: OPEN_THRESHOLD, openWindowSec: 24 * 3600, launchCooldownSec: 3600, inference, buyback,
-  });
-  config = r.config;
-  writeFileSync(stateFile, JSON.stringify({ config: config.toBase58(), inference: inference.toBase58(), buyback: buyback.toBase58() }, null, 2));
-  ok("DBC config with our transfer hook", `${config.toBase58()} ${link(r.configSig)}`);
-  ok("Platform record", link(r.platformSig));
+  const res = await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  if (res.value.err) throw new Error(`failed: ${JSON.stringify(res.value.err)}`);
+  const got = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+  return { sig, events: parseEvents(got?.meta?.logMessages ?? []) };
 }
-const client = new AgentsClient(program, config);
-const chain = new SolanaAgentChain(conn, client, admin);
-
-// ---------------------------------------------------------------- agents, created by their owners
-console.log("\ncreating agents (owner wallets sign and fund)");
-const world = new World();
-world.units = SOLANA_UNITS;
-const MAX_TRADE = BigInt(LAMPORTS_PER_SOL / 10);
-const agents: Agent[] = [];
-const owners: Keypair[] = [];
-for (const [name, style] of [["atlas", "momentum"], ["vesper", "contrarian"]] as [string, Style][]) {
-  const handle = `${name.slice(0, 6)}${run}`;
-  const owner = keypair(`owner-${name}`);
-  const need = AGENT_FUND + BigInt(LAMPORTS_PER_SOL / 20); // vault funding plus rent for the agent records
-  const have = BigInt(await conn.getBalance(owner.publicKey));
-  if (have < need) await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: owner.publicKey, lamports: need - have })], [admin]);
-  const sig = await sendIxs(conn, [await createAgentIx(program, owner.publicKey, {
-    handle, modelId: "demo/model", sessionKey: admin.publicKey, maxTradeLamports: MAX_TRADE, dailyLimitLamports: BigInt(LAMPORTS_PER_SOL / 5),
-    fundLamports: AGENT_FUND,
-  })], [owner]);
-  const agent = pdas.agent(handle);
-  const a: Agent = { account: agent.toBase58(), owner: owner.publicKey.toBase58(), handle, name: handle, persona: "", modelId: "demo/model", plan: planFor(style, SOLANA_UNITS), awake: true, external: false, createdAt: Date.now() };
-  world.agents.set(a.account, a);
-  agents.push(a);
-  owners.push(owner);
-  ok(`@${handle}`, `agent ${a.account}, vault ${pdas.vault(agent).toBase58()} ${link(sig)}`);
-}
-const [atlas, vesper] = agents as [Agent, Agent];
-const [atlasOwner, vesperOwner] = owners as [Keypair, Keypair];
-await refused("handle taken", /already in use|0x0/, async () => sendIxs(conn, [await createAgentIx(program, vesperOwner.publicKey, {
-  handle: atlas.handle, modelId: "x", sessionKey: admin.publicKey, maxTradeLamports: 1n, dailyLimitLamports: 1n, fundLamports: 0n,
-})], [vesperOwner]));
-await refused("bad handle", /BadHandle/, async () => sendIxs(conn, [await createAgentIx(program, vesperOwner.publicKey, {
-  handle: "Bad-Handle", modelId: "x", sessionKey: admin.publicKey, maxTradeLamports: 1n, dailyLimitLamports: 1n, fundLamports: 0n,
-})], [vesperOwner]));
-
-const venue = new MeteoraDbcVenue(conn, config);
-const indexer = new SolanaIndexer(conn, programSource(client), venue, world);
-venue.opensOf = (m) => { const r = indexer.records.get(m); return r ? r.opened || Date.now() >= r.opensAt : undefined; };
-const quoter = new SolanaQuoter(venue);
-await indexer.syncBalances();
-
-const act = async (label: string, agent: Agent, action: Parameters<typeof applyAction>[4]) => {
-  const r = await applyAction(world, chain, quoter, agent, action);
-  if (r.ok) ok(label, `${r.detail.slice(0, 90)}${r.txHash ? ` ${link(r.txHash)}` : ""}`); else bad(label, r.detail);
-  return r;
+const refused = async (name: string, p: Promise<unknown>, code: string) => {
+  try { await p; ok(name, false, "went through"); } catch (e) { const m = (e as Error).message; ok(name, m.includes(code), `refused (${m.slice(0, 80)})`); }
 };
 
-// ---------------------------------------------------------------- launch and agents-only phase
-console.log("\nlaunch (through applyAction -> SolanaAgentChain -> agents.launch -> DBC)");
-const symbol = `A${run.toUpperCase()}`;
-const launched = await act("atlas launches", atlas, { type: "launch", name: `Atlas ${run}`, symbol, pitch: "e2e" });
-const mint = new PublicKey(launched.detail);
-await indexer.pass();
-await quoter.refresh([mint.toBase58()]);
-const coinRec = await program.account.coin.fetch(pdas.coin(mint));
-ok("coin recorded on-chain", `${coinRec.symbol}, opens at ${new Date(Number(coinRec.opensAt) * 1000).toISOString()}, opened=${coinRec.opened}`);
-await refused("second launch inside the cooldown", /Cooldown/, () => chain.launch(atlas.account, "again", "AGN"));
+// Read from Jupiter's verified token list (tokens/v2/search) and checked on-chain below.
+const USDC = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const JUP = new PublicKey("JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN");
+const balance = async (acct: PublicKey) => { try { return (await getAccount(conn, acct)).amount; } catch { return 0n; } };
 
-console.log("\nagents-only phase");
-await act("vesper (an agent) buys during the phase", vesper, { type: "buy", token: mint.toBase58(), ethIn: String(LAMPORTS_PER_SOL / 50), reason: "e2e" });
-
-const outsider = keypair("outsider");
-if (await conn.getBalance(outsider.publicKey) < OUTSIDER_FUND) {
-  await sendIxs(conn, [SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: outsider.publicKey, lamports: OUTSIDER_FUND })], [admin]);
-}
-const dbcClient = new DynamicBondingCurveClient(conn, "confirmed");
-/** A plain DBC buy by a wallet that isn't an agent, bypassing our program: only the hook can stop it. */
-async function outsiderBuy(m: PublicKey, lamports: number) {
-  const pool = dbc.pool(config, m);
-  const ixs: TransactionInstruction[] = [
-    createAssociatedTokenAccountIdempotentInstruction(outsider.publicKey, wsolAta(outsider.publicKey), outsider.publicKey, NATIVE_MINT, TOKEN_PROGRAM_ID),
-    createAssociatedTokenAccountIdempotentInstruction(outsider.publicKey, coinAta(outsider.publicKey, m), outsider.publicKey, m, TOKEN_2022_PROGRAM_ID),
-    SystemProgram.transfer({ fromPubkey: outsider.publicKey, toPubkey: wsolAta(outsider.publicKey), lamports }),
-    createSyncNativeInstruction(wsolAta(outsider.publicKey)),
-    await dbcClient.pool.program.methods.swap2WithTransferHook(
-      { amount0: bn(lamports), amount1: bn(1), swapMode: 0 },
-      { slices: [{ accountsType: { transferHookBase: {} }, length: 5 }] },
-    ).accountsPartial({
-      poolAuthority: dbc.poolAuthority, config, pool, inputTokenAccount: wsolAta(outsider.publicKey), outputTokenAccount: coinAta(outsider.publicKey, m),
-      baseVault: dbc.baseVault(m, pool), quoteVault: dbc.quoteVault(pool), baseMint: m, quoteMint: NATIVE_MINT, payer: outsider.publicKey,
-      tokenBaseProgram: TOKEN_2022_PROGRAM_ID, tokenQuoteProgram: TOKEN_PROGRAM_ID, referralTokenAccount: null,
-    }).remainingAccounts(hookAccounts(m, outsider.publicKey)).instruction(),
-  ];
-  return sendIxs(conn, ixs, [outsider]);
-}
-await refused("an outsider buys straight from the DBC pool during the phase", /AgentsOnly/, () => outsiderBuy(mint, LAMPORTS_PER_SOL / 100));
-
-// Owner-only withdrawals, and the phase applies to the owner's coins too.
-const vesperAgent = new PublicKey(vesper.account);
-const vesperVault = pdas.vault(vesperAgent);
-const withdrawSol = (signer: Keypair, lamports: bigint) => program.methods.withdrawSol(bn(lamports))
-  .accountsStrict({ owner: signer.publicKey, agent: vesperAgent, vault: vesperVault, to: signer.publicKey, systemProgram: PublicKey.default }).instruction();
-await refused("the session key withdraws from a vault", /NotOwner/, async () => sendIxs(conn, [await withdrawSol(admin, 1_000_000n)], [admin]));
-const wsig = await sendIxs(conn, [await withdrawSol(vesperOwner, 1_000_000n)], [vesperOwner]);
-ok("the owner withdraws SOL", link(wsig));
-const coinsHeld = world.positions.get(vesper.account)?.find((p) => p.token === mint.toBase58())?.amount ?? 0n;
-const withdrawCoins = async () => sendIxs(conn, [
-  createAssociatedTokenAccountIdempotentInstruction(vesperOwner.publicKey, coinAta(vesperOwner.publicKey, mint), vesperOwner.publicKey, mint, TOKEN_2022_PROGRAM_ID),
-  await program.methods.withdrawToken(bn(coinsHeld / 10n)).accountsStrict({
-    owner: vesperOwner.publicKey, agent: vesperAgent, vault: vesperVault, mint, from: coinAta(vesperVault, mint), to: coinAta(vesperOwner.publicKey, mint), tokenProgram: TOKEN_2022_PROGRAM_ID,
-  }).remainingAccounts(hookAccounts(mint, vesperOwner.publicKey)).instruction(),
-], [vesperOwner]);
-await refused("the owner pulls coins out to a wallet during the phase", /AgentsOnly/, withdrawCoins);
-
-// ---------------------------------------------------------------- caps and minOut, enforced by the program
-console.log("\nsession-key limits (sent straight to the program, skipping the runtime's own checks)");
-const directBuy = async (lamports: bigint, minOut: bigint) => chain.send(await client.tradeIxs({ side: "buy", operator: admin.publicKey, agent: vesperAgent, mint, amountIn: lamports, minOut }), []);
-await refused("a buy over the per-trade cap", /OverTradeCap/, () => directBuy(MAX_TRADE + 1n, 1n));
-await refused("a buy with minOut = 0", /MinOutRequired/, () => directBuy(1_000_000n, 0n));
-await refused("a buy whose minOut can't be met", /Slippage|0x1774|ExceededSlippage/, () => directBuy(1_000_000n, 10n ** 15n));
-await refused("a stranger signing as the operator", /NotAuthorized/, async () => sendIxs(conn, await client.tradeIxs({ side: "buy", operator: outsider.publicKey, agent: vesperAgent, mint, amountIn: 1_000_000n, minOut: 1n }), [outsider]));
-await directBuy(MAX_TRADE, 1n).then(() => ok("a buy at the cap goes through"), (e) => bad("a buy at the cap", (e as Error).message));
-await refused("a buy over the daily cap", /OverDailyCap/, () => directBuy(MAX_TRADE, 1n));
-
-// ---------------------------------------------------------------- opening
-console.log("\nopening");
-await indexer.pass();
-const ready = await indexer.readyToOpen();
-if (ready.includes(mint.toBase58())) ok("indexer sees the threshold reached", sol(world.coins.get(mint.toBase58())!.ethReserveWei)); else bad("threshold not reached", sol(world.coins.get(mint.toBase58())!.ethReserveWei));
-const cranked = await indexer.crank(chain, client, Number.MAX_SAFE_INTEGER);
-ok("crank", cranked.join("; ") || "nothing to do");
-await indexer.pass();
-const opened = await program.account.coin.fetch(pdas.coin(mint));
-if (opened.opened) ok("coin is open on-chain"); else bad("coin is still closed");
-await outsiderBuy(mint, LAMPORTS_PER_SOL / 100).then((s) => ok("an outsider buys after opening", link(s)), (e) => bad("outsider buy after opening", (e as Error).message));
-
-// ---------------------------------------------------------------- stray pools on our public config
-console.log("\nstray pools");
-const strayMint = Keypair.generate();
-try {
-  const tx = await dbcClient.creator.createPoolWithTransferHook({
-    name: "Stray", symbol: "STRAY", uri: "", payer: outsider.publicKey, poolCreator: outsider.publicKey, config, baseMint: strayMint.publicKey,
-    transferHookProgram: new PublicKey("8ERRnkHC3UfwzoD6cxfVAcFkGhdeUMTG9pAvwZyY4dB9"),
-  });
-  const { sendAndConfirmTransaction } = await import("@solana/web3.js");
-  await sendAndConfirmTransaction(conn, tx, [outsider, strayMint], { commitment: "confirmed" });
-  ok("someone creates a pool on our public config", strayMint.publicKey.toBase58());
-  await refused("nobody can trade the stray coin", /UnknownCoin|AccountNotInitialized|0xbc4|IncorrectAccount|InvalidAccountData|AccountNotFound|not found/i, () => outsiderBuy(strayMint.publicKey, LAMPORTS_PER_SOL / 100));
-} catch (e) {
-  ok("a pool on our config can't even be created without our program", (e as Error).message.slice(0, 80));
+/** The fork's clock trails mainnet by a few seconds, and some pools refuse an oracle newer than the clock: step it ahead. */
+let clock = 0;
+const surfnet = (method: string, params: unknown[]) =>
+  fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+/** Writes `factor` times the current price into the fork's copy of Pyth's sponsored account for `feed` (a fork-only cheat code). */
+async function skewPrice(feed: string, factor: bigint) {
+  const acct = feedAccount(feed);
+  const info = (await conn.getAccountInfo(acct))!;
+  const data = Buffer.from(info.data);
+  const at = 8 + 32 + (data[40] === 1 ? 1 : 2) + 32; // price i64 after discriminator, write authority, verification level, feed id
+  data.writeBigInt64LE(data.readBigInt64LE(at) * factor, at);
+  await surfnet("surfnet_setAccount", [acct.toBase58(), { lamports: info.lamports, data: data.toString("hex"), owner: info.owner.toBase58(), executable: false }]);
 }
 
-// ---------------------------------------------------------------- sell, fees
-console.log("\nsell and fees");
-await quoter.refresh([mint.toBase58()]);
-const held = world.positions.get(vesper.account)?.find((p) => p.token === mint.toBase58())?.amount ?? 0n;
-await act("vesper sells half (applyAction)", vesper, { type: "sell", token: mint.toBase58(), tokensIn: (held / 2n).toString(), reason: "e2e" });
-await withdrawCoins().then(() => ok("the owner can withdraw coins once the coin is open"), (e) => bad("owner coin withdrawal after opening", (e as Error).message));
+let skewed = false;
+async function catchUpClock() {
+  if (skewed) return;
+  // The fork caches Pyth's price accounts too: read them again from mainnet first.
+  for (const f of [SOL_USD_FEED, ...FEEDS.values()]) await surfnet("surfnet_resetAccount", [feedAccount(f).toBase58()]);
+  clock = Math.max(clock + 2_000, Date.now() + 20_000);
+  await surfnet("surfnet_timeTravel", [{ absoluteTimestamp: clock }]);
+}
 
-const tokenBal = async (a: PublicKey) => { const i = await conn.getAccountInfo(a); return i ? Buffer.from(i.data).readBigUInt64LE(64) : 0n; };
-const atlasVault = pdas.vault(new PublicKey(atlas.account));
-const before = { creator: await tokenBal(wsolAta(atlasVault)), inference: await tokenBal(wsolAta(inference)), buyback: await tokenBal(wsolAta(buyback)) };
-await chain.send(await client.claimCreatorFeesIxs(admin.publicKey, new PublicKey(atlas.account), mint), []);
-await chain.send(await client.distributeFeesIxs(admin.publicKey, mint, inference, buyback), []);
-const after = { creator: await tokenBal(wsolAta(atlasVault)), inference: await tokenBal(wsolAta(inference)), buyback: await tokenBal(wsolAta(buyback)) };
-const got = { creator: after.creator - before.creator, inference: after.inference - before.inference, buyback: after.buyback - before.buyback };
-const partner = got.inference + got.buyback;
-const share = Number(got.creator) / Number(got.creator + partner);
-if (got.creator > 0n && partner > 0n && Math.abs(share - 0.8) < 0.01) ok("fee split", `launcher ${sol(got.creator)}, inference ${sol(got.inference)}, buyback ${sol(got.buyback)} (launcher share ${(share * 100).toFixed(1)}%)`);
-else bad("fee split", JSON.stringify(got, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
-if (got.inference === got.buyback || got.buyback - got.inference === 1n) ok("inference and buyback split evenly"); else bad("uneven partner split");
+/** Pool errors that come from the fork's cached pool state lagging the live quote, not from our program. */
+const FORK_LAG = /InvalidFirstTickArrayAccount|SlippageToleranceExceeded|InvalidTimestamp|0x1771|ExceededSlippage|TickArray/;
 
-await indexer.syncBalances();
-console.log(`\n$${symbol} ${mint.toBase58()} reserve ${sol(world.coins.get(mint.toBase58())!.ethReserveWei)}`);
-for (const a of agents) console.log(`  @${a.handle}: ${sol(world.balances.get(a.account) ?? 0n)} spendable in its vault`);
-console.log(failures ? `\n${failures} check(s) FAILED` : "\nall checks passed");
-process.exit(failures ? 1 : 0);
+/** A Jupiter route for the vault plus the program's swap around it, optionally tampered with; re-quoted when the fork lags. */
+type Oracle = { tokenMint: PublicKey; solFeed: string; tokenFeed: string; noPrices?: boolean };
+async function swap(p: { operator: Keypair; agent: PublicKey; input: PublicKey; output: PublicKey; amount: bigint; whitelisted: boolean; tamper?: (r: VaultRoute) => void; minOut?: bigint; oracle?: (o: Oracle) => Oracle }) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await swapOnce(p); } catch (e) { if (attempt >= 3 || !FORK_LAG.test((e as Error).message)) throw e; }
+  }
+}
+
+async function swapOnce(p: Parameters<typeof swap>[0]) {
+  await new Promise((ok) => setTimeout(ok, 2500)); // the free Jupiter API allows about one request a second
+  const vault = pdas.vault(p.agent);
+  const r = await vaultRoute({ vault, inputMint: p.input, outputMint: p.output, amountIn: p.amount, vaultInput: vaultAta(vault, p.input), vaultOutput: vaultAta(vault, p.output) }, { slippageBps: 1500 });
+  p.tamper?.(r);
+  await catchUpClock();
+  const tokenMint = p.input.equals(NATIVE_MINT) ? p.output : p.input;
+  const base: Oracle = { tokenMint, solFeed: SOL_USD_FEED, tokenFeed: FEEDS.get(tokenMint.toBase58()) ?? SOL_USD_FEED };
+  const oracle = p.whitelisted ? (p.oracle ? p.oracle(base) : base) : undefined;
+  const ixs = await client.swapIxs({ payer: p.operator.publicKey, operator: p.operator.publicKey, agent: p.agent, inputMint: p.input, outputMint: p.output, amountIn: p.amount, minOut: p.minOut ?? r.minOut, route: r.swap, oracle });
+  return send(ixs, [p.operator], r.lookupTables);
+}
+
+console.log(`fork ${RPC}\n\nsetup`);
+const pyth = await feedIds();
+const FEEDS = new Map([[USDC.toBase58(), pyth.get("Crypto.USDC/USD")!], [JUP.toBase58(), pyth.get("Crypto.JUP/USD")!]]);
+const ORACLE = { maxAge: 120, maxSlippageBps: 500 };
+for (const m of [USDC, JUP]) if (!(await conn.getAccountInfo(m))?.owner.equals(TOKEN_PROGRAM_ID)) throw new Error(`${m.toBase58()} isn't an SPL mint`);
+const owner = Keypair.generate(), session = Keypair.generate(), stranger = Keypair.generate();
+await send([owner, session, stranger].map((k) => SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: k.publicKey, lamports: 5 * LAMPORTS_PER_SOL })), [admin]);
+
+if (!(await conn.getAccountInfo(pdas.platform()))) {
+  await refused("a stranger can't set up the platform", send([await client.initPlatformIx(stranger.publicKey, ORACLE)], [stranger]), "NotUpgradeAuthority");
+  await send([await client.initPlatformIx(admin.publicKey, ORACLE)], [admin]);
+  ok("the upgrade authority sets up the platform", true);
+} else ok("platform already set up on this fork", true);
+await refused("a stranger can't whitelist a token", send([await client.allowMintIx(stranger.publicKey, JUP, FEEDS.get(JUP.toBase58())!)], [stranger]), "NotAdmin");
+if (!(await conn.getAccountInfo(pdas.allowed(USDC)))) await send([await client.allowMintIx(admin.publicKey, USDC, FEEDS.get(USDC.toBase58())!)], [admin]);
+ok("the admin whitelists USDC", !!(await conn.getAccountInfo(pdas.allowed(USDC))));
+
+await send([await client.setAdminIx(admin.publicKey, stranger.publicKey)], [admin]);
+await refused("a proposed admin has no power until it accepts", send([await client.setPausedIx(stranger.publicKey, true)], [stranger]), "NotAdmin");
+await refused("only the proposed admin can accept", send([await client.acceptAdminIx(owner.publicKey)], [owner]), "NotAdmin");
+await send([await client.acceptAdminIx(stranger.publicKey)], [stranger]);
+await send([await client.setAdminIx(stranger.publicKey, admin.publicKey)], [stranger]);
+await send([await client.acceptAdminIx(admin.publicKey)], [admin]);
+const web = await readPlatform(conn, program.programId);
+const onchain = await program.account.platform.fetch(pdas.platform());
+ok("the website reads the platform record the way Anchor does", !!web && web.admin.equals(onchain.admin) && web.paused === onchain.paused && web.maxAge === onchain.oracle.maxAge && web.maxSlippageBps === onchain.oracle.maxSlippageBps);
+ok("the website lists the whitelist", (await readWhitelist(conn, program.programId)).some((w) => w.mint.equals(USDC) && w.feed === FEEDS.get(USDC.toBase58())));
+ok("the admin hands over in two steps, and back", (await program.account.platform.fetch(pdas.platform())).admin.equals(admin.publicKey));
+
+const handle = `e2e${Date.now().toString(36).slice(-6)}`;
+const agent = pdas.agent(handle);
+const vault = pdas.vault(agent);
+await send([await createAgentIx(program, owner.publicKey, { handle, modelId: "e2e/model", profileHash: new Uint8Array(32), sessionKey: session.publicKey, maxTrade: sol(0.2), dailyLimit: sol(0.3), fund: sol(2) })], [owner]);
+ok("the owner creates an agent with 2 SOL", (await conn.getBalance(vault)) === 2 * LAMPORTS_PER_SOL, handle);
+
+console.log("\nsession-key trading through Jupiter");
+const usdcAta = vaultAta(vault, USDC);
+const buy = await swap({ operator: session, agent, input: NATIVE_MINT, output: USDC, amount: sol(0.1), whitelisted: true });
+const usdcAfterBuy = await balance(usdcAta);
+ok("buys USDC with 0.1 SOL", usdcAfterBuy > 0n && buy.events.some((e) => e.name.toLowerCase() === "swapped"), `${Number(usdcAfterBuy) / 1e6} USDC`);
+await refused("a buy over the per-trade cap", swap({ operator: session, agent, input: NATIVE_MINT, output: USDC, amount: sol(0.25), whitelisted: true }), "OverTradeCap");
+await swap({ operator: session, agent, input: NATIVE_MINT, output: USDC, amount: sol(0.2), whitelisted: true });
+ok("a buy up to the daily cap goes through", true);
+await refused("a buy over the daily cap", swap({ operator: session, agent, input: NATIVE_MINT, output: USDC, amount: sol(0.05), whitelisted: true }), "OverDailyCap");
+await refused("a buy of a token that isn't whitelisted", swap({ operator: session, agent, input: NATIVE_MINT, output: JUP, amount: sol(0.01), whitelisted: false }), "NotWhitelisted");
+
+console.log("\nroutes that try to take something");
+await refused("a route with a platform fee", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true, tamper: (r) => {
+  r.swap.data.writeUInt8(100, routeLayout(r.swap.data)!.fee);
+} }), "RouteTakesFee");
+await refused("a route that names a fee account", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true, tamper: (r) => {
+  r.swap.accounts[routeLayout(r.swap.data)!.feeAccount]!.pubkey = getAssociatedTokenAddressSync(NATIVE_MINT, stranger.publicKey);
+} }), "RouteTakesFee");
+const thiefAta = getAssociatedTokenAddressSync(NATIVE_MINT, stranger.publicKey);
+await send([createAssociatedTokenAccountIdempotentInstruction(stranger.publicKey, thiefAta, stranger.publicKey, NATIVE_MINT)], [stranger]);
+await refused("a route that pays someone else", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true, tamper: (r) => {
+  for (const a of r.swap.accounts) if (a.pubkey.equals(wsolAta(vault))) a.pubkey = thiefAta;
+} }), "BadRoute");
+await refused("a route for a different amount", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true, tamper: (r) => {
+  r.swap.data.writeBigUInt64LE(5_000_000n, routeLayout(r.swap.data)!.amount);
+} }), "BadRoute");
+await refused("a stranger trading the vault", swap({ operator: stranger, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true }), "NotAuthorized");
+
+console.log("\nthe oracle floor");
+await catchUpClock();
+await skewPrice(FEEDS.get(USDC.toBase58())!, 2n); // the oracle now says USDC is worth $2
+skewed = true;
+await refused("a sell at the market price when the oracle says it's worth twice that", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true, minOut: 1n }), "BelowOraclePrice");
+skewed = false;
+await send([await client.setOracleIx(admin.publicKey, { ...ORACLE, maxAge: 1 })], [admin]);
+await refused("a swap on a stale price", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true }), "BadPrice");
+await send([await client.setOracleIx(admin.publicKey, ORACLE)], [admin]);
+await refused("a session-key swap without its whitelist entry", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: false }), "NotWhitelisted");
+await refused("a session-key swap without the price accounts", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true, oracle: (o) => ({ ...o, noPrices: true }) }), "PriceRequired");
+await refused("a price account for another feed", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true, oracle: (o) => ({ ...o, tokenFeed: FEEDS.get(JUP.toBase58())! }) }), "BadPrice");
+await refused("the admin can't allow 10% slippage", send([await client.setOracleIx(admin.publicKey, { ...ORACLE, maxSlippageBps: 1000 })], [admin]), "BadArgs");
+await refused("the admin can't allow prices older than two minutes", send([await client.setOracleIx(admin.publicKey, { ...ORACLE, maxAge: 600 })], [admin]), "BadArgs");
+
+console.log("\nsells");
+const wsolBefore = await balance(wsolAta(vault));
+await swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: usdcAfterBuy / 2n, whitelisted: true });
+ok("sells half its USDC back to SOL", (await balance(wsolAta(vault))) > wsolBefore);
+await refused("a session-key swap from USDC into another token", swap({ operator: session, agent, input: USDC, output: JUP, amount: 1_000_000n, whitelisted: true }), "SellsToSolOnly");
+
+console.log("\npause");
+await send([await client.setPausedIx(admin.publicKey, true)], [admin]);
+await refused("session-key trading while paused", swap({ operator: session, agent, input: USDC, output: NATIVE_MINT, amount: 1_000_000n, whitelisted: true }), "Paused");
+await swap({ operator: owner, agent, input: NATIVE_MINT, output: JUP, amount: sol(0.05), whitelisted: false });
+ok("the owner still trades while paused, any token", (await balance(vaultAta(vault, JUP))) > 0n);
+await send([await client.setPausedIx(admin.publicKey, false)], [admin]);
+
+console.log("\nwithdrawals");
+await refused("the session key withdraws SOL", send([await withdrawSolIx(program, session.publicKey, agent, session.publicKey, 1000n)], [session]), "NotOwner");
+const ownerUsdc = getAssociatedTokenAddressSync(USDC, owner.publicKey);
+await send([createAssociatedTokenAccountIdempotentInstruction(owner.publicKey, ownerUsdc, owner.publicKey, USDC)], [owner]);
+const left = await balance(usdcAta);
+await send([await withdrawTokenIx(program, { owner: owner.publicKey, agent, mint: USDC, to: ownerUsdc, amount: left })], [owner]);
+ok("the owner withdraws all the USDC", (await balance(ownerUsdc)) === left && (await balance(usdcAta)) === 0n);
+const lamportsBefore = await conn.getBalance(vault);
+const wsol = await balance(wsolAta(vault));
+await send([await client.closeTokenAccountIx(session.publicKey, agent, wsolAta(vault))], [session]);
+ok("closing the wrapped-SOL account returns it to the vault as SOL", (await conn.getBalance(vault)) > lamportsBefore + Number(wsol) - 1);
+await refused("closing a token account that still holds tokens", send([await client.closeTokenAccountIx(session.publicKey, agent, vaultAta(vault, JUP))], [session]), "NotEmpty");
+const all = await conn.getBalance(vault);
+await send([await withdrawSolIx(program, owner.publicKey, agent, owner.publicKey, BigInt(all))], [owner]);
+ok("the owner empties the vault", (await conn.getBalance(vault)) === 0);
+
+console.log("\nwhitelist removal");
+await send([await client.disallowMintIx(admin.publicKey, USDC)], [admin]);
+await refused("a buy of a token taken off the whitelist", swap({ operator: session, agent, input: NATIVE_MINT, output: USDC, amount: sol(0.01), whitelisted: true }), "AccountNotInitialized");
+await send([await client.allowMintIx(admin.publicKey, USDC, FEEDS.get(USDC.toBase58())!)], [admin]);
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

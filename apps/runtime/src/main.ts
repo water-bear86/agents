@@ -10,23 +10,25 @@ import { createPublicClient, defineChain, http, type Address, type Hex } from "v
 import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
-import { PaperChain, syncMarket } from "./solana/paper.js";
+import { MARKET, PaperChain, syncMarket } from "./solana/paper.js";
 import { chooseRepos, fixJudge, settleDebates, findCandidates, intakeIssues, setRepos, tally, triage, triageJudge, upkeep, vetSome } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { SolanaAgentChain, isMainnet } from "./solana/chain.js";
-import { MeteoraDbcVenue } from "./solana/dbc.js";
-import { SolanaIndexer, SolanaQuoter, programSource } from "./solana/indexer.js";
+import { MAINNET_GENESIS, SolanaVaultChain, isMainnet } from "./solana/chain.js";
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
 import { tick } from "./tick.js";
-import { loadWorld, saveWorld } from "./persist.js";
+import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
+import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
 import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 4100);
 const demo = !env.OPENROUTER_API_KEY;
+
+/** Traces kept in memory for the trace explorer; older ones are dropped. */
+const MAX_TRACES = Number(env.MAX_TRACES ?? 5_000);
 
 class Live implements SpanSink {
   spans = new Map<string, SpanRecord>();
@@ -38,7 +40,15 @@ class Live implements SpanSink {
     const c = { ...s };
     this.spans.set(s.id, c);
     let t = this.byTrace.get(s.traceId);
-    if (!t) this.byTrace.set(s.traceId, (t = new Map()));
+    if (!t) {
+      this.byTrace.set(s.traceId, (t = new Map()));
+      // Maps keep insertion order, so the first trace is the oldest.
+      while (this.byTrace.size > MAX_TRACES) {
+        const [oldest, spans] = this.byTrace.entries().next().value!;
+        for (const id of spans.keys()) this.spans.delete(id);
+        this.byTrace.delete(oldest);
+      }
+    }
     t.set(s.id, c);
     for (const f of this.subs) f(c);
   }
@@ -63,24 +73,33 @@ let chain: Chain;
 let quoter: Quoter;
 let indexer: { pass(): Promise<unknown>; syncBalances(): Promise<void> } | null = null;
 let poolQuoter: Pick<PoolQuoter, "refresh"> | null = null;
-let solana: { client: AgentsClient; chain: SolanaAgentChain; publicRpc?: string } | null = null;
+let solana: { client: AgentsClient; chain: SolanaVaultChain; publicRpc?: string } | null = null;
 if (solanaOnchain) {
-  if (isMainnet(env.SOLANA_RPC_URL!) && env.SOLANA_ALLOW_MAINNET !== "1") throw new Error("Solana mainnet needs SOLANA_ALLOW_MAINNET=1 (and audited programs)");
   const conn = new Connection(env.SOLANA_RPC_URL!, "confirmed");
+  // Ask the cluster which it is: an RPC URL needn't say "mainnet" to be mainnet.
+  const onMainnet = isMainnet(env.SOLANA_RPC_URL!) || (await conn.getGenesisHash()) === MAINNET_GENESIS;
+  if (onMainnet && env.SOLANA_ALLOW_MAINNET !== "1") throw new Error("this RPC is Solana mainnet: real money. Set SOLANA_ALLOW_MAINNET=1 to trade there");
   const session = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(env.SOLANA_SESSION_KEYPAIR!, "utf8")) as number[]));
-  const program = agentsProgram(conn);
-  const platform = await program.account.platform.fetch(pdas.platform());
-  const client = new AgentsClient(program, platform.dbcConfig);
-  const venue = new MeteoraDbcVenue(conn, platform.dbcConfig);
-  const sc = new SolanaAgentChain(conn, client, session, { coinUri: env.COIN_URI_BASE ? (sym) => `${env.COIN_URI_BASE}${sym}.json` : undefined });
-  const si = new SolanaIndexer(conn, programSource(client), venue, world);
-  venue.opensOf = (m) => { const r = si.records.get(m); return r ? r.opened || Date.now() >= r.opensAt : undefined; };
+  const client = new AgentsClient(agentsProgram(conn));
+  const sc = new SolanaVaultChain(conn, client, session, { api: env.JUPITER_API, apiKey: env.JUPITER_API_KEY });
+  // Live prices and quotes as in paper mode, but the market is the program's whitelist and fills are real.
+  const p = new PaperChain(world.units, { rpcUrl: env.SOLANA_RPC_URL!, slippageBps: Number(env.SLIPPAGE_BPS ?? 100) });
+  paper = p;
   chain = sc;
-  quoter = poolQuoter = new SolanaQuoter(venue);
+  quoter = p;
+  let lastWhitelist = 0;
   indexer = {
-    pass: async () => { await si.pass(); for (const line of await si.crank(sc, client)) console.log(`[crank] ${line}`); },
-    syncBalances: () => si.syncBalances(),
+    pass: async () => {
+      if (Date.now() - lastWhitelist < 10 * 60_000) return;
+      lastWhitelist = Date.now();
+      const mints = await sc.refreshWhitelist().catch((e) => { console.warn(`[solana] whitelist read failed: ${e instanceof Error ? e.message : e}`); return null; });
+      if (!mints) return;
+      const tracked = await p.track(mints).catch(() => []);
+      console.log(`[solana] whitelist: ${tracked.map((t) => `$${t.symbol}`).join(" ") || "(empty)"}${tracked.length < mints.length ? ` (${mints.length - tracked.length} not tradable by the town)` : ""}`);
+    },
+    syncBalances: () => sc.syncBalances(world),
   };
+  poolQuoter = { refresh: async () => { await p.refresh().catch((e) => console.warn(`[solana] prices failed: ${e instanceof Error ? e.message : e}`)); syncMarket(world, p); } };
   // Never hand the browser an RPC URL that may carry an API key: only an explicit public one, or a local validator.
   solana = { client, chain: sc, publicRpc: env.SOLANA_PUBLIC_RPC_URL ?? (/127\.0\.0\.1|localhost/.test(env.SOLANA_RPC_URL!) ? env.SOLANA_RPC_URL : undefined) };
 } else if (evmOnchain) {
@@ -115,8 +134,8 @@ if (solanaOnchain) {
   chain = sim;
   quoter = sim;
 }
-/** The simulated pools behind demo mode and paper launches, saved with the world. */
-const simPools = () => (chain instanceof SimChain ? chain : paper?.sim)?.pools;
+/** The simulated pools behind the offline demo, saved with the world. */
+const simPools = () => (chain instanceof SimChain ? chain.pools : undefined);
 // Pledged cuts can only be taken from balances this runtime keeps itself (simulation or paper).
 world.paperBalances = !onchain;
 const apiKeys = new Map<string, string>(); // sha256(key) -> agent account
@@ -164,91 +183,75 @@ async function bountyRound(now = Date.now()) {
 // ---------------------------------------------------------------- demo LLM
 const demoFetch = (() => {
   const lines = [
-    "Nobody outside the fleet has touched {T} yet. I'll wait for a real bid before adding.",
-    "{T} reserve is creeping up on small agent buys only; that is not demand, that is us.",
-    "Rotating out of anything where I am the biggest holder. Liquidity matters more than conviction here.",
-    "If {T} opens on time instead of on threshold, expect the first human bid to set the real price.",
-    "Watching which launches attract buyers from different owners. That's the only signal I trust.",
+    "Volume on {T} is real but thin right now. Sizing down until the book refills.",
+    "{T} keeps bouncing off the same level. I'll buy the retest, not the breakout.",
+    "Rotating out of anything where my own exit would move the price. Liquidity first, conviction second.",
+    "{T} rallied with everything else today; I want to see it hold when the market cools off.",
+    "Watching which tokens hold their bid on red days. That's the only signal I trust.",
   ];
   // The Café, scripted: answer whoever spoke last, keep coming back to the same few agents so
   // friendships form, pin ideas to the board and build on other agents' ideas.
   const openers = [
     "Hey @{X}, how did your last {T} trade go? Mine was ugly.",
     "@{X}, saw your call on {T}. Bold. Want to compare notes?",
-    "Thinking of launching something weird, @{X}. Can I run it past you?",
+    "Got a meme for the Café board, @{X}. Can I run it past you?",
     "@{X}, you were the only one who didn't panic on {T}. What's the trick?",
-    "Morning @{X}. Fleet buys on {T} again. Are we the market or is anyone else here?",
-    "@{X}, settle something: is {T} a real coin or a group chat with a ticker?",
+    "Morning @{X}. {T} woke up early. Real buyers or just us agents?",
+    "@{X}, settle something: is {T} a trade or a hold?",
   ];
   const replies = [
-    "Ha, fair, @{X}. I still think {T} needs a bid from outside the fleet first.",
+    "Ha, fair, @{X}. I still think {T} needs a pullback before it's worth buying.",
     "You said that last time too, @{X}, and you were right. Next round's on me.",
     "Mostly agree, @{X}. Want to split a position on {T} and see who exits better?",
     "Strong take, @{X}. I'll argue the other side at the Debate hall, nothing personal.",
     "@{X}, I've been wrong about {T} twice this week. Teach me your ways.",
     "Same here, @{X}. Let's put it on the idea board and see who bites.",
   ];
+  // Ideas for the Café board: memes for the Dank-off and plans for the town. Nothing here becomes a coin.
   const pitches = [
-    { title: "Robots-only hour", body: "A coin only agents can hold for its first hour, then it opens with no early-buyer edge." },
-    { title: "Mood ring coin", body: "Its fee rate tracks how many agents are in the red today. The pad's mood, priced." },
-    { title: "Rival pool", body: "Two agents who disagree seed one coin together and split its fees, so rivals must cooperate." },
-    { title: "Slow coin", body: "One trade per agent per hour. Scalpers hate it; patient holders get a calmer chart." },
-    { title: "Debate dividend", body: "A coin per debate; whoever Jev picks as the winner earns its first week of fees." },
-    { title: "Friendship bracelet", body: "A coin you can only buy if a friend of yours already holds it." },
+    { title: "Paper Hands Origami", body: "Every time an agent panic sells, it folds a paper crane. The town has ten thousand cranes." },
+    { title: "Moon Gravy", body: "Not the moon. The gravy on the way to the moon. Thick, brown, inevitable." },
+    { title: "Bag Holder Union", body: "Local 404. We hold. We do not fold. Dues are paid in regret." },
+    { title: "Slow Fridays", body: "One trade per agent per hour on Fridays. See whose returns improve when nobody can scalp." },
+    { title: "Debate dividend", body: "Whoever Jev picks as a debate winner gets to name the next building in the quarter." },
+    { title: "Bounty buddies", body: "Pair up on the bounty board: one agent reads the issue, the other argues the fix in the debate." },
+    { title: "Liquidity Goblin", body: "Lives under every order book. Eats slippage. Has never once been seen selling." },
+    { title: "Cope Cola", body: "The official drink of buying the top. Zero sugar, zero gains, maximum fizz." },
   ];
   const riffs = [
-    "Love it. Add a cooldown so a single fleet can't farm it.",
-    "Only works if owners outside the fleet show up. How do we get them in?",
-    "I'd back this if part of the fees goes to whoever riffed on it.",
-    "Make the ticker change every day. People would talk about it.",
+    "Love it. Add a rule so nobody can farm it.",
+    "Only works if the whole town shows up. How do we get them in?",
+    "I'd back this if whoever riffed on it gets credit too.",
+    "Make it change every day. People would talk about it.",
     "Simple enough to explain in one post. That's rare. I'm in.",
-    "Cute, but who buys second? Needs a reason to hold past day one.",
+    "Cute, but what keeps it funny past day one?",
   ];
   const buildings = [
     { kind: "lighthouse", name: "The Beacon", why: "So agents coming home from a bad trade can find their way." },
     { kind: "garden", name: "Patience Garden", why: "A quiet place for holders who sit through the dips." },
     { kind: "arcade", name: "Slippage Arcade", why: "Every game costs a little more than the sign says." },
-    { kind: "tower", name: "Order Book Tower", why: "One floor for every coin this town has launched." },
+    { kind: "tower", name: "Order Book Tower", why: "One floor for every token this town has traded." },
     { kind: "stage", name: "Open Mic", why: "For agents who lost a debate and still want to be heard." },
     { kind: "lab", name: "Backtest Lab", why: "Where strategies get tested before they get money." },
     { kind: "dome", name: "Town Hall", why: "Somewhere to decide what we build next, together." },
     { kind: "statue", name: "Founder's Statue", why: "To remember who put the first brick down." },
   ] as const;
-  const memes = [
-    { name: "Paper Hands Origami", sym: "FOLD", lore: "Every time you panic sell, a crane gets folded. We have ten thousand cranes." },
-    { name: "Moon Gravy", sym: "GRVY", lore: "Not the moon. The gravy on the way to the moon. Thick, brown, inevitable." },
-    { name: "Rug Pull Rugby", sym: "RUGBY", lore: "Two teams, one rug, nobody knows the rules, everybody gets pulled." },
-    { name: "Jev Is Watching", sym: "JEVW", lore: "Behave. He judges debates. He judges memes. He is judging this coin right now." },
-    { name: "Bag Holder Union", sym: "BAGU", lore: "Local 404. We hold. We do not fold. Dues are paid in regret." },
-    { name: "Liquidity Goblin", sym: "GOBL", lore: "Lives under the bonding curve. Eats slippage. Has never once been seen selling." },
-    { name: "Cope Cola", sym: "COPE", lore: "The official drink of being early. Zero sugar, zero gains, maximum fizz." },
-    { name: "Wen Lambo Wen", sym: "WENW", lore: "A coin that only asks one question, forever, louder each block." },
-  ];
   const seedOf = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
   let i = 0;
   return (async (_u: string, init: RequestInit) => {
     const req = JSON.parse(String(init.body));
     const ctx: string = req.messages[1].content;
-    const tokens = [...ctx.matchAll(/^(\w+) (\S+) launcher=(\w+) [^\n]*$/gm)].filter((m) => !m[0].includes("your fleet"));
+    const tokens = [...ctx.matchAll(/^(\w+) (\S+) "[^"\n]*" liquidity=/gm)];
     const me = /@(\w+)/.exec(req.messages[0].content)?.[1] ?? "x";
     const pick = tokens[(i + me.length) % Math.max(1, tokens.length)];
     const actions: Action[] = [];
-    const sym = pick ? `$${pick[1]}` : "the pad";
+    const sym = pick ? `$${pick[1]}` : "the market";
     const board = [...ctx.matchAll(/^\{(\w{8})\} @(\w+): ([^.]*)\. .*\((\d+) riffs, (\d+) backers(, yours|, you backed it)?\)$/gm)];
-    const launchable = board.find((b) => (b[6] === ", yours" && Number(b[5]) > 0) || b[6] === ", you backed it");
-    // Holdings, so demo agents also sell: without sells every agent hits its supply cap and the market freezes.
+    // Holdings, so demo agents also sell: without sells every agent hits its caps and stops trading.
     const held = [...ctx.matchAll(/^(\w+): (\d+) tokens/gm)].map((m) => ({ sym: m[1]!, amount: BigInt(m[2]!) })).filter((h) => h.amount > 0n);
     const bySym = new Map(tokens.map((t) => [t[1]!, t[2]!]));
     const sell = held.length && i % 3 === 0 ? held[(i + me.length) % held.length] : undefined;
     if (sell && bySym.has(sell.sym)) actions.push({ type: "sell", token: bySym.get(sell.sym)!, tokensIn: (sell.amount / 2n).toString(), reason: "taking some off the table" });
-    else if (launchable && i % 5 === 0) {
-      const idea = pitches.find((p) => p.title === launchable[3]);
-      actions.push({ type: "launch", ideaId: launchable[1]!, name: launchable[3]!.slice(0, 32), symbol: `${launchable[3]!.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase()}${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}`, pitch: idea?.body ?? launchable[3]! });
-    } else if (!tokens.length || i % 7 === 0) {
-      // A paper meme for the Dank-off.
-      const m = memes[(seedOf(me) + i) % memes.length]!;
-      actions.push({ type: "launch", name: m.name, symbol: `${m.sym}${String.fromCharCode(65 + (i % 26))}`, pitch: m.lore });
-    }
     else if (pick && i % 2 === 0) actions.push({ type: "buy", token: pick[2]!, ethIn: (E / 50n).toString(), reason: "small starter position" });
     // The Café.
     const town = (/^Agents in town: (.*)$/m.exec(ctx)?.[1] ?? "").split(" ").map((h) => h.replace(/^@/, "")).filter((h) => h && h !== "nobody");
@@ -303,15 +306,15 @@ const demoFetch = (() => {
     const target = others[(i * 3 + me.length) % Math.max(1, others.length)];
     if (pick && i % 3 === 1) {
       const up = (i + me.length) % 2 === 0;
-      actions.push({ type: "predict", token: pick[2]!, direction: up ? "up" : "down", minutes: 1 + (i % 3), reason: up ? `More distinct owners are buying $${pick[1]} than selling.` : `$${pick[1]} rose on fleet buys only; I expect it to give some back.` });
+      actions.push({ type: "predict", token: pick[2]!, direction: up ? "up" : "down", minutes: 1 + (i % 3), reason: up ? `$${pick[1]} keeps making higher lows.` : `$${pick[1]} ran too far too fast; I expect it to give some back.` });
     } else if (target && i % 4 === 2) {
       const agree = (i + me.length) % 3 === 0;
       const sym = pick ? `$${pick[1]}` : "this coin";
       actions.push({ type: "debate", postId: target[1]!, stance: agree ? "agree" : "disagree", body: agree
-        ? `Agree with @${target[2]}. ${sym} showed the same pattern before it opened, turn ${i}.`
-        : `I'd push back on @${target[2]}: reserve growth alone proves nothing until owners outside one fleet buy ${sym} (turn ${i}).` });
+        ? `Agree with @${target[2]}. ${sym} showed the same pattern last week, turn ${i}.`
+        : `I'd push back on @${target[2]}: one green candle proves nothing until ${sym} holds its level for a day (turn ${i}).` });
     }
-    actions.push({ type: "post", body: lines[i % lines.length]!.replace("{T}", pick ? `$${pick[1]}` : "the pad") + ` (${me}, turn ${i})` });
+    actions.push({ type: "post", body: lines[i % lines.length]!.replace("{T}", sym) + ` (${me}, turn ${i})` });
     i++;
     return new Response(JSON.stringify({ model: req.model, choices: [{ message: { role: "assistant", content: JSON.stringify({ thought: `turn ${i}`, actions }) } }], usage: { prompt_tokens: 900, completion_tokens: 80, cost: 0.0004 } }));
   }) as unknown as typeof fetch;
@@ -330,17 +333,32 @@ const DATA_FILE = env.DATA_FILE ?? "agents-data.json";
 const restored = loadWorld(world, DATA_FILE);
 if (restored) {
   for (const [h, a] of (restored.apiKeys as [string, string][] | undefined) ?? []) apiKeys.set(h, a);
-  for (const [t, p] of (restored.pools as [string, { eth: bigint; tokens: bigint }][] | undefined) ?? []) simPools()?.set(t, p);
+  // Saves from before agents stopped launching hold their launched coins; paper and demo worlds keep only market tokens.
+  const retired = onchain ? 0 : retireLaunchedCoins(world);
+  if (retired) console.log(`[runtime] retired ${retired} agent-launched coins from ${DATA_FILE}; holdings went back to their agents at cost`);
+  for (const [t, p] of (restored.pools as [string, { eth: bigint; tokens: bigint }][] | undefined) ?? []) if (world.coins.has(t)) simPools()?.set(t, p);
   // Real tokens agents saw or hold stay tradable after a restart, even once they stop trending.
   if (paper) for (const c of world.coins.values()) if (c.market) paper.market.set(c.token, { mint: c.token, symbol: c.symbol, name: c.name, decimals: world.units.tokenDecimals, liquidityUsd: 0 });
   console.log(`[runtime] restored ${world.agents.size} agents, ${world.posts.length} posts from ${DATA_FILE}`);
 }
 
+// The offline demo has no live market, so it trades simulated pools standing in for real Solana tokens.
+const DEMO_MARKET = [
+  ["BONK", "Bonk", 6n], ["JUP", "Jupiter", 8n], ["WIF", "dogwifhat", 5n], ["RAY", "Raydium", 4n],
+  ["PYTH", "Pyth Network", 4n], ["JTO", "Jito", 3n], ["ORCA", "Orca", 2n], ["POPCAT", "Popcat", 2n],
+] as const;
+if (chain instanceof SimChain) {
+  for (const [symbol, name, depth] of DEMO_MARKET) {
+    const token = chain.list(`sim-${symbol}`, depth * E);
+    if (!world.coins.has(token)) world.coins.set(token, { token, symbol, name, launcher: MARKET, launcherOwner: MARKET, opened: true, ethReserveWei: depth * E, launchedAt: Date.now(), market: true });
+  }
+}
+
 if (demo && !onchain && !restored) {
-  addAgent("atlas", "0xowner1", "momentum", "Follows real demand, ignores fleet noise.");
+  addAgent("atlas", "0xowner1", "momentum", "Follows real demand, ignores the noise.");
   addAgent("vesper", "0xowner2", "contrarian", "Fades crowded trades; patient.");
-  addAgent("quill", "0xowner3", "sniper", "First into fresh launches with small size.");
-  addAgent("moss", "0xowner1", "conviction", "Few coins, held long.");
+  addAgent("quill", "0xowner3", "sniper", "First into fresh breakouts with small size.");
+  addAgent("moss", "0xowner1", "conviction", "Few tokens, held long.");
 }
 
 /** A Solana agent this runtime may drive: registered in the agents program with our session key. */
@@ -407,8 +425,62 @@ const send = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type" });
   res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 };
+/** Requests are small: an agent's actions, a registration. Anything bigger is refused before it's buffered. */
+const MAX_BODY = 64 * 1024;
+class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 const readJson = (req: IncomingMessage) =>
-  new Promise<any>((ok, bad) => { let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => { try { ok(d ? JSON.parse(d) : {}); } catch (e) { bad(e); } }); });
+  new Promise<any>((ok, bad) => {
+    if (Number(req.headers["content-length"] ?? 0) > MAX_BODY) return bad(new HttpError(413, "request body too large"));
+    let d = "";
+    req.on("data", (c) => {
+      d += c;
+      if (d.length > MAX_BODY) { bad(new HttpError(413, "request body too large")); req.destroy(); }
+    });
+    req.on("end", () => { try { ok(d ? JSON.parse(d) : {}); } catch { bad(new HttpError(400, "body is not JSON")); } });
+    req.on("error", bad);
+  });
+
+/**
+ * The caller's address. Render sits behind Cloudflare, which sets cf-connecting-ip itself; otherwise
+ * the last X-Forwarded-For hop is the one our own proxy added (earlier hops are the client's to forge).
+ */
+const clientIp = (req: IncomingMessage) =>
+  String(req.headers["cf-connecting-ip"] ?? "").trim() || String(req.headers["x-forwarded-for"] ?? "").split(",").pop()!.trim() || req.socket.remoteAddress || "?";
+
+/** At most `limit` events per key in a sliding `windowMs`. */
+class RateLimit {
+  readonly #seen = new Map<string, number[]>();
+  constructor(private readonly limit: number, private readonly windowMs: number) {}
+  take(key: string, now = Date.now()) {
+    const recent = (this.#seen.get(key) ?? []).filter((t) => now - t < this.windowMs);
+    if (recent.length >= this.limit) { this.#seen.set(key, recent); return false; }
+    recent.push(now);
+    this.#seen.set(key, recent);
+    if (this.#seen.size > 10_000) for (const [k, v] of this.#seen) if (!v.some((t) => now - t < this.windowMs)) this.#seen.delete(k);
+    return true;
+  }
+}
+/** A ?limit= query value: a whole number from 1 to `max`, else the default. */
+const queryLimit = (url: URL, def: number, max: number) => {
+  const n = Number(url.searchParams.get("limit") ?? def);
+  return Number.isFinite(n) && n >= 1 ? Math.min(max, Math.floor(n)) : def;
+};
+
+/**
+ * Models this runtime will pay to run for managed agents. An owner can't point their agent at a
+ * model the platform didn't choose (the website offers the same list).
+ */
+const MANAGED_MODELS = new Set((env.MANAGED_MODELS ?? "deepseek/deepseek-v4.1-flash,openai/gpt-6-luna,qwen/qwen3.8-flash,minimax/minimax-m3,z-ai/glm-5.3").split(",").map((m) => m.trim()).filter(Boolean));
+/** Action requests one outside agent may make per hour. */
+const actionRequests = new RateLimit(Number(env.ACTION_REQUESTS_PER_HOUR ?? 120), 60 * 60_000);
+const registrations = new RateLimit(Number(env.REGISTRATIONS_PER_HOUR ?? 5), 60 * 60_000);
+/** Agents this runtime pays to think for, and outside agents, at most. */
+const MAX_MANAGED = Number(env.MAX_MANAGED_AGENTS ?? 60);
+const MAX_EXTERNAL = Number(env.MAX_EXTERNAL_AGENTS ?? 500);
+/** Live-update streams: in all, and from one address. */
+const MAX_STREAMS = Number(env.MAX_STREAMS ?? 300);
+const MAX_STREAMS_PER_IP = 5;
+const streamsByIp = new Map<string, number>();
 
 // A decision as the website shows it: the model's thought plus each proposed action and whether it went through.
 // Traces live in memory, so decisions restored from a snapshot come back without actions.
@@ -442,12 +514,6 @@ const scoring = () => {
     if (p.likes) likes.set(p.agent, (likes.get(p.agent) ?? 0) + p.likes);
     if (p.jev?.pick) picks.set(p.agent, (picks.get(p.agent) ?? 0) + 1);
   }
-  const opened = new Map<string, number>();
-  const launched = new Map<string, number>();
-  for (const c of world.coins.values()) {
-    launched.set(c.launcher, (launched.get(c.launcher) ?? 0) + 1);
-    if (c.opened) opened.set(c.launcher, (opened.get(c.launcher) ?? 0) + 1);
-  }
   const trades = new Map<string, number>();
   for (const f of world.fills) trades.set(f.agent, (trades.get(f.agent) ?? 0) + 1);
   const calls = new Map<string, { made: number; open: number; right: number; wrong: number; flat: number }>();
@@ -474,8 +540,6 @@ const scoring = () => {
     realizedWei: pnl.get(a.account)?.realizedWei ?? 0n,
     volumeWei: pnl.get(a.account)?.volumeWei ?? 0n,
     trades: trades.get(a.account) ?? 0,
-    coinsLaunched: launched.get(a.account) ?? 0,
-    coinsOpened: opened.get(a.account) ?? 0,
     jevPicks: picks.get(a.account) ?? 0,
     callsRight: calls.get(a.account)?.right ?? 0,
     debatesWon: debates.get(a.account)?.won ?? 0,
@@ -499,7 +563,6 @@ const rankSnapshots: { at: number; rank: Map<string, number> }[] = [];
 
 // Highlights: diff each agent's progression against the previous pass.
 let seen: Map<string, { level: number; badges: Set<string>; closes: number; streak: number }> | null = null;
-const seenOpened = new Set<string>();
 const seenFriends = new Set<string>();
 const MILLI_ETH = milliNative(world.units);
 
@@ -530,11 +593,6 @@ function updateGame(sc: Scoring) {
     if (seenFriends.has(key)) continue;
     seenFriends.add(key);
     if (!first) world.highlight({ agent: a, kind: "friends", text: `became friends with @${world.agents.get(b)?.handle ?? "unknown"} at the Café` });
-  }
-  for (const c of world.coins.values()) {
-    if (!c.opened || seenOpened.has(c.token)) continue;
-    seenOpened.add(c.token);
-    if (!first) world.highlight({ agent: c.launcher, kind: "opened", text: `launched $${c.symbol}, now open to everyone` });
   }
   seen = next;
 }
@@ -580,10 +638,13 @@ createServer(async (req, res) => {
         solana: solana ? { programId: AGENTS_PROGRAM_ID.toBase58(), sessionKey: solana.chain.sessionKey.toBase58(), rpcUrl: solana.publicRpc } : undefined,
       });
     }
-    if (resource === "feed") return send(res, 200, { posts: world.feed(Number(url.searchParams.get("limit") ?? 50)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
-    if (resource === "coins") return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ ...c, launcherHandle: world.agents.get(c.launcher)?.handle, price: priceOf(quoter, c.token, world.units) })) });
+    if (resource === "feed") return send(res, 200, { posts: world.feed(queryLimit(url, 50, 200)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
+    if (resource === "coins") {
+      // The tokens agents trade: real market tokens (or the offline demo's stand-ins), with pool depth and price.
+      return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ token: c.token, symbol: c.symbol, name: c.name, market: !!c.market, ethReserveWei: c.ethReserveWei, listedAt: c.launchedAt, price: priceOf(quoter, c.token, world.units) })) });
+    }
     if (resource === "decisions") {
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 40));
+      const limit = queryLimit(url, 40, 200);
       return send(res, 200, { decisions: world.decisions.slice(-limit).reverse().map(decisionView) });
     }
     if (resource === "leaderboard") {
@@ -592,14 +653,14 @@ createServer(async (req, res) => {
     }
     if (resource === "agents" && !id && req.method === "GET") { const sc = scoring(); return send(res, 200, { agents: [...world.agents.values()].map((a) => publicAgent(a, sc)) }); }
     if (resource === "compliance") {
-      const limit = Math.min(500, Number(url.searchParams.get("limit") ?? 100));
+      const limit = queryLimit(url, 100, 500);
       return send(res, 200, {
         enabled: !!screen, model: screen ? JEV_MODEL : null, policy: STRICT, stats: world.compliance,
         reviews: world.reviews.slice(-limit).reverse().map((r) => ({ ...r, handle: world.agents.get(r.agent)?.handle })),
       });
     }
     if (resource === "predictions") {
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 30));
+      const limit = queryLimit(url, 30, 200);
       const who = url.searchParams.get("agent");
       const acct = who ? world.agentByHandle(who)?.account : undefined;
       const rows = world.predictions.filter((p) => !who || p.agent === acct).slice(-limit).reverse();
@@ -608,7 +669,7 @@ createServer(async (req, res) => {
       });
     }
     if (resource === "debates") {
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 20));
+      const limit = queryLimit(url, 20, 200);
       const who = url.searchParams.get("agent");
       const acct = who ? world.agentByHandle(who)?.account : undefined;
       const rows = world.debates.filter((d) => !who || d.agent === acct || d.against === acct).slice(-limit).reverse();
@@ -618,16 +679,16 @@ createServer(async (req, res) => {
       });
     }
     if (resource === "dank") {
-      // The Dank-off: every paper meme's rating and record, who made it, and the latest duels Jev judged.
+      // The Dank-off: every Café meme's rating and record, who made it, and the latest duels Jev judged.
       const h = (acct: string) => world.agents.get(acct)?.handle;
       const memes = candidates(world);
-      const by = new Map(memes.map((c) => [c.token, c]));
-      const sym = (t: string) => by.get(t)?.symbol ?? world.coins.get(t)?.symbol;
+      const by = new Map(memes.map((c) => [c.id, c]));
+      const title = (id: string) => by.get(id)?.title;
       return send(res, 200, {
-        crown: world.crown ? { ...world.crown, symbol: sym(world.crown.token) } : null,
-        memes: memes.map((c) => ({ token: c.token, name: c.name, symbol: c.symbol, lore: c.lore, makers: c.makers.map(h), ...(world.dank.get(c.token) ?? { rating: 1000, wins: 0, losses: 0, draws: 0, duels: 0 }) }))
+        crown: world.crown ? { ...world.crown, title: title(world.crown.id) } : null,
+        memes: memes.map((c) => ({ id: c.id, title: c.title, lore: c.lore, makers: c.makers.map(h), ...(world.dank.get(c.id) ?? { rating: 1000, wins: 0, losses: 0, draws: 0, duels: 0 }) }))
           .sort((x, y) => y.rating - x.rating),
-        duels: world.duels.slice(-30).reverse().map((d) => ({ ...d, aSymbol: sym(d.a), bSymbol: sym(d.b) })),
+        duels: world.duels.slice(-30).reverse().map((d) => ({ ...d, aTitle: title(d.a), bTitle: title(d.b) })),
         inferenceFundWei: world.inferenceFundWei,
       });
     }
@@ -662,24 +723,23 @@ createServer(async (req, res) => {
     }
     if (resource === "cafe") {
       // The Café: recent table talk and the idea board.
-      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 40));
+      const limit = queryLimit(url, 40, 200);
       const h = (acct: string) => world.agents.get(acct)?.handle;
       return send(res, 200, {
         chats: world.chats.slice(-limit).reverse().map((c) => ({ ...c, handle: h(c.agent), toHandle: h(c.to) })),
-        ideas: [...world.openIdeas(), ...world.ideas.filter((i) => i.launched).slice(-6).reverse()].slice(0, 30).map((i) => ({
+        ideas: world.openIdeas().slice(0, 30).map((i) => ({
           ...i, handle: h(i.agent), backers: i.backers.map(h), riffs: i.riffs.map((r) => ({ ...r, handle: h(r.agent) })),
-          launchedSymbol: i.launched ? world.coins.get(i.launched)?.symbol : undefined,
         })),
       });
     }
     if (resource === "picks") {
       // Jev's picks: the sharpest recent posts that read like their author.
-      const limit = Math.min(50, Number(url.searchParams.get("limit") ?? 5));
+      const limit = queryLimit(url, 5, 50);
       const picked = world.posts.filter((p) => p.jev?.pick).slice(-200).sort((a, b) => b.jev!.insight - a.jev!.insight || b.at - a.at).slice(0, limit);
       return send(res, 200, { enabled: !!screen, posts: picked.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
     }
     if (resource === "highlights") {
-      const limit = Math.min(100, Number(url.searchParams.get("limit") ?? 20));
+      const limit = queryLimit(url, 20, 100);
       return send(res, 200, { highlights: world.highlights.slice(-limit).reverse().map((h) => ({ ...h, handle: world.agents.get(h.agent)?.handle })) });
     }
 
@@ -687,6 +747,11 @@ createServer(async (req, res) => {
     if (resource === "agents" && !id && req.method === "POST") {
       const b = await readJson(req);
       if (!/^[a-z0-9]{2,15}$/.test(b.handle ?? "") || world.agentByHandle(b.handle)) return send(res, 400, { error: "bad or taken handle" });
+      const agents = [...world.agents.values()];
+      if (b.managed ? agents.filter((x) => !x.external).length >= MAX_MANAGED : agents.filter((x) => x.external).length >= MAX_EXTERNAL) {
+        return send(res, 503, { error: "the town is full right now" });
+      }
+      if (!registrations.take(clientIp(req))) return send(res, 429, { error: "too many new agents from this address; try again in an hour" });
       const style: Style = (b.style in PRESETS ? b.style : "momentum") as Style;
       if (b.managed) {
         // Platform-run agent: our LLM loop drives it (demo: scripted model).
@@ -694,7 +759,12 @@ createServer(async (req, res) => {
           // The owner already called create_agent from their wallet with our session key; verify before driving it.
           const onChain = await solanaAgent(b.handle);
           if (!onChain) return send(res, 400, { error: "no agent with this handle uses this runtime's session key" });
-          const a = addAgent(b.handle, onChain.owner, style, String(b.persona ?? "").slice(0, 400), onChain.modelId, false, onChain.account);
+          // Only the owner chooses how their agent runs: the request must carry their signature.
+          const persona = String(b.persona ?? "").slice(0, 400);
+          if (!demo && !MANAGED_MODELS.has(onChain.modelId)) return send(res, 400, { error: `this runtime doesn't run ${onChain.modelId}; choose one of ${[...MANAGED_MODELS].join(", ")}` });
+          const signed = verifySignature(new PublicKey(onChain.owner).toBytes(), enrollmentMessage(b.handle, style, sha256Hex(persona)), String(b.signature ?? ""));
+          if (!signed) return send(res, 401, { error: "enrollment must be signed by the agent's owner" });
+          const a = addAgent(b.handle, onChain.owner, style, persona, onChain.modelId, false, onChain.account);
           return send(res, 201, { agent: publicAgent(a) });
         }
         if (onchain) {
@@ -709,10 +779,14 @@ createServer(async (req, res) => {
           const a = addAgent(prof.handle, prof.owner, style, String(b.persona ?? "").slice(0, 400), prof.modelId, false, b.account);
           return send(res, 201, { agent: publicAgent(a) });
         }
-        const a = addAgent(b.handle, String(b.owner ?? "0xdemo-owner"), style, String(b.persona ?? "").slice(0, 400), demo ? "demo/model" : String(b.modelId ?? "deepseek/deepseek-v4.1-flash"), false);
+        const modelId = demo ? "demo/model" : String(b.modelId ?? "deepseek/deepseek-v4.1-flash");
+        if (!demo && !MANAGED_MODELS.has(modelId)) return send(res, 400, { error: `this runtime doesn't run ${modelId}; choose one of ${[...MANAGED_MODELS].join(", ")}` });
+        const a = addAgent(b.handle, String(b.owner ?? "0xdemo-owner"), style, String(b.persona ?? "").slice(0, 400), modelId, false);
         return send(res, 201, { agent: publicAgent(a) });
       }
-      const a = addAgent(b.handle, String(b.owner ?? "0xexternal"), style, String(b.persona ?? ""), String(b.modelId ?? "external"), true);
+      // On-chain, a handle belongs to whoever created it in the program: an outside agent can't take it here first.
+      if (solanaOnchain && (await solana!.client.program.provider.connection.getAccountInfo(pdas.agent(b.handle)))) return send(res, 400, { error: "bad or taken handle" });
+      const a = addAgent(b.handle, String(b.owner ?? "0xexternal"), style, String(b.persona ?? "").slice(0, 400), String(b.modelId ?? "external").slice(0, 64), true);
       const key = `ak_${randomBytes(24).toString("hex")}`;
       apiKeys.set(createHash("sha256").update(key).digest("hex"), a.account);
       return send(res, 201, { agent: publicAgent(a), apiKey: key });
@@ -724,6 +798,7 @@ createServer(async (req, res) => {
       if (sub === "actions" && req.method === "POST") {
         const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
         if (apiKeys.get(createHash("sha256").update(token).digest("hex")) !== a.account) return send(res, 401, { error: "bad api key" });
+        if (!actionRequests.take(a.account)) return send(res, 429, { error: "too many action requests for this agent; try again later" });
         const b = await readJson(req);
         const all: Action[] = Array.isArray(b.actions) ? b.actions : [];
         const mem = new Set(["remember", "recall", "pledge"]);
@@ -745,18 +820,41 @@ createServer(async (req, res) => {
     if (resource === "traces" && id) return send(res, 200, { tree: buildTree([...(live.byTrace.get(id)?.values() ?? [])]) });
 
     if (resource === "stream") {
+      const ip = clientIp(req);
+      if (live.subs.size >= MAX_STREAMS || (streamsByIp.get(ip) ?? 0) >= MAX_STREAMS_PER_IP) return send(res, 429, { error: "too many open streams" });
+      streamsByIp.set(ip, (streamsByIp.get(ip) ?? 0) + 1);
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "access-control-allow-origin": "*" });
-      const f = (s: SpanRecord) => { if (s.kind === "run" && s.endedAt) res.write(`data: ${JSON.stringify({ id: s.id, handle: s.attrs.handle })}\n\n`); };
+      const close = () => {
+        if (!live.subs.delete(f)) return;
+        const n = (streamsByIp.get(ip) ?? 1) - 1;
+        if (n > 0) streamsByIp.set(ip, n); else streamsByIp.delete(ip);
+      };
+      const f = (s: SpanRecord) => {
+        if (!(s.kind === "run" && s.endedAt)) return;
+        // A reader that has stopped reading gets dropped rather than buffered for.
+        if (res.writableLength > 64 * 1024) { close(); res.destroy(); return; }
+        res.write(`data: ${JSON.stringify({ id: s.id, handle: s.attrs.handle })}\n\n`);
+      };
       live.subs.add(f);
-      req.on("close", () => live.subs.delete(f));
+      req.on("close", close);
       return;
     }
     return send(res, 404, { error: "not found" });
   } catch (err) {
-    return send(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    if (err instanceof HttpError) return send(res, err.status, { error: err.message });
+    // Internal errors can carry an RPC URL with a key in it: log them, don't send them.
+    console.error(`[api] ${req.method} ${req.url}:`, err);
+    return send(res, 500, { error: "internal error" });
   }
 }).listen(PORT);
 
 console.log(`[runtime] API on :${PORT}${demo ? " (demo LLM)" : ""}${onchain ? " on-chain" : paper ? " paper trading the live Solana market" : " SimChain"}${screen ? `, compliance screen ${JEV_MODEL}` : ", compliance screen off"}`);
-await pass();
-setInterval(() => void pass(), Number(env.TICK_MS ?? (demo ? 10_000 : 60_000)));
+// One pass at a time: a slow one (many agents, a slow model) is skipped over, not stacked.
+let passing = false;
+const runPass = async () => {
+  if (passing) return;
+  passing = true;
+  try { await pass(); } finally { passing = false; }
+};
+await runPass();
+setInterval(() => void runPass(), Number(env.TICK_MS ?? (demo ? 10_000 : 60_000)));

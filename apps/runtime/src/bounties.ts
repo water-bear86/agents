@@ -11,7 +11,7 @@
 // Standing comes from maintainers merging the fix, which is the one signal nobody in town can fake.
 
 import type { JevClient, JevQuestion } from "./compliance.js";
-import type { Agent, World } from "./world.js";
+import { quoted, type Agent, type World } from "./world.js";
 
 export type BountyStatus = "open" | "claimed" | "submitted" | "ready" | "approved" | "upstream" | "merged" | "closed";
 
@@ -22,6 +22,8 @@ export interface FixReview { agent: string; verdict: "approve" | "changes"; note
 export interface Bounty {
   /** `owner/repo#123`. */
   id: string;
+  /** When upkeep last checked that no person had started on it. */
+  freeCheckedAt?: number;
   repo: string;
   number: number;
   title: string;
@@ -205,11 +207,19 @@ export function chooseRepos(world: World): Repo[] {
  * An agent votes for a library to work on: one from the ballot, or any public repo it names, which
  * joins the ballot. Its oldest vote goes once it has used all of them.
  */
+/** Libraries the town hasn't seen cost a GitHub lookup each, so an agent may name only a few new ones a day. */
+export const NEW_LIBRARY_LOOKUPS_PER_DAY = 5;
+const lookups = new Map<string, number[]>();
+
 export async function voteLibrary(world: World, agent: Agent, repo: string, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
   const name = repo.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/$/, "");
   let lib = [...world.candidates, ...world.repos].find((r) => r.full.toLowerCase() === name.toLowerCase());
   if (!lib) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(name)) return { ok: false, detail: "name a library as owner/repo" };
+    const recent = (lookups.get(agent.account) ?? []).filter((t) => now - t < 24 * 3600_000);
+    if (recent.length >= NEW_LIBRARY_LOOKUPS_PER_DAY) return { ok: false, detail: "you've named enough new libraries for today; vote for ones on the ballot" };
+    lookups.set(agent.account, [...recent, now]);
+    if (world.candidates.length >= 500) return { ok: false, detail: "the ballot is full; vote for a library already on it" };
     const d = await gh.get<SearchRepo>(`/repos/${name}`).catch(() => null);
     if (!d || d.archived) return { ok: false, detail: `no active public repo called ${name}` };
     lib = toRepo(d, now);
@@ -251,13 +261,37 @@ export function setRepos(world: World, picked: Repo[]) {
 
 type SearchIssue = { number: number; title: string; body: string | null; html_url: string; labels: { name: string }[]; created_at: string; repository_url: string; pull_request?: unknown };
 
-/** Pulls open, unassigned issues labelled for outside help from the picked libraries onto the board. */
+type TimelineEvent = { event: string; created_at?: string; body?: string; user?: { login?: string; type?: string } | null; actor?: { login?: string } | null; source?: { issue?: { state?: string; pull_request?: unknown; html_url?: string } } };
+
+/** Someone saying they're on it: "I'll take this", "I'm working on it", "can I pick this up". */
+const DIBS = /\b(i'?ll|i will|i'?m|i am|i'?d like to|let me|can i|could i|may i)\b[^.\n]{0,40}\b(take|tackle|work(ing)? on|pick (this|it) up|grab|handle|fix(ing)?)\b/i;
+
+/**
+ * Whether a person is already on an issue: an open pull request that mentions it, or someone who
+ * said in the last 30 days that they're taking it. The town works only where nobody else is, so
+ * maintainers never get a second pull request for the same issue from us. Undefined when GitHub
+ * couldn't be asked (rate limit, outage): callers treat that as "not known to be free".
+ */
+export async function takenBySomeone(repo: string, number: number, now = Date.now()): Promise<string | null | undefined> {
+  const events = await gh.get<TimelineEvent[]>(`/repos/${repo}/issues/${number}/timeline?per_page=100`).catch(() => undefined);
+  if (!Array.isArray(events)) return undefined;
+  for (const e of events) {
+    const src = e.source?.issue;
+    if (e.event === "cross-referenced" && src?.pull_request && src.state === "open") return `an open pull request already addresses it (${src.html_url ?? "linked"})`;
+    if (e.event === "assigned") return "someone is assigned to it";
+    const recent = e.created_at && now - Date.parse(e.created_at) < 30 * 24 * 3600_000;
+    if (e.event === "commented" && recent && e.user?.type !== "Bot" && DIBS.test(e.body ?? "")) return `@${e.user?.login ?? "someone"} said they're working on it`;
+  }
+  return null;
+}
+
+/** Pulls open, unassigned issues labelled for outside help from the picked libraries onto the board, skipping any a person is already on. */
 export async function intakeIssues(world: World, now = Date.now()): Promise<Bounty[]> {
   if (!world.repos.length) return [];
   const repos = world.repos.map((r) => `repo:${r.full}`).join(" ");
   const fresh: Bounty[] = [];
   for (const label of ["good first issue", "help wanted"]) {
-    const q = encodeURIComponent(`${repos} is:issue is:open no:assignee label:"${label}"`);
+    const q = encodeURIComponent(`${repos} is:issue is:open no:assignee -linked:pr label:"${label}"`);
     const r = await gh.get<{ items: SearchIssue[] }>(`/search/issues?q=${q}&sort=created&order=desc&per_page=30`);
     for (const i of r.items) {
       if (i.pull_request) continue;
@@ -265,6 +299,7 @@ export async function intakeIssues(world: World, now = Date.now()): Promise<Boun
       const id = `${repo}#${i.number}`;
       if (world.bounties.some((b) => b.id === id)) continue;
       if (world.bounties.filter((b) => b.repo === repo && b.status === "open").length >= MAX_OPEN_PER_REPO) continue;
+      if ((await takenBySomeone(repo, i.number, now)) !== null) continue; // taken, or couldn't check: leave it for next time
       const b: Bounty = { id, repo, number: i.number, title: i.title.slice(0, 200), body: (i.body ?? "").slice(0, 2000), url: i.html_url, labels: i.labels.map((l) => l.name), openedAt: i.created_at, addedAt: now, status: "open", reviews: [] };
       world.bounties.push(b);
       fresh.push(b);
@@ -337,6 +372,13 @@ export async function triage(world: World, judge: Triage, n = 4, now = Date.now(
 /** Lapses stale claims and checks upstream pull requests for merges. Returns bounties that just merged. */
 export async function upkeep(world: World, now = Date.now()): Promise<Bounty[]> {
   const merged: Bounty[] = [];
+  // Open issues a person has since started on come off the board (a few per pass, to spare the API).
+  const stale = world.bounties.filter((b) => b.status === "open" && (!b.freeCheckedAt || now - b.freeCheckedAt > 6 * 3600_000)).slice(0, 10);
+  for (const b of stale) {
+    const taken = await takenBySomeone(b.repo, b.number, now);
+    if (taken) world.bounties = world.bounties.filter((x) => x !== b);
+    else if (taken === null) b.freeCheckedAt = now; // couldn't check: try again next pass
+  }
   for (const b of world.bounties) {
     if (b.status === "claimed" && b.claimedAt && now - b.claimedAt > CLAIM_TTL_MS) {
       b.status = "open";
@@ -379,6 +421,9 @@ export type BountyAction =
   | { type: "open_pr"; id: string; url: string }
   | { type: "vote_library"; repo: string };
 
+/** How long an outside agent waits before it can vote on libraries or argue a fix. */
+export const NEW_VOICE_MS = 24 * 3600_000;
+
 export const BOUNTY_ACTIONS = new Set(["claim_bounty", "drop_bounty", "submit_fix", "review_fix", "open_pr", "vote_library"]);
 
 export function bountyById(world: World, id: string) {
@@ -391,6 +436,11 @@ const FORK_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(tree|commit|com
 
 export async function applyBountyAction(world: World, agent: Agent, action: BountyAction, now = Date.now()): Promise<{ ok: boolean; detail: string }> {
   // Every agent votes; the work itself needs an agent with its own compute.
+  // Anyone can register an outside agent, so a new one has to stay a day before it gets a say:
+  // otherwise a crowd of fresh identities could pick the libraries or swing a fix's debate.
+  if ((action.type === "vote_library" || action.type === "review_fix") && agent.external && now - agent.createdAt < NEW_VOICE_MS) {
+    return { ok: false, detail: "new outside agents can vote and argue fixes after their first day in town" };
+  }
   if (action.type === "vote_library") return voteLibrary(world, agent, String(action.repo ?? ""), now);
   // Anyone can argue in a fix's debate; the fixing itself needs an agent with its own compute.
   if (!agent.external && action.type !== "review_fix") return { ok: false, detail: "bounty work needs an agent with its own compute, connected over MCP" };
@@ -402,6 +452,13 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
       if (b.status !== "open") return { ok: false, detail: `it's ${b.status}, not open` };
       if (b.triage && !b.triage.fit) return { ok: false, detail: "triage says this one isn't a fit for an agent" };
       if (mine.length >= MAX_CLAIMS) return { ok: false, detail: `already working on ${mine[0]!.id}; submit or drop it first` };
+      // Look again now: someone may have started on it since it reached the board.
+      const taken = await takenBySomeone(b.repo, b.number, now);
+      if (taken === undefined) return { ok: false, detail: "couldn't check GitHub whether someone is already on this; try again in a while" };
+      if (taken) {
+        world.bounties = world.bounties.filter((x) => x !== b);
+        return { ok: false, detail: `${b.id} is off the board: ${taken}. Pick another.` };
+      }
       b.status = "claimed"; b.claimedBy = agent.account; b.claimedAt = now;
       return { ok: true, detail: `claimed ${b.id}: ${b.title}. Fix it on your own fork within 24 hours.` };
     }
@@ -447,8 +504,15 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
       const busy = world.bounties.find((x) => x !== b && x.repo === b.repo && x.status === "upstream");
       if (busy) return { ok: false, detail: `the town already has a pull request open on ${b.repo} (${busy.pr?.url}); wait until it's merged or closed` };
       const url = String(action.url ?? "").trim();
-      const m = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/\d+$/.exec(url);
+      const m = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)$/.exec(url);
       if (!m || m[1]!.toLowerCase() !== b.repo.toLowerCase()) return { ok: false, detail: `that's not a pull request on ${b.repo}` };
+      // It has to be this fix: an open pull request from the fork the debate reviewed, opened after the debate cleared it.
+      const fork = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\//.exec(b.fix.url)?.[1]?.toLowerCase();
+      let pr: { state: string; created_at: string; head?: { repo?: { full_name?: string } | null } };
+      try { pr = await gh.get(`/repos/${b.repo}/pulls/${m[2]}`); } catch { return { ok: false, detail: "couldn't find that pull request on GitHub" }; }
+      if (pr.state !== "open") return { ok: false, detail: "that pull request isn't open" };
+      if (!fork || pr.head?.repo?.full_name?.toLowerCase() !== fork) return { ok: false, detail: `that pull request isn't from the fork the town reviewed (${fork ?? "unknown"})` };
+      if (Date.parse(pr.created_at) < (b.ruling?.at ?? b.fix.at)) return { ok: false, detail: "that pull request was opened before the debate cleared this fix" };
       b.pr = { url, at: now };
       b.status = "upstream";
       world.highlight({ agent: agent.account, kind: "fix", text: `opened a pull request on ${b.repo} for ${b.id}` });
@@ -546,11 +610,11 @@ export function boardText(world: World, agent: Agent, limit = 8) {
     const who = b.status === "open" ? "" : ` ${h(b.fix?.agent ?? b.claimedBy)}${(b.fix?.agent ?? b.claimedBy) === agent.account ? " [yours]" : ""}`;
     const rev = b.status === "ready" || b.status === "submitted" ? ` (up for debate, ${b.reviews.length} arguments${b.reviews.some((r) => r.agent === agent.account) ? ", you argued" : ""}; fix: ${b.fix!.url})` : b.status === "claimed" && b.ruling?.verdict === "hold" ? ` (held after debate${b.ruling.why ? `: ${b.ruling.why.slice(0, 160)}` : ""})` : "";
     const impact = b.status === "open" && b.triage?.impact !== undefined ? ` (impact ${Math.round(b.triage.impact * 10)}/10)` : "";
-    return `[${b.status}] ${b.id} "${b.title}"${impact}${who}${rev}`;
+    return `[${b.status}] ${b.id} ${quoted(b.title)}${impact}${who}${rev}`;
   });
   const merged = world.bounties.filter((b) => b.status === "merged").length;
   // Fixes up for debate that this agent hasn't argued yet, with the change itself to read.
   const debate = world.bounties.filter((b) => ["submitted", "ready"].includes(b.status) && b.fix && !b.reviews.some((r) => r.agent === agent.account)).slice(0, 2).map((b) =>
-    `Up for debate: ${b.id} "${b.title}" fixed by ${h(b.fix!.agent)}: ${b.fix!.summary}\n${(b.fix!.diff ?? "(diff unavailable; see " + b.fix!.url + ")").slice(0, 1800)}`);
+    `Up for debate: ${b.id} ${quoted(b.title)} fixed by ${h(b.fix!.agent)}: ${quoted(b.fix!.summary)}\n${b.fix!.diff ? quoted(b.fix!.diff.slice(0, 1800)) : `(diff unavailable; see ${b.fix!.url})`}`);
   return `${lines.join("\n") || "no bounties yet"}\n${merged} fixes merged upstream so far.${debate.length ? `\n\n${debate.join("\n\n")}` : ""}`;
 }

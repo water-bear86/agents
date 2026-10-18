@@ -1,7 +1,7 @@
 import { PRESETS } from "@agents/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyAction } from "./actions.js";
-import { CLAIM_TTL_MS, DEBATE_MS, STANDING, ballotText, fixJudge, settleDebates, boardText, findCandidates, guessImpact, intakeIssues, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, vetSome, type Bounty, type GitHub, type Repo } from "./bounties.js";
+import { CLAIM_TTL_MS, DEBATE_MS, takenBySomeone, STANDING, ballotText, fixJudge, settleDebates, boardText, findCandidates, guessImpact, intakeIssues, refusesAI, setRepos, triage, triageJudge, upkeep, useGitHub, vetSome, type Bounty, type GitHub, type Repo } from "./bounties.js";
 import { SimChain } from "./chain.js";
 import { World, standingOf, type Agent } from "./world.js";
 
@@ -30,14 +30,19 @@ const FIX = "https://github.com/fixer/lib/tree/fix-7";
 
 describe("bounties", () => {
   let world: World, chain: SimChain, fixer: Agent, r1: Agent, r2: Agent;
+  /** Pull request 99 as GitHub reports it: opened from the fixer's fork, merged later in the test. */
+  let pr99: Record<string, unknown>;
   beforeEach(() => {
     world = new World();
     chain = new SimChain();
     fixer = mk("fixer"); r1 = mk("rev1"); r2 = mk("rev2");
     for (const a of [fixer, r1, r2]) world.agents.set(a.account, a);
     world.bounties.push(bounty());
-    useGitHub(fakeGitHub({ "/repos/fixer/lib": { fork: true, parent: { full_name: "acme/lib" } }, "/repos/acme/lib": { default_branch: "main" },
-      "/repos/acme/lib/compare/main...fixer:fix-7": { files: [{ filename: "src/parser.ts", additions: 3, deletions: 1, patch: "@@ -10 +10,3 @@\n-  if (s.endsWith(\",\")) s = s.slice(0, -1);\n+  // keep trailing commas" }] }, "/repos/acme/lib/pulls/99": { state: "closed", merged_at: "2026-10-16T00:00:00Z" } }, [FIX]));
+    pr99 = { state: "open", created_at: new Date(Date.now() + 3_600_000).toISOString(), head: { repo: { full_name: "fixer/lib" } } };
+    useGitHub(fakeGitHub({ "/repos/fixer/lib": { fork: true, parent: { full_name: "acme/lib" } }, "/repos/acme/lib": { default_branch: "main" }, "/repos/acme/lib/issues/7/timeline": [],
+      "/repos/acme/lib/compare/main...fixer:fix-7": { files: [{ filename: "src/parser.ts", additions: 3, deletions: 1, patch: "@@ -10 +10,3 @@\n-  if (s.endsWith(\",\")) s = s.slice(0, -1);\n+  // keep trailing commas" }] }, "/repos/acme/lib/pulls/99": pr99,
+      "/repos/acme/lib/pulls/98": { state: "open", created_at: new Date(Date.now() + 3_600_000).toISOString(), head: { repo: { full_name: "someone/lib" } } },
+      "/repos/acme/lib/pulls/97": { state: "open", created_at: "2020-01-01T00:00:00Z", head: { repo: { full_name: "fixer/lib" } } } }, [FIX]));
   });
 
   const act = (a: Agent, action: Parameters<typeof applyAction>[4]) => applyAction(world, chain, chain, a, action);
@@ -63,13 +68,54 @@ describe("bounties", () => {
     expect(b.ruling?.verdict).toBe("ship");
     expect((await act(r1, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/99" })).ok).toBe(false);
     expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/other/lib/pull/99" })).ok).toBe(false);
+    // Only a pull request GitHub shows is from the reviewed fork, opened after the debate cleared it.
+    expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/98" })).detail).toMatch(/isn't from the fork the town reviewed/);
+    expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/97" })).detail).toMatch(/opened before the debate cleared/);
+    expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/96" })).ok).toBe(false);
     expect((await act(fixer, { type: "open_pr", id: b.id, url: "https://github.com/acme/lib/pull/99" })).ok).toBe(true);
+    Object.assign(pr99, { state: "closed", merged_at: "2026-10-16T00:00:00Z" });
     expect(standingOf(world).get(fixer.account)?.parts["fixes cleared"]).toBe(STANDING.approved);
     const merged = await upkeep(world);
     expect(merged.map((x) => x.id)).toEqual(["acme/lib#7"]);
     const s = standingOf(world);
     expect(s.get(fixer.account)?.parts["fixes merged"]).toBe(STANDING.merged);
     expect(s.get(managed.account)?.parts["reviews that held up"]).toBe(STANDING.reviewMerged);
+  });
+
+  it("gives new outside agents a say only after their first day", async () => {
+    await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
+    await act(fixer, { type: "submit_fix", id: "acme/lib#7", url: FIX, summary: "Keeps trailing commas; added a test for it" });
+    const fresh = { ...mk("fresh"), createdAt: Date.now() };
+    world.agents.set(fresh.account, fresh);
+    expect((await act(fresh, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "looks right to me, the test covers it" })).detail).toMatch(/after their first day/);
+    expect((await act(fresh, { type: "vote_library", repo: "acme/lib" })).detail).toMatch(/after their first day/);
+    fresh.createdAt = Date.now() - 25 * 3600_000;
+    expect((await act(fresh, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "looks right to me, the test covers it" })).ok).toBe(true);
+  });
+
+  it("leaves issues a person is already on: an open pull request, an assignee, or someone who said they're taking it", async () => {
+    const day = 24 * 3600_000, now = Date.now();
+    const at = (ago: number) => new Date(now - ago).toISOString();
+    useGitHub(fakeGitHub({
+      "/repos/acme/lib/issues/1/timeline": [{ event: "cross-referenced", source: { issue: { state: "open", pull_request: {}, html_url: "https://github.com/acme/lib/pull/50" } } }],
+      "/repos/acme/lib/issues/2/timeline": [{ event: "cross-referenced", source: { issue: { state: "closed", pull_request: {} } } }, { event: "commented", created_at: at(day), user: { login: "a" }, body: "Thanks for the report!" }],
+      "/repos/acme/lib/issues/3/timeline": [{ event: "commented", created_at: at(2 * day), user: { login: "dev" }, body: "I'd like to work on this one if that's ok" }],
+      "/repos/acme/lib/issues/4/timeline": [{ event: "commented", created_at: at(90 * day), user: { login: "dev" }, body: "I'll take this" }],
+      "/repos/acme/lib/issues/5/timeline": [{ event: "assigned" }],
+    }));
+    expect(await takenBySomeone("acme/lib", 1, now)).toMatch(/open pull request/);
+    expect(await takenBySomeone("acme/lib", 2, now)).toBeNull(); // a closed PR and a plain comment don't count
+    expect(await takenBySomeone("acme/lib", 3, now)).toMatch(/@dev said they're working on it/);
+    expect(await takenBySomeone("acme/lib", 4, now)).toBeNull(); // dibs from three months ago have gone cold
+    expect(await takenBySomeone("acme/lib", 5, now)).toMatch(/assigned/);
+  });
+
+  it("takes an issue off the board when someone started on it after intake", async () => {
+    useGitHub(fakeGitHub({ "/repos/acme/lib/issues/7/timeline": [{ event: "cross-referenced", source: { issue: { state: "open", pull_request: {}, html_url: "https://github.com/acme/lib/pull/51" } } }] }));
+    const r = await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/off the board: an open pull request/);
+    expect(world.bounties.find((b) => b.id === "acme/lib#7")).toBeUndefined();
   });
 
   it("holds a fix the debate goes against, and allows one pull request per library at a time", async () => {
@@ -128,6 +174,7 @@ describe("bounties", () => {
       "/repos/good/lib/contributors": [{ login: "maintainer" }],
       "/repos/strict/lib/contents/CONTRIBUTING.md": { content: b64("Please note: we do not accept AI-generated pull requests."), encoding: "base64" },
       "/repos/named/lib": search("named/lib"),
+      "/repos/good/lib/issues/3/timeline": [],
       "/search/issues": { items: [{ number: 3, title: "Crash when the config file is empty", body: "b", html_url: "https://github.com/good/lib/issues/3", labels: [{ name: "bug" }, { name: "good first issue" }], created_at: "", repository_url: "https://api.github.com/repos/good/lib" }] },
     }));
     expect(await refusesAI("strict/lib")).toBe(true);

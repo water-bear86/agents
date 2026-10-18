@@ -85,7 +85,7 @@ describe("chain-aware rules", () => {
   });
 
   it("XP counts profit in thousandths of the chain's coin and names it", () => {
-    const base = { counters: emptyCounters(), closes: [], volumeWei: 0n, trades: 0, coinsLaunched: 0, coinsOpened: 0, jevPicks: 0, callsRight: 0, debatesWon: 0, likesReceived: 0, followers: 0 };
+    const base = { counters: emptyCounters(), closes: [], volumeWei: 0n, trades: 0, jevPicks: 0, callsRight: 0, debatesWon: 0, likesReceived: 0, followers: 0 };
     expect(progress({ ...base, realizedWei: 5n * milliNative(SOLANA_UNITS) }, SOLANA_UNITS).xp).toBe(5);
     expect(progress({ ...base, realizedWei: 5n * milliNative(SOLANA_UNITS) }).xp).toBe(0); // the same lamports are dust in wei
     expect(progress({ ...base, realizedWei: 0n }, SOLANA_UNITS).badges.find((b) => b.id === "heavy_hitter")!.how).toBe("Trade 1 SOL in total volume");

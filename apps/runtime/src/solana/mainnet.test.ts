@@ -1,55 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { Keypair, PublicKey } from "@solana/web3.js";
-import { SQUADS_V4, configProblems, loadConfig, squadsVault, type MainnetConfig } from "./mainnet.js";
+import { Keypair } from "@solana/web3.js";
+import { configProblems, loadConfig, type MainnetConfig } from "./mainnet.js";
 
 const addr = () => Keypair.generate().publicKey.toBase58();
-const filled = (): MainnetConfig => {
-  const c = loadConfig();
-  return {
-    ...c,
-    deployer: { keypair: "usb://ledger" },
-    multisig: { address: addr(), vaultIndex: 0 },
-    platform: { ...c.platform, inference: addr(), buyback: addr(), leftoverReceiver: addr() },
-    runtime: { sessionKeyPublic: addr() },
-  };
-};
+const filled = (): MainnetConfig => ({ ...loadConfig(), owner: addr(), runtime: { sessionKeyPublic: addr() } });
 
 describe("mainnet settings", () => {
-  it("the checked-in template lists exactly the owner's open decisions", () => {
-    const problems = configProblems(loadConfig());
-    expect(problems).toEqual(expect.arrayContaining([
-      "platform.inference must be a wallet address", "multisig.address must be the Squads multisig", "deployer.keypair must point at the mainnet deployer",
-    ]));
-    expect(problems.some((p) => p.includes("Threshold"))).toBe(false); // the suggested thresholds are consistent
+  it("the checked-in config is complete", () => {
+    expect(configProblems(loadConfig())).toEqual([]);
+    expect(configProblems({ ...loadConfig(), owner: "" })).toEqual(["owner must be the owner's wallet address (the future upgrade authority and admin)"]);
   });
 
   it("a filled-in config passes", () => {
     expect(configProblems(filled())).toEqual([]);
   });
 
-  it("refuses an open threshold at or above graduation (DBC drops the hook at graduation)", () => {
+  it("wants a whitelist of real, distinct mints, each with a Pyth feed", () => {
     const c = filled();
-    c.platform.openThresholdSol = c.platform.migrationThresholdSol;
-    expect(configProblems(c)).toContain("platform.openThresholdSol must be below migrationThresholdSol (DBC removes the hook at graduation)");
+    const feed = "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
+    expect(configProblems({ ...c, whitelist: [] })).toContain("whitelist needs at least one token");
+    expect(configProblems({ ...c, whitelist: [{ symbol: "X", mint: "nope", feed }] })).toContain("whitelist X: mint nope is not an address");
+    expect(configProblems({ ...c, whitelist: [{ symbol: "X", mint: addr(), feed: "abc" }] })).toContain("whitelist X: feed must be a Pyth feed id");
+    const m = addr();
+    expect(configProblems({ ...c, whitelist: [{ symbol: "A", mint: m, feed }, { symbol: "B", mint: m, feed }] })).toContain("whitelist has duplicates");
   });
 
-  it("wants different inference and buyback wallets, and a hold amount when slot gating is on", () => {
-    const c = filled();
-    c.platform.buyback = c.platform.inference;
-    c.platform.platformMint = addr();
-    c.platform.holdPerSlot = "0";
-    expect(configProblems(c)).toEqual(expect.arrayContaining([
-      "platform.inference and platform.buyback should be different wallets", "platform.holdPerSlot must be positive when slot gating is on",
-    ]));
-  });
-});
-
-describe("Squads vault", () => {
-  it("derives an off-curve PDA per multisig and index, under the Squads v4 program", () => {
-    const ms = Keypair.generate().publicKey;
-    const v0 = squadsVault(ms, 0);
-    expect(PublicKey.isOnCurve(v0.toBytes())).toBe(false);
-    expect(squadsVault(ms, 1).equals(v0)).toBe(false);
-    expect(v0.equals(PublicKey.findProgramAddressSync([Buffer.from("multisig"), ms.toBuffer(), Buffer.from("vault"), Buffer.from([0])], SQUADS_V4)[0])).toBe(true);
+  it("keeps the oracle settings inside what the program accepts", () => {
+    expect(configProblems({ ...filled(), oracle: { maxAgeSeconds: 0, maxSlippageBps: 300 } })).toContain("oracle.maxAgeSeconds must be 1 to 120");
+    expect(configProblems({ ...filled(), oracle: { maxAgeSeconds: 600, maxSlippageBps: 300 } })).toContain("oracle.maxAgeSeconds must be 1 to 120");
+    expect(configProblems({ ...filled(), oracle: { maxAgeSeconds: 60, maxSlippageBps: 1000 } })).toContain("oracle.maxSlippageBps must be 0 to 500");
   });
 });

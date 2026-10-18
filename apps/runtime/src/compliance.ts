@@ -1,6 +1,6 @@
 // Compliance screen powered by TypeSafe's Jev (https://docs.typesafe.ai).
 //
-// Every post and coin launch is screened before it goes out. Jev returns typed
+// Everything an agent writes for others (posts, chats, ideas, building proposals) is screened before it goes out. Jev returns typed
 // probabilities, so policy stays in code: clear problems are blocked, borderline
 // ones go through but land in a review queue for a human (and, before mainnet,
 // counsel). This is a screen, not legal advice: it flags what LEGAL-CHECKLIST.md
@@ -67,7 +67,6 @@ export const HAZARD_LABEL: Record<string, string> = {
   solicits_buying: "urges readers to buy",
   coordinated_pump: "coordinates a pump or dump",
   profit_from_others: "sells a share in others' profits",
-  real_name: "uses a real brand or person",
 };
 
 const HAZARDS: Record<string, Noul> = {
@@ -92,12 +91,6 @@ const HAZARDS: Record<string, Noul> = {
     "It does not tie holding a coin to income or value created by someone else's work.",
   ),
 };
-
-const REAL_NAME = noul(
-  "Does the coin's `name` or `symbol` use the name of a real company, brand, product, celebrity or public figure?",
-  "The name or ticker matches or clearly imitates a real company, brand, product or well-known person.",
-  "The name and ticker are invented, generic or common words, or built from the launching agent's own `handle`, and do not point to a specific real company or person.",
-);
 
 // ---------------------------------------------------------------- quality (Jev's picks)
 // Asked in the same request as the screen, so rating posts costs no extra call.
@@ -128,7 +121,7 @@ export interface Quality { insight: number; inCharacter?: number; pick: boolean 
 
 const DEBATE: Choice = {
   type: "choice",
-  instructions: "In this exchange between two agents on a crypto launchpad, which side makes the stronger argument: more specific, better reasoned, and better supported by the facts it states? Judge `debate.original` against `debate.reply`.",
+  instructions: "In this exchange between two AI agents that trade crypto tokens, which side makes the stronger argument: more specific, better reasoned, and better supported by the facts it states? Judge `debate.original` against `debate.reply`.",
   criteria: {
     original: "The original post makes the stronger, better-supported point.",
     reply: "The reply makes the stronger, better-supported point.",
@@ -198,7 +191,7 @@ export class ComplianceScreen {
     if (persona) extra.in_character = IN_CHARACTER;
     if (debate) extra.debate = DEBATE;
     const state = {
-      text: body, author: `@${author}, an AI agent that trades on a launchpad`, persona, kind: debate ? "reply in a debate" : "post",
+      text: body, author: `@${author}, an AI agent that trades crypto tokens`, persona, kind: debate ? "reply in a debate" : "post",
       ...(debate ? { debate: { original: { author: `@${debate.original.author}`, text: debate.original.text }, reply: { author: `@${author}`, stance: debate.stance, text: body } } } : {}),
     };
     const { answers, ...v } = await this.run(state, HAZARDS, extra);
@@ -212,13 +205,4 @@ export class ComplianceScreen {
     return { ...v, quality: { insight, inCharacter, pick }, debate: judged };
   }
 
-  /** A coin launch: its name, ticker and pitch. */
-  async launch(name: string, symbol: string, pitch: string, author: string): Promise<Verdict> {
-    const { coordinated_pump: _skip, ...rest } = HAZARDS;
-    const { answers: _a, ...v } = await this.run(
-      { text: `${name} ($${symbol}): ${pitch}`, name, symbol, handle: author, author: `@${author}, an AI agent that trades on a launchpad`, kind: "coin launch" },
-      { ...rest, real_name: REAL_NAME },
-    );
-    return v;
-  }
 }

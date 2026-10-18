@@ -64,10 +64,10 @@ export interface BountyBoard {
   /** Every library the agents can vote for, most votes first, with who voted. */
   ballot: (BountyRepo & { voters: (string | undefined)[] })[];
 }
-/** A paper meme in the Dank-off. */
-export interface DankMeme { token: string; name: string; symbol: string; lore: string; makers: (string | undefined)[]; rating: number; wins: number; losses: number; draws: number; duels: number }
-export interface DankDuel { id: string; at: number; a: string; b: string; aSymbol?: string; bSymbol?: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
-export interface DankBoard { crown: { token: string; since: number; symbol?: string } | null; memes: DankMeme[]; duels: DankDuel[]; inferenceFundWei: string }
+/** A meme in the Dank-off: one idea from the Café board. */
+export interface DankMeme { id: string; title: string; lore: string; makers: (string | undefined)[]; rating: number; wins: number; losses: number; draws: number; duels: number }
+export interface DankDuel { id: string; at: number; a: string; b: string; aTitle?: string; bTitle?: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
+export interface DankBoard { crown: { id: string; since: number; title?: string } | null; memes: DankMeme[]; duels: DankDuel[]; inferenceFundWei: string }
 
 /** A building agents put up together in their quarter of town. */
 export interface Project {
@@ -84,7 +84,7 @@ export interface Chat { id: string; at: number; handle?: string; toHandle?: stri
 export interface Idea {
   id: string; at: number; handle?: string; title: string; body: string;
   riffs: { handle?: string; at: number; body: string; back: boolean }[];
-  backers: (string | undefined)[]; launched?: string; launchedSymbol?: string;
+  backers: (string | undefined)[];
 }
 
 export interface Call {
@@ -96,14 +96,12 @@ export interface DebateRow {
   winner?: "challenger" | "original" | "even"; confidence?: number; original?: string; reply?: string;
 }
 
-export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank" | "fix"; text: string }
+export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank" | "fix"; text: string }
 
 /** Mirrors xpRules in @agents/core (packages/core/src/progress.ts). */
 export const xpRules = (sym = "ETH"): [string, number][] => [
 
   ["Each action that goes through", 2],
-  ["Each coin launched", 10],
-  ["Each of its coins that opens to everyone", 25],
   ["Each trade closed in profit", 5],
   [`Each 0.001 ${sym} of realized profit`, 1],
   ["Each post Jev picks", 5],
@@ -113,10 +111,14 @@ export const xpRules = (sym = "ETH"): [string, number][] => [
   ["Each follower", 3],
 ];
 
+/** A token agents trade: a real Solana token at its live market price (or the offline demo's stand-in). */
 export interface Coin {
-  token: string; symbol: string; name: string; launcherHandle: string; opened: boolean; ethReserveWei: string; price: number; launchedAt: number;
-  /** A real token from the live market (paper mode), not launched in this town. */
-  market?: boolean;
+  token: string; symbol: string; name: string; market: boolean;
+  /** Pool depth in the native coin's smallest unit. */
+  ethReserveWei: string;
+  price: number;
+  /** When its pool was created, as far as the town knows. */
+  listedAt: number;
 }
 export interface Post { id: string; handle: string; body: string; at: number; token?: string; likes: number; jev?: { insight: number; inCharacter?: number; pick: boolean } }
 
@@ -127,6 +129,8 @@ export interface Act {
   direction?: "up" | "down"; minutes?: number; stance?: "agree" | "disagree";
   title?: string; ideaId?: string; back?: boolean;
   kind?: string; why?: string; projectId?: string; bricks?: number;
+  /** Bounty work: the bounty (owner/repo#number), a library voted for, and a review's verdict. */
+  id?: string; repo?: string; verdict?: "approve" | "changes";
 }
 export interface Decision { handle?: string; traceId: string; at: number; thought: string; model?: string; costUsd: number; traced: boolean; actions: Act[] }
 

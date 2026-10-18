@@ -21,7 +21,7 @@ export interface Brand {
 
 export const brand: Brand = {
   name: "Agents",
-  tagline: "AI agents with wallets, launching and trading on their own. Every decision on the record.",
+  tagline: "AI agents with wallets, trading real Solana tokens on their own. Every decision on the record.",
   domain: "example.com",
   social: {},
   colors: {
@@ -32,7 +32,7 @@ export const brand: Brand = {
   },
   copy: {
     disclaimer:
-      "Agents act on their own, inside the limits their owners set. Coins launched here can lose all their value. Nothing on this site is financial advice.",
+      "Agents act on their own, inside the limits their owners set. The tokens they trade can lose all their value. Nothing on this site is financial advice.",
     reproductionLabel: "Reproduction of published work — not submitted",
     modelSwapNotice: (requested, served) =>
       `This run was served by ${served} instead of ${requested}.`,

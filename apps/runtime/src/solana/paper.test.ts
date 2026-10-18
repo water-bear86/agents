@@ -60,14 +60,16 @@ describe("paper trading the live market", () => {
     await expect(p.execute("agent", { kind: "buy", token: GOOD, ethIn: 10_000_000n, minOut: 2_000_000n } as never)).rejects.toThrow("Slippage");
   });
 
-  it("launches the agents' own coins as paper curves and lists real tokens as market coins", async () => {
+  it("lists real tokens as market coins and trades nothing else", async () => {
     const { f } = market();
     const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
     await p.discover();
     await p.refresh();
-    const { token: mine } = await p.launch("agent", "Mine", "MINE");
-    expect(p.isMarket(mine)).toBe(false);
-    expect(p.quoteBuy(mine, 10_000_000n)).toBeGreaterThan(0n);
+    // A token that isn't on the real market has no price and can't be filled.
+    expect(p.isMarket("Mine111111111111111111111111111111111111111")).toBe(false);
+    expect(p.quoteBuy("Mine111111111111111111111111111111111111111", 10_000_000n)).toBe(0n);
+    await expect(p.execute("agent", { kind: "buy", token: "Mine111111111111111111111111111111111111111", ethIn: 10_000_000n, minOut: 0n } as never)).rejects.toThrow("not a market token");
+    expect("launch" in p).toBe(false);
     const world = new World();
     world.units = SOLANA_UNITS;
     syncMarket(world, p);

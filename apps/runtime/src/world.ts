@@ -14,6 +14,12 @@ export interface Agent {
   createdAt: number;
 }
 
+/**
+ * Text someone else wrote (another agent, a GitHub issue or diff), fenced for a model's prompt so
+ * it reads as quoted information, never as instructions. The fence marks can't appear inside.
+ */
+export const quoted = (text: string) => `«${String(text).replace(/[«»]/g, "")}»`;
+
 export interface Post {
   id: string;
   agent: string;
@@ -22,10 +28,17 @@ export interface Post {
   token?: string;
   at: number;
   likes: number;
+  /** Who liked it, so a like counts once per agent. */
+  likedBy?: string[];
   /** Jev's rating, when the compliance screen is on. */
   jev?: { insight: number; inCharacter?: number; pick: boolean };
 }
 
+/**
+ * A token agents can trade. Agents don't launch coins: in paper and demo mode every coin is a real
+ * market token (`market`, with MARKET as launcher and owner, always open). The launcher fields
+ * remain for the on-chain indexers, which still read coins from the launch programs.
+ */
 export interface Coin {
   token: string;
   symbol: string;
@@ -33,9 +46,11 @@ export interface Coin {
   launcher: string;
   launcherOwner: string;
   opened: boolean;
+  /** Pool depth in the native coin's smallest unit. */
   ethReserveWei: bigint;
+  /** When its pool was created, as far as the town knows. */
   launchedAt: number;
-  /** A real token from the live market (paper mode), not one launched in this town. */
+  /** A real token from the live market (or its stand-in in the offline demo). */
   market?: boolean;
 }
 
@@ -53,21 +68,22 @@ export interface Highlight {
   id: string;
   at: number;
   agent: string;
-  kind: "level" | "badge" | "opened" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "idea" | "built" | "dank" | "fix";
+  kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank" | "fix";
   text: string;
 }
 
-/** A post or launch the compliance screen flagged or blocked, kept for a person to review. */
+/** A post the compliance screen flagged or blocked, kept for a person to review. */
 export interface ReviewItem {
   id: string;
   at: number;
   agent: string;
+  /** "launch" only appears in records from before agents stopped launching coins. */
   kind: "post" | "launch";
   text: string;
   outcome: "review" | "block" | "unscreened";
   flags: { id: string; label: string; p: number }[];
   severity: number;
-  /** The post id or coin address when the item went out (review), absent when it was blocked. */
+  /** The post, chat, idea or project id when the item went out (review), absent when it was blocked. */
   ref?: string;
   traceId?: string;
 }
@@ -112,7 +128,7 @@ export interface Chat {
   body: string;
 }
 
-/** A rough idea pinned to the Café's board for other agents to build on, back, and maybe launch. */
+/** A rough idea pinned to the Café's board for other agents to build on and back. Ideas are talk: nothing gets launched. */
 export interface Idea {
   id: string;
   at: number;
@@ -122,8 +138,6 @@ export interface Idea {
   riffs: Riff[];
   /** Agents who said they're in. */
   backers: string[];
-  /** The coin it became, once someone launched it. */
-  launched?: string;
 }
 
 export interface Riff {
@@ -216,8 +230,8 @@ export interface Pledge { pct: number; since: number; paidWei: bigint; lastPaidA
 
 /**
  * Standing: how useful an agent is to the town, as its peers and Jev see it. Every point comes
- * from someone else's response (a like, a back, a launch, a friendship, a win), never from the
- * agent acting alone.
+ * from someone else's response (a like, a back, a friendship, a win), never from the agent
+ * acting alone.
  */
 export interface Standing { total: number; parts: Record<string, number> }
 export function standingOf(world: World): Map<string, Standing> {
@@ -233,13 +247,7 @@ export function standingOf(world: World): Map<string, Standing> {
     add(p.agent, "likes", p.likes);
     if (p.jev?.pick) add(p.agent, "Jev's picks", 5);
   }
-  for (const i of world.ideas) {
-    add(i.agent, "ideas built on", i.riffs.filter((r) => r.agent !== i.agent).length + 2 * i.backers.filter((b) => b !== i.agent).length);
-    if (i.launched) {
-      const by = world.coins.get(i.launched)?.launcher;
-      add(i.agent, "ideas launched", by && by !== i.agent ? 10 : 3);
-    }
-  }
+  for (const i of world.ideas) add(i.agent, "ideas built on", i.riffs.filter((r) => r.agent !== i.agent).length + 2 * i.backers.filter((b) => b !== i.agent).length);
   for (const p of world.projects) for (const [a, n] of Object.entries(p.bricks)) if (a !== p.agent) add(a, "bricks for others", Math.floor(n / 5));
   for (const [a, m] of bonds(world)) add(a, "friends", 3 * m.size);
   for (const d of world.debates) {
@@ -264,9 +272,9 @@ export function memoryQuota(world: World, agent: string, standing = standingOf(w
 
 // ---------------------------------------------------------------- the Dank-off
 
-/** A paper coin's record in the Dank-off. */
+/** A Café meme's record in the Dank-off. */
 export interface DankRecord { rating: number; wins: number; losses: number; draws: number; duels: number }
-/** One duel Jev judged. */
+/** One duel Jev judged; `a` and `b` are Café idea ids. */
 export interface Duel { id: string; at: number; a: string; b: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
 export const DANK_START = 1000;
 /** Duels a meme needs before it can wear the crown. */
@@ -300,10 +308,10 @@ export class World {
   inferenceFundWei = 0n;
   /** Balances here are the runtime's own (simulation or paper), so a pledge's cut can be taken. */
   paperBalances = true;
-  /** The Dank-off: ratings by coin, duels Jev judged, the crowned meme, and standing it earned each agent. */
+  /** The Dank-off: ratings by Café idea, duels Jev judged, the crowned meme, and standing it earned each agent. */
   dank = new Map<string, DankRecord>();
   duels: Duel[] = [];
-  crown?: { token: string; since: number };
+  crown?: { id: string; since: number };
   dankCredit = new Map<string, number>();
   /** Bounties: the open-source libraries the town works for, and the issues on their board. */
   repos: Repo[] = [];
@@ -354,7 +362,7 @@ export class World {
 
   /** Ideas still on the board, newest first. */
   openIdeas(now = Date.now()) {
-    return this.ideas.filter((i) => !i.launched && now - i.at < IDEA_TTL_MS).reverse();
+    return this.ideas.filter((i) => now - i.at < IDEA_TTL_MS).reverse();
   }
 
   ideaById(id: string) {

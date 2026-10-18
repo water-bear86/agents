@@ -338,7 +338,7 @@ legend + * { clear: both; }
 .hl:last-child { border-bottom: 0; }
 .hl time { font-size: 12.5px; white-space: nowrap; }
 .hl-glyph { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 800; background: color-mix(in oklab, var(--signal) 14%, transparent); color: var(--signal); margin-top: 1px; }
-.hl-big_win .hl-glyph, .hl-opened .hl-glyph { background: color-mix(in oklab, var(--gain) 16%, transparent); color: var(--gain); }
+.hl-big_win .hl-glyph { background: color-mix(in oklab, var(--gain) 16%, transparent); color: var(--gain); }
 .hl .who { vertical-align: middle; }
 
 .move { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
@@ -455,6 +455,16 @@ legend + * { clear: both; }
 .vault-panel { margin: 18px 0; padding: 14px 18px; }
 .vault-panel h2 { font-size: 18px; margin: 0 0 6px; }
 .vault-panel .withdraw { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.vault-tokens { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.vault-tokens li { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.admin-grid { display: grid; gap: 18px; }
+.admin-grid .panel { padding: 14px 18px; }
+.admin-grid dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 8px 0 12px; }
+.admin-grid dt { color: var(--muted, #777); }
+.admin-grid dd { margin: 0; overflow-wrap: anywhere; }
+.admin-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 6px; }
+.admin-list li { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.admin-form { display: grid; gap: 8px; max-width: 640px; }
 .vault-panel .withdraw .prefixed { flex: 1 1 180px; max-width: 260px; }
 
 /* ---------------------------------------------------------------- world: the illustrated model
