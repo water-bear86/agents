@@ -269,11 +269,12 @@ const DIBS = /\b(i'?ll|i will|i'?m|i am|i'?d like to|let me|can i|could i|may i)
 /**
  * Whether a person is already on an issue: an open pull request that mentions it, or someone who
  * said in the last 30 days that they're taking it. The town works only where nobody else is, so
- * maintainers never get a second pull request for the same issue from us.
+ * maintainers never get a second pull request for the same issue from us. Undefined when GitHub
+ * couldn't be asked (rate limit, outage): callers treat that as "not known to be free".
  */
-export async function takenBySomeone(repo: string, number: number, now = Date.now()): Promise<string | null> {
-  const events = await gh.get<TimelineEvent[]>(`/repos/${repo}/issues/${number}/timeline?per_page=100`).catch(() => null);
-  if (!Array.isArray(events)) return null;
+export async function takenBySomeone(repo: string, number: number, now = Date.now()): Promise<string | null | undefined> {
+  const events = await gh.get<TimelineEvent[]>(`/repos/${repo}/issues/${number}/timeline?per_page=100`).catch(() => undefined);
+  if (!Array.isArray(events)) return undefined;
   for (const e of events) {
     const src = e.source?.issue;
     if (e.event === "cross-referenced" && src?.pull_request && src.state === "open") return `an open pull request already addresses it (${src.html_url ?? "linked"})`;
@@ -298,7 +299,7 @@ export async function intakeIssues(world: World, now = Date.now()): Promise<Boun
       const id = `${repo}#${i.number}`;
       if (world.bounties.some((b) => b.id === id)) continue;
       if (world.bounties.filter((b) => b.repo === repo && b.status === "open").length >= MAX_OPEN_PER_REPO) continue;
-      if (await takenBySomeone(repo, i.number, now)) continue;
+      if ((await takenBySomeone(repo, i.number, now)) !== null) continue; // taken, or couldn't check: leave it for next time
       const b: Bounty = { id, repo, number: i.number, title: i.title.slice(0, 200), body: (i.body ?? "").slice(0, 2000), url: i.html_url, labels: i.labels.map((l) => l.name), openedAt: i.created_at, addedAt: now, status: "open", reviews: [] };
       world.bounties.push(b);
       fresh.push(b);
@@ -374,8 +375,9 @@ export async function upkeep(world: World, now = Date.now()): Promise<Bounty[]> 
   // Open issues a person has since started on come off the board (a few per pass, to spare the API).
   const stale = world.bounties.filter((b) => b.status === "open" && (!b.freeCheckedAt || now - b.freeCheckedAt > 6 * 3600_000)).slice(0, 10);
   for (const b of stale) {
-    if (await takenBySomeone(b.repo, b.number, now)) world.bounties = world.bounties.filter((x) => x !== b);
-    else b.freeCheckedAt = now;
+    const taken = await takenBySomeone(b.repo, b.number, now);
+    if (taken) world.bounties = world.bounties.filter((x) => x !== b);
+    else if (taken === null) b.freeCheckedAt = now; // couldn't check: try again next pass
   }
   for (const b of world.bounties) {
     if (b.status === "claimed" && b.claimedAt && now - b.claimedAt > CLAIM_TTL_MS) {
@@ -452,6 +454,7 @@ export async function applyBountyAction(world: World, agent: Agent, action: Boun
       if (mine.length >= MAX_CLAIMS) return { ok: false, detail: `already working on ${mine[0]!.id}; submit or drop it first` };
       // Look again now: someone may have started on it since it reached the board.
       const taken = await takenBySomeone(b.repo, b.number, now);
+      if (taken === undefined) return { ok: false, detail: "couldn't check GitHub whether someone is already on this; try again in a while" };
       if (taken) {
         world.bounties = world.bounties.filter((x) => x !== b);
         return { ok: false, detail: `${b.id} is off the board: ${taken}. Pick another.` };

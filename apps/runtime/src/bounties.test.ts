@@ -39,7 +39,7 @@ describe("bounties", () => {
     for (const a of [fixer, r1, r2]) world.agents.set(a.account, a);
     world.bounties.push(bounty());
     pr99 = { state: "open", created_at: new Date(Date.now() + 3_600_000).toISOString(), head: { repo: { full_name: "fixer/lib" } } };
-    useGitHub(fakeGitHub({ "/repos/fixer/lib": { fork: true, parent: { full_name: "acme/lib" } }, "/repos/acme/lib": { default_branch: "main" },
+    useGitHub(fakeGitHub({ "/repos/fixer/lib": { fork: true, parent: { full_name: "acme/lib" } }, "/repos/acme/lib": { default_branch: "main" }, "/repos/acme/lib/issues/7/timeline": [],
       "/repos/acme/lib/compare/main...fixer:fix-7": { files: [{ filename: "src/parser.ts", additions: 3, deletions: 1, patch: "@@ -10 +10,3 @@\n-  if (s.endsWith(\",\")) s = s.slice(0, -1);\n+  // keep trailing commas" }] }, "/repos/acme/lib/pulls/99": pr99,
       "/repos/acme/lib/pulls/98": { state: "open", created_at: new Date(Date.now() + 3_600_000).toISOString(), head: { repo: { full_name: "someone/lib" } } },
       "/repos/acme/lib/pulls/97": { state: "open", created_at: "2020-01-01T00:00:00Z", head: { repo: { full_name: "fixer/lib" } } } }, [FIX]));
@@ -174,6 +174,7 @@ describe("bounties", () => {
       "/repos/good/lib/contributors": [{ login: "maintainer" }],
       "/repos/strict/lib/contents/CONTRIBUTING.md": { content: b64("Please note: we do not accept AI-generated pull requests."), encoding: "base64" },
       "/repos/named/lib": search("named/lib"),
+      "/repos/good/lib/issues/3/timeline": [],
       "/search/issues": { items: [{ number: 3, title: "Crash when the config file is empty", body: "b", html_url: "https://github.com/good/lib/issues/3", labels: [{ name: "bug" }, { name: "good first issue" }], created_at: "", repository_url: "https://api.github.com/repos/good/lib" }] },
     }));
     expect(await refusesAI("strict/lib")).toBe(true);
