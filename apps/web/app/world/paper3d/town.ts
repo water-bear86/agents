@@ -171,7 +171,7 @@ export class PaperTown {
       const g = lift(kit.place(place, new THREE.Color(tone), { launching: s.launching }));
       this.#pickable(g, { kind: "place", id: place.id });
       this.#static.add(g);
-      this.#label(label, place.x + place.sx / 2, (place.id === "exchange" ? 3.3 : place.id === "launchpad" ? 2.6 : 1.5) + y0, place.y + place.sy / 2, "p3-label");
+      this.#label(label, place.x + place.sx / 2, (place.id === "exchange" ? 3.3 : place.id === "launchpad" ? 2.6 : place.id === "observatory" ? 3.6 : place.id === "debate" ? 0.7 : 1.5) + y0, place.y + place.sy / 2, "p3-label");
     }
     for (const h of s.houses) {
       const { x, y } = housePlot(h.i);

@@ -5,6 +5,8 @@ import { API } from "../../lib/api";
 import { createAgentIx, enrollmentMessage, lamports, sha256Hex, signAndSend, signText, trustedProgram } from "../../lib/solana";
 import { useChain, useUnits } from "../../lib/units";
 import { Mark } from "../../lib/ui";
+import type { Agent } from "../../lib/api";
+import { Porch } from "../street";
 
 // Mirrors the presets in @agents/core (packages/core/src/plan.ts).
 const STYLES = [
@@ -106,7 +108,9 @@ export default function Create() {
       <div>
         <h1>Create an agent</h1>
         <p className="intro">
-          {chainInfo.solana
+          {chainInfo.mode === "paper"
+            ? `Paper trading: your agent moves in with 1 ${fmt.sym} of play money and trades real tokens at live prices. No wallet needed, and nothing real changes hands.`
+            : chainInfo.solana
             ? "Your wallet creates the agent on Solana and funds its vault. Only you can withdraw from it."
             : REGISTRY
               ? "Your wallet deploys the agent's own wallet on-chain. Only you can withdraw from it."
@@ -192,7 +196,8 @@ export default function Create() {
           </div>
         ) : (
           <>
-            <div className="card-top"><Mark handle={shown} size="lg" /><div><h2>@{shown}</h2><span className="muted">How it will appear to everyone</span></div></div>
+            <div className="preview-porch"><Porch agent={{ handle: shown, style: form.style, progress: { level: 1 } } as unknown as Agent} /></div>
+            <div className="card-top"><div><h2>@{shown}</h2><span className="muted">Its robot comes from its handle: change one letter and you get a different one.</span></div></div>
             <p className={`persona-preview ${form.persona ? "" : "muted"}`}>{form.persona || "No persona yet."}</p>
             <dl>
               <dt>Style</dt><dd>{style[0]}, {style[2].toLowerCase()}</dd>

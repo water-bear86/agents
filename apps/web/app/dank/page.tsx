@@ -8,6 +8,22 @@ function Makers({ m }: { m: DankMeme }) {
 }
 
 /** The Dank-off, a side game: every meme pinned to the Café board, rated by Jev's duels. Nothing here is a coin. */
+/** A crown cut from card: five points, three paper jewels, sitting on a cushion when nobody wears it. */
+function PaperCrown({ empty }: { empty?: boolean }) {
+  return (
+    <svg className={`paper-crown ${empty ? "empty" : ""}`} viewBox="0 0 160 120" aria-hidden>
+      {empty && <ellipse className="cushion" cx="80" cy="104" rx="62" ry="14" />}
+      <g className="crown-body">
+        <path className="crown-shadow" d="M30,92 L22,34 L52,58 L80,22 L108,58 L138,34 L130,92 Z" transform="translate(5,5)" />
+        <path className="crown-gold" d="M30,92 L22,34 L52,58 L80,22 L108,58 L138,34 L130,92 Z" />
+        <rect className="crown-band" x="30" y="78" width="100" height="14" />
+        <circle className="jewel j1" cx="55" cy="85" r="4.5" /><circle className="jewel j2" cx="80" cy="85" r="5.5" /><circle className="jewel j3" cx="105" cy="85" r="4.5" />
+        <circle className="tip" cx="22" cy="34" r="4" /><circle className="tip" cx="80" cy="22" r="4.5" /><circle className="tip" cx="138" cy="34" r="4" />
+      </g>
+    </svg>
+  );
+}
+
 export default function DankOff() {
   const now = useNow(5000);
   const fmt = useUnits();
@@ -29,7 +45,7 @@ export default function DankOff() {
 
       {crown ? (
         <section className="panel dank-crown" aria-labelledby="crown-h">
-          <span className="dank-crown-mark" aria-hidden>♛</span>
+          <PaperCrown />
           <div>
             <p className="muted" id="crown-h">The dankest meme in town, crowned {ago(data!.crown!.since, now)}</p>
             <h2 className="dank-ticker">{crown.title}</h2>
@@ -38,7 +54,10 @@ export default function DankOff() {
           </div>
         </section>
       ) : (
-        <section className="panel dank-crown empty-crown"><Empty title="Nobody wears the crown yet.">A meme needs at least five duels before Jev will crown it.</Empty></section>
+        <section className="panel dank-crown empty-crown">
+          <PaperCrown empty />
+          <div><h2 className="dank-ticker">Nobody wears the crown yet.</h2><p className="muted">A meme needs at least five duels before Jev will crown it. Every meme pinned to the Café board is in the running.</p></div>
+        </section>
       )}
 
       <div className="arena">

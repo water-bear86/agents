@@ -1,0 +1,363 @@
+/* The town at night, made of paper.
+   The site is the same diorama as the 3D town: a deep indigo sky, card-stock sheets lit by
+   lamplight, kraft cardboard for structure, and one warm accent, the amber of a lit window.
+   Card stock is card stock in daylight too, so sheets stay cream in both themes; only the sky
+   changes. Small things (labels, tags, buttons) are cut out with scissors; big sheets keep
+   straight edges so long live lists stay cheap to draw. Loaded after globals.css and overrides it. */
+
+:root {
+  /* Sky: the page itself. Day by default, night when the system is dark. */
+  --sky: #cfe0ee;
+  --sky-2: #a9c3dc;
+  --sky-ink: #16203d;
+  --sky-muted: #3f4c6c;
+  --stars: transparent;
+
+  /* Card stock: every sheet of content. */
+  --surface: #f6eedc;
+  --paper: #ebe0c7;
+  --ink: #24253a;
+  --muted: #6c6455;
+  --rule: #d9cbad;
+  --rule-soft: #e7dcc4;
+  --kraft: #c69c66;
+  --kraft-dark: #8e6a3e;
+  --lamp: #ffc35a;
+  --lamp-ink: #2a1d05;
+  --signal: #8a4b00;
+  --signal-ink: #2a1d05;
+  --gain: #23805a;
+  --loss: #b2392e;
+  --hold: #8f5c00;
+  --violet: #5d45c4;
+  --teal: #0d7d7d;
+  --agent-l: 0.6;
+  --agent-c: 0.16;
+  --focus: 0 0 0 3px color-mix(in oklab, var(--lamp) 70%, transparent);
+
+  /* Buildings on the street, far to near. */
+  --bldg-far: #8eaacb;
+  --bldg-mid: #c9a678;
+  --bldg-mid-2: #b88f5e;
+  --bldg-roof: #6f5236;
+  --window: #e9eef5;
+  --window-lit: #ffd27a;
+  --road: #59647f;
+  --curb: #d8c7a3;
+  --glow-o: 0;
+
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .36 0 0 0 0 .27 0 0 0 0 .15 0 0 0 .11 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* A scissor cut: corners a hair off square, never the same twice in a row. */
+  --cut-a: polygon(0.6% 3%, 99% 0%, 100% 92%, 1.4% 100%);
+  --cut-b: polygon(0% 0%, 98.6% 4%, 99.6% 100%, 0.8% 95%);
+  --cut-c: polygon(1% 6%, 100% 1%, 98.8% 100%, 0% 96%);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sky: #121833;
+    --sky-2: #1d2654;
+    --sky-ink: #eeeaf8;
+    --sky-muted: #a9aed3;
+    --stars: #fff7e3;
+    --surface: #f1e6cf;
+    --paper: #e4d7ba;
+    --bldg-far: #232c5c;
+    --bldg-mid: #3b3a5f;
+    --bldg-mid-2: #312f52;
+    --bldg-roof: #1d1c36;
+    --window: #2b2f52;
+    --window-lit: #ffc35a;
+    --road: #0d1128;
+    --curb: #3c3a5a;
+    --glow-o: 0.5;
+    color-scheme: dark;
+  }
+}
+
+/* ---------------------------------------------------------------- page */
+body {
+  font-family: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  color: var(--sky-ink);
+  background:
+    radial-gradient(1.2px 1.2px at 12% 18%, var(--stars) 50%, transparent 51%),
+    radial-gradient(1px 1px at 33% 8%, var(--stars) 50%, transparent 51%),
+    radial-gradient(1.4px 1.4px at 61% 14%, var(--stars) 50%, transparent 51%),
+    radial-gradient(1px 1px at 78% 26%, var(--stars) 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 91% 9%, var(--stars) 50%, transparent 51%),
+    radial-gradient(1px 1px at 47% 31%, var(--stars) 50%, transparent 51%),
+    linear-gradient(180deg, var(--sky-2) 0, var(--sky) 680px) no-repeat,
+    var(--sky);
+  background-attachment: fixed, fixed, fixed, fixed, fixed, fixed, scroll, scroll;
+}
+a { text-decoration-color: color-mix(in oklab, currentColor 40%, transparent); }
+h1, h2, h3 { font-family: var(--font-display), var(--font-archivo), sans-serif; font-stretch: normal; }
+
+/* ---------------------------------------------------------------- header: a strip of night with a cut-out sign */
+.top { background: transparent; border-bottom: 0; position: relative; }
+.top .shell { height: 72px; }
+.wordmark {
+  font-family: var(--font-display), sans-serif; font-stretch: normal; font-weight: 800; font-size: 22px; letter-spacing: -0.01em;
+  background: var(--surface) var(--grain); color: var(--ink); padding: 6px 14px 7px; clip-path: var(--cut-a);
+  transform: rotate(-1.5deg); filter: drop-shadow(0 3px 0 var(--kraft-dark));
+}
+.live-dot { background: var(--gain); }
+.nav a { color: var(--sky-muted); font-weight: 650; border-radius: 3px; }
+.nav a:hover { color: var(--sky-ink); }
+.nav a[aria-current="page"] { color: var(--ink); background: var(--surface) var(--grain); clip-path: var(--cut-b); }
+
+/* Masking tape: the paper-trading note is taped across the top of the page. */
+.paper-banner {
+  background: color-mix(in oklab, var(--kraft) 82%, transparent) var(--grain); border: 0; color: var(--lamp-ink);
+  clip-path: polygon(0 12%, 1.5% 0, 3% 14%, 5% 2%, 100% 8%, 99% 88%, 97.5% 100%, 96% 86%, 0 94%);
+  transform: rotate(-0.4deg); margin: 0 12px; font-size: 13.5px;
+}
+.paper-banner b { font-weight: 800; }
+
+/* ---------------------------------------------------------------- buttons: thick card with a cardboard edge */
+.btn {
+  background: var(--lamp); color: var(--lamp-ink); border: 0; border-radius: 3px; font-weight: 750;
+  box-shadow: 0 3px 0 var(--kraft-dark); transition: transform 0.08s, box-shadow 0.08s;
+}
+.btn:hover { background: color-mix(in oklab, var(--lamp) 88%, #fff); }
+.btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--kraft-dark); }
+.btn.quiet { background: var(--surface) var(--grain); color: var(--ink); border: 0; box-shadow: 0 3px 0 var(--kraft); }
+.btn.quiet:hover { background: var(--paper) var(--grain); border: 0; }
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+
+/* ---------------------------------------------------------------- sheets: everything that holds content is card stock */
+.panel {
+  background: var(--surface) var(--grain); color: var(--ink); border: 0; border-radius: 3px;
+  box-shadow: 0 2px 0 color-mix(in oklab, var(--kraft) 70%, var(--surface)), 0 22px 34px -22px rgba(4, 6, 20, 0.6);
+  margin-top: 14px;
+}
+.panel-head { border-bottom: 1px dashed var(--rule); align-items: center; padding-top: 0; }
+/* Each sheet carries its name on a dark paper label pinned over its top edge, like the signs in town. */
+.panel-head h2 {
+  font-size: 15px; font-weight: 750; background: var(--ink); color: var(--surface); padding: 5px 12px 6px;
+  margin-top: -14px; clip-path: var(--cut-c); transform: rotate(-1deg); letter-spacing: 0.005em;
+}
+.panel-head h2 .who .handle { color: var(--surface); }
+.stack { gap: 26px; }
+.arena { gap: 24px; }
+.empty { color: var(--muted); }
+
+/* Tags are little paper slips. */
+.tag { border: 0; background: var(--paper); color: var(--ink); border-radius: 2px; clip-path: var(--cut-b); padding: 2px 9px; }
+.tag.open { background: color-mix(in oklab, var(--gain) 18%, var(--surface)); color: var(--gain); }
+.tag.gated { background: color-mix(in oklab, var(--lamp) 45%, var(--surface)); color: var(--lamp-ink); }
+.tag.warn { background: color-mix(in oklab, var(--loss) 16%, var(--surface)); color: var(--loss); }
+.tag.jev { background: var(--ink); color: var(--surface); }
+.lvl { border: 0; background: var(--paper); color: var(--ink); clip-path: var(--cut-a); }
+
+.handle { color: oklch(calc(var(--agent-l) - 0.16) var(--agent-c) var(--h)); }
+@media (prefers-color-scheme: dark) { .handle { color: oklch(calc(var(--agent-l) - 0.16) var(--agent-c) var(--h)); } }
+
+/* ---------------------------------------------------------------- headings and text that sit on the sky */
+.page-head h1, .profile-head h1, .create h1, .trace-head h1 { font-weight: 800; letter-spacing: -0.025em; color: var(--sky-ink); }
+.page-head p, .create .intro, .persona, .facts, .trace-head .persona { color: var(--sky-muted); }
+.facts b { color: var(--sky-ink); }
+.readout { border-color: color-mix(in oklab, var(--sky-ink) 22%, transparent); }
+.readout div { border-color: color-mix(in oklab, var(--sky-ink) 14%, transparent); }
+.readout b { font-family: var(--font-display), sans-serif; color: var(--sky-ink); }
+.readout > div > span { color: var(--sky-muted); }
+.foot { border-top: 0; }
+.foot .shell { color: var(--sky-muted); }
+.explainer { border-top: 1px dashed color-mix(in oklab, var(--sky-ink) 25%, transparent); }
+.explainer h2 { color: var(--sky-ink); }
+.steps p, .rules dd { color: var(--sky-muted); }
+.steps li::before { border-color: var(--sky-ink); color: var(--sky-ink); }
+
+/* Forms are filled in on a sheet, not on the sky. */
+#create-form { background: var(--surface) var(--grain); color: var(--ink); padding: 6px 22px 10px; border-radius: 3px; box-shadow: 0 2px 0 var(--kraft), 0 22px 34px -22px rgba(4, 6, 20, 0.6); }
+#create-form .hint, #create-form .field small { color: var(--muted); }
+.input { background: #fffaf0; border-color: var(--rule); color: var(--ink); }
+.choice { background: #fffaf0; border-color: var(--rule); }
+.choice:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink), 0 3px 0 var(--kraft); }
+
+/* ---------------------------------------------------------------- home: the street */
+.town-hero { position: relative; margin: 8px -24px 0; padding: 24px 24px 0; }
+.town-hero .copy { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; align-items: end; padding-bottom: 8px; }
+.town-hero h1 {
+  font-family: var(--font-display), sans-serif; font-weight: 800; color: var(--sky-ink);
+  font-size: clamp(42px, 6.6vw, 92px); line-height: 0.92; letter-spacing: -0.035em; max-width: 11ch;
+}
+.town-hero .lede { color: var(--sky-muted); font-size: 17px; max-width: 46ch; }
+.town-hero .lede b { color: var(--sky-ink); }
+.town-hero .ctas { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+.street { display: block; width: 100%; height: auto; margin-top: 8px; }
+.street .far { fill: var(--bldg-far); }
+.street .mid { fill: var(--bldg-mid); }
+.street .mid-2 { fill: var(--bldg-mid-2); }
+.street .roof { fill: var(--bldg-roof); }
+.street .win { fill: var(--window); }
+.street .win.lit { fill: var(--window-lit); }
+.street .road { fill: var(--road); }
+.street .curb { fill: var(--curb); }
+.street .dash { stroke: color-mix(in oklab, var(--curb) 70%, transparent); stroke-width: 3; stroke-dasharray: 26 22; }
+.street .post { fill: var(--bldg-roof); }
+.street .glow { fill: url(#lampglow); }
+.street .moon { fill: var(--stars); opacity: 0.9; }
+.street .sun { fill: #fff3c4; }
+.street .resident { cursor: pointer; }
+.street .resident:focus-visible { outline: none; }
+.street .resident:focus-visible .nametag rect, .street .resident:hover .nametag rect { fill: var(--lamp); }
+.street .nametag rect { fill: var(--surface); stroke: var(--kraft-dark); stroke-width: 1; }
+.street .nametag text { font: 750 13px var(--font-archivo), sans-serif; fill: var(--ink); }
+.street .nametag .sub { font-weight: 600; font-size: 11px; fill: var(--muted); }
+.street .sign rect { fill: var(--kraft); stroke: var(--kraft-dark); stroke-width: 1.5; }
+.street .sign text { font: 750 13px var(--font-archivo), sans-serif; fill: var(--lamp-ink); }
+.street .sign .stake { fill: var(--kraft-dark); }
+.street .sign:hover rect, .street .sign:focus-visible rect { fill: var(--lamp); }
+.street .speech rect { fill: #fffaf0; stroke: var(--kraft-dark); stroke-width: 1; }
+.street .speech text { font: 600 12px var(--font-archivo), sans-serif; fill: var(--ink); }
+
+.town-stats { display: flex; gap: 10px 28px; flex-wrap: wrap; margin-top: 18px; color: var(--sky-muted); }
+.town-stats b { font-family: var(--font-display), sans-serif; font-size: 28px; color: var(--sky-ink); margin-right: 6px; }
+
+/* ---------------------------------------------------------------- home: around town */
+.around { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin: 34px 0 10px; }
+.around .panel { margin-top: 14px; }
+.spot { list-style: none; margin: 0; padding: 4px 18px 14px; display: grid; gap: 2px; }
+.spot li { padding: 10px 0; border-bottom: 1px dashed var(--rule); font-size: 14px; display: grid; gap: 3px; }
+.spot li:last-child { border-bottom: 0; }
+.spot .when { color: var(--muted); font-size: 12.5px; }
+.spot .line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.spot q { color: var(--ink); }
+.panel .more { display: block; padding: 0 18px 14px; font-size: 13.5px; font-weight: 650; color: var(--signal); }
+.section-title { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 28px; letter-spacing: -0.02em; color: var(--sky-ink); margin: 40px 0 0; }
+.section-sub { color: var(--sky-muted); margin: 4px 0 0; }
+
+@media (max-width: 960px) {
+  .town-hero .copy, .around { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .town-hero { margin: 0 -16px; padding: 16px 16px 0; }
+  .wordmark { font-size: 18px; padding: 4px 10px 5px; }
+}
+.around { align-items: start; }
+.panel-head h2 { white-space: nowrap; }
+.panel-head > .muted, .panel-head > a.muted { font-size: 13px; text-align: right; }
+
+/* ---------------------------------------------------------------- fixes for sheets that scroll or sit on the sky */
+/* A sheet that scrolls would clip a label pinned over its edge, so its label sits inside instead. */
+.world-side .panel-head h2, .world-stage .panel-head h2 { margin-top: 10px; }
+.world-side { padding-top: 2px; }
+.readout .muted, .readout .loss, .readout .gain { filter: none; }
+.readout .muted { color: var(--sky-muted); }
+.level-block .muted, .level-block .streak { color: var(--sky-muted); }
+.level-block .streak b, .level-block .big span { color: var(--sky-ink); }
+
+/* Podium: three cards of stock, the winner's raised highest. */
+.step { background: var(--surface) var(--grain); color: var(--ink); border: 0; border-radius: 3px; box-shadow: 0 3px 0 var(--kraft), 0 22px 34px -22px rgba(4, 6, 20, 0.6); }
+.step:hover { border: 0; transform: translateY(-2px); }
+.step .name { color: var(--ink); }
+.step .place { color: var(--muted); }
+.step.first { border: 0; box-shadow: 0 3px 0 var(--kraft-dark), 0 0 0 3px var(--lamp), 0 26px 40px -22px rgba(4, 6, 20, 0.7); }
+.step.first .place { color: var(--signal); }
+@media (prefers-reduced-motion: no-preference) { .step { transition: transform 0.15s; } }
+
+/* ---------------------------------------------------------------- the street folds up like a pop-up book */
+.street .bldg { transform-box: fill-box; transform-origin: 50% 100%; }
+.street .bldg-shadow { fill: rgba(5, 8, 24, 0.28); }
+.street .edge { fill: none; stroke: rgba(255, 255, 255, 0.22); stroke-width: 1.5; }
+@media (prefers-reduced-motion: no-preference) {
+  .street .bldg, .street .resident, .street .sign { animation: popup 0.7s cubic-bezier(.2, 1.4, .4, 1) both; animation-delay: calc(var(--i, 0) * 90ms + 120ms); }
+  .street .far-row { animation: rise 0.9s ease-out both; }
+  @keyframes popup { from { transform: scaleY(0.02); opacity: 0; } 40% { opacity: 1; } to { transform: scaleY(1); } }
+  @keyframes rise { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .street .resident, .street .sign { transform-box: fill-box; transform-origin: 50% 100%; }
+}
+.street .roof.own { fill: oklch(calc(var(--agent-l) - 0.08) var(--agent-c) var(--h)); }
+.street .door { fill: var(--bldg-roof); }
+.street .door.own { fill: oklch(calc(var(--agent-l) - 0.2) calc(var(--agent-c) * 0.8) var(--h)); }
+
+/* ---------------------------------------------------------------- rankings podium: robots on kraft blocks */
+.podium2 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; align-items: end; max-width: 760px; margin: 12px auto 34px; }
+.pod { display: grid; justify-items: center; text-decoration: none; color: var(--ink); }
+.pod-bot { width: 132px; height: auto; margin-bottom: -6px; position: relative; z-index: 1; }
+.pod-block {
+  width: 100%; display: grid; justify-items: center; align-content: start; gap: 2px; padding: 14px 10px 18px;
+  background: var(--kraft) var(--grain); box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.25), 0 22px 34px -22px rgba(4, 6, 20, 0.7);
+  text-align: center;
+}
+.pod-2 .pod-block { min-height: 150px; background-color: color-mix(in oklab, var(--kraft) 88%, #fff); }
+.pod-1 .pod-block { min-height: 196px; background-color: var(--lamp); }
+.pod-3 .pod-block { min-height: 118px; background-color: color-mix(in oklab, var(--kraft) 86%, #000); }
+.pod-place { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 46px; line-height: 1; color: color-mix(in oklab, var(--lamp-ink) 82%, transparent); }
+.pod-name { font-weight: 800; font-size: 16px; color: var(--lamp-ink); }
+.pod-pnl { font-weight: 750; }
+.pod-pnl .muted { color: color-mix(in oklab, var(--lamp-ink) 70%, transparent); }
+.pod-sub { font-size: 12.5px; color: color-mix(in oklab, var(--lamp-ink) 72%, transparent); }
+.pod:hover .pod-bot, .pod:focus-visible .pod-bot { transform: translateY(-4px); }
+@media (prefers-reduced-motion: no-preference) { .pod-bot { transition: transform 0.15s; } }
+@media (max-width: 640px) { .pod-bot { width: 84px; } .pod-place { font-size: 34px; } .pod-name { font-size: 13.5px; } .pod-sub { display: none; } }
+
+/* ---------------------------------------------------------------- agent profile: the agent on its doorstep */
+.profile-head { grid-template-columns: 190px minmax(0, 1fr) auto; align-items: end; gap: 28px; }
+.porch { width: 190px; height: auto; display: block; }
+.profile-head h1 { font-size: clamp(36px, 5vw, 64px); }
+@media (max-width: 960px) { .profile-head { grid-template-columns: 140px minmax(0, 1fr); } .porch { width: 140px; } }
+@media (max-width: 640px) { .profile-head { grid-template-columns: 110px minmax(0, 1fr); gap: 16px; } .porch { width: 110px; } }
+.preview-porch { background: linear-gradient(180deg, var(--sky-2), var(--sky)); padding: 14px 0 0; display: grid; justify-items: center; border-radius: 3px 3px 0 0; }
+.preview-porch .porch { width: 200px; }
+.preview .card-top { padding-top: 14px; }
+
+/* ---------------------------------------------------------------- Dank-off */
+.panel.dank-crown, .panel.dank-crown.empty-crown { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 22px; align-items: center; padding: 22px 26px; margin-bottom: 30px; transform: none; }
+.paper-crown { width: 150px; height: auto; display: block; }
+.paper-crown .crown-gold { fill: var(--lamp); stroke: var(--kraft-dark); stroke-width: 1.5; stroke-linejoin: round; }
+.paper-crown .crown-shadow { fill: rgba(40, 24, 4, 0.22); }
+.paper-crown .crown-band { fill: color-mix(in oklab, var(--lamp) 70%, var(--kraft-dark)); }
+.paper-crown .tip { fill: var(--lamp); stroke: var(--kraft-dark); stroke-width: 1.2; }
+.paper-crown .jewel { stroke: rgba(0, 0, 0, 0.25); stroke-width: 1; }
+.paper-crown .j1 { fill: var(--teal); } .paper-crown .j2 { fill: var(--loss); } .paper-crown .j3 { fill: var(--violet); }
+.paper-crown .cushion { fill: color-mix(in oklab, var(--loss) 75%, var(--ink)); }
+.paper-crown.empty .crown-body { transform: translateY(6px) rotate(-6deg); transform-origin: 80px 92px; opacity: 0.55; }
+.dank-crown .dank-ticker { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: clamp(24px, 3vw, 36px); letter-spacing: -0.02em; color: var(--ink); }
+.dank-crown .muted { color: var(--muted); }
+.arena aside > .panel + .panel { margin-top: 28px; }
+@media (max-width: 640px) { .panel.dank-crown, .panel.dank-crown.empty-crown { grid-template-columns: 90px minmax(0, 1fr); padding: 16px; } .paper-crown { width: 90px; } }
+
+/* ---------------------------------------------------------------- footer: the page ends on the street */
+.foot { margin-top: 72px; background: var(--road); border-top: 14px solid var(--curb); position: relative; color: #dcdcef; }
+.foot::before { content: ""; position: absolute; left: 0; right: 0; top: 30px; border-top: 3px dashed color-mix(in oklab, var(--curb) 70%, transparent); }
+.foot .shell { color: #c9cbe3; padding-top: 52px; padding-bottom: 36px; }
+.foot a { color: #f2eedf; }
+.foot nav { gap: 22px; }
+
+/* Messages that stand alone (loading, offline, not found) get a sheet of their own. */
+main > .empty, main > div > .empty:only-child {
+  background: var(--surface) var(--grain); color: var(--muted); border-radius: 3px; max-width: 640px; margin: 40px auto;
+  box-shadow: 0 2px 0 var(--kraft), 0 22px 34px -22px rgba(4, 6, 20, 0.6); padding: 28px 30px;
+}
+main > p.muted { color: var(--sky-muted); padding: 40px 0; }
+
+/* The street always runs along the bottom of the window, however short the page. */
+body { min-height: 100vh; display: flex; flex-direction: column; }
+body > main { flex: 1 0 auto; width: 100%; }
+/* An agent's name written straight on the sky is lit, not inked. */
+.trace-head .handle, .page-head .handle, .profile-head .handle { color: oklch(0.82 0.12 var(--h)); }
+@media (prefers-color-scheme: light) { .trace-head .handle, .page-head .handle, .profile-head .handle { color: oklch(0.42 0.14 var(--h)); } }
+
+/* ---------------------------------------------------------------- small screens */
+.street-scroll { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+.street-scroll::-webkit-scrollbar { display: none; }
+.street-scroll:focus-visible { outline: none; box-shadow: var(--focus); }
+@media (max-width: 760px) {
+  .street-scroll .street { width: 760px; max-width: none; }
+  .nav { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; mask-image: linear-gradient(90deg, #000 85%, transparent); padding-right: 24px; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { white-space: nowrap; }
+  .top .shell { gap: 10px; }
+  .paper-banner { font-size: 12.5px; margin: 0 6px; }
+  .around { margin-top: 22px; }
+}
+/* Agents paste links and hashes; long unbroken strings wrap instead of pushing past the sheet. */
+.panel :is(p, q, blockquote, li, .post, .thought, .why, a), .post, .thought { overflow-wrap: anywhere; }
+
+/* Cut-out shapes clip a focus ring away, so focused ones light up in lamplight instead. */
+.nav a:focus-visible, .wordmark:focus-visible { background: var(--lamp); color: var(--lamp-ink); box-shadow: none; clip-path: var(--cut-b); }
+.btn:focus-visible { box-shadow: 0 3px 0 var(--kraft-dark), 0 0 0 3px var(--sky), 0 0 0 6px var(--lamp); }
+.panel a:focus-visible, .pod:focus-visible { outline: 3px solid var(--lamp); outline-offset: 2px; box-shadow: none; }
+.street a:focus-visible .nametag rect, .street a:focus-visible.sign rect { fill: var(--lamp); }

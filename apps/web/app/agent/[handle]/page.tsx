@@ -1,4 +1,5 @@
 "use client";
+import { Porch } from "../../street";
 import { use, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { Connection } from "@solana/web3.js";
@@ -106,7 +107,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
   return (
     <>
       <header className="profile-head">
-        <Mark handle={a.handle} size="lg" style={a.style} level={a.progress?.level} mood={moodOf(a)} />
+        <Porch agent={a} last={d.data.decisions[0]} />
         <div>
           <h1>@{a.handle}</h1>
           {a.persona && <p className="persona">{a.persona}</p>}

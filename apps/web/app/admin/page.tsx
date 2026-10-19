@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Connection, PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { useChain } from "../../lib/units";
 import { shortAddr } from "../../lib/api";
-import { Offline } from "../../lib/ui";
+import { Empty } from "../../lib/ui";
 import { AGENTS_PROGRAM_ID, acceptAdminIx, allowMintIx, disallowMintIx, feedBytes, readPlatform, readWhitelist, setPausedIx, signAndSend, solanaWallet, type PlatformState } from "../../lib/solana";
 
 /**
@@ -31,7 +31,7 @@ export default function Admin() {
   }, [sol?.rpcUrl, sol?.programId]);
   useEffect(() => { load().catch(() => setStatus({ ok: false, text: "Couldn't read the platform from Solana." })); }, [load]);
 
-  if (!sol) return <Offline />;
+  if (!sol) return <Empty title="Nothing to run here yet.">This page manages the on-chain vault program: its token list, pausing it and handing over control. This runtime paper-trades, so there is no program to manage.</Empty>;
   if (!sol.rpcUrl) return <p className="callout">No public Solana RPC URL is configured for wallets.</p>;
   if (sol.programId !== AGENTS_PROGRAM_ID) return <p className="callout">The runtime names program {sol.programId}, but this site only signs for {AGENTS_PROGRAM_ID}.</p>;
   const program = new PublicKey(AGENTS_PROGRAM_ID);
