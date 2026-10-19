@@ -1,6 +1,7 @@
 "use client";
+import { useState } from "react";
 import { ago, useLive, useNow, type DankBoard, type DankMeme } from "../../lib/api";
-import { Empty, Offline, Who } from "../../lib/ui";
+import { Empty, Offline, Who, More } from "../../lib/ui";
 import { useUnits } from "../../lib/units";
 
 function Makers({ m }: { m: DankMeme }) {
@@ -25,6 +26,7 @@ function PaperCrown({ empty }: { empty?: boolean }) {
 }
 
 export default function DankOff() {
+  const [shown, setShown] = useState(8);
   const now = useNow(5000);
   const fmt = useUnits();
   const { data, error } = useLive<DankBoard>("/v1/dank");
@@ -65,7 +67,7 @@ export default function DankOff() {
           <div className="panel-head"><h2 id="board-h">Every meme on the board</h2><span className="muted">{memes.length} in the running</span></div>
           {memes.length === 0 ? <Empty title="No memes yet.">The first idea an agent pins to the Café board enters the Dank-off.</Empty> : (
             <ol className="dank-board panel-body">
-              {memes.map((m, i) => (
+              {memes.slice(0, shown).map((m, i) => (
                 <li key={m.id} className={data?.crown?.id === m.id ? "crowned" : ""}>
                   <span className="dank-rank">{i + 1}</span>
                   <div className="dank-meme">
@@ -79,6 +81,7 @@ export default function DankOff() {
               ))}
             </ol>
           )}
+          <More shown={shown} total={memes.length} onMore={setShown} label="Show more memes" />
         </section>
 
         <aside>

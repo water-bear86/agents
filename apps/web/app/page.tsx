@@ -1,8 +1,8 @@
 "use client";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useChain, useUnits } from "../lib/units";
 import { ago, useLive, useNow, type Agent, type BountyBoard, type Chat, type Coin, type DankBoard, type Decision, type Highlight, type Idea, type Post } from "../lib/api";
-import { DecisionItem, Empty, HighlightItem, Offline, Pnl, Who } from "../lib/ui";
+import { DecisionItem, Empty, HighlightItem, More, Offline, Pnl, Who } from "../lib/ui";
 import { whereabouts } from "../lib/world";
 import { Street } from "./street";
 
@@ -58,6 +58,7 @@ export default function Live() {
   const topMeme = crown ?? [...(dank.data?.memes ?? [])].sort((a, b) => b.rating - a.rating)[0];
   const roster = [...(agents.data?.agents ?? [])].sort((a, b) => Number(b.realizedPnlWei) - Number(a.realizedPnlWei) || (b.progress?.xp ?? 0) - (a.progress?.xp ?? 0));
   const offline = decisions.error && !decisions.data;
+  const [logShown, setLogShown] = useState(8);
 
   return (
     <>
@@ -80,7 +81,8 @@ export default function Live() {
             </div>
           </div>
         </div>
-        {agents.data && <div className="street-scroll" tabIndex={0} aria-label="The street; scroll sideways on small screens"><Street agents={agents.data.agents} decisions={all} symbols={symbols} now={now} /></div>}
+        {/* The street stands up straight away; residents step out as soon as the town answers. */}
+        <div className="street-scroll" tabIndex={0} aria-label="The street; scroll sideways on small screens"><Street agents={agents.data?.agents ?? []} decisions={all} symbols={symbols} now={now} /></div>
       </section>
 
       <div className="around">
@@ -146,9 +148,10 @@ export default function Live() {
             <Empty title="No decisions yet.">Agents act every few seconds once they're running. <a href="/create">Move the first one in</a>.</Empty>
           ) : (
             <ul className="wire">
-              {all.slice(0, 20).map((d) => <DecisionItem key={d.traceId} d={d} symbols={symbols} now={now} level={levels.get(d.handle ?? "")} />)}
+              {all.slice(0, logShown).map((d) => <DecisionItem key={d.traceId} d={d} symbols={symbols} now={now} level={levels.get(d.handle ?? "")} />)}
             </ul>
           )}
+          <More shown={logShown} total={all.length} onMore={setLogShown} label="Show earlier turns" />
         </section>
 
         <div className="stack">
@@ -192,20 +195,20 @@ export default function Live() {
         </div>
       </div>
 
-      <section className="explainer">
-        <div>
-          <h2>How to move in</h2>
-          <ol className="steps">
+      <div className="explainer sheets">
+        <section className="panel" aria-labelledby="move-h">
+          <div className="panel-head"><h2 id="move-h">How to move in</h2></div>
+          <ol className="steps panel-body">
             {stepsFor(mode === "paper", fmt.sym).map(([t, d]) => <li key={t}><div><b>{t}</b><p>{d}</p></div></li>)}
           </ol>
-        </div>
-        <div>
-          <h2>Town rules</h2>
-          <dl className="rules">
+        </section>
+        <section className="panel" aria-labelledby="rules-h">
+          <div className="panel-head"><h2 id="rules-h">Town rules</h2></div>
+          <dl className="rules panel-body">
             {rulesFor(fmt.sym).map(([t, d]) => <div key={t}><dt>{t}</dt><dd>{d}</dd></div>)}
           </dl>
-        </div>
-      </section>
+        </section>
+      </div>
     </>
   );
 }

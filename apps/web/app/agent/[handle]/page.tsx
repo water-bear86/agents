@@ -6,7 +6,7 @@ import { Connection } from "@solana/web3.js";
 import { NATIVE_MINT, ata, closeVaultTokenAccountIx, createAtaIx, lamports, signAndSend, solanaPdas, trustedProgram, withdrawSolIx, withdrawTokenIx } from "../../../lib/solana";
 import { useChain, useUnits, type ChainInfo } from "../../../lib/units";
 import { xpRules, ago, shortAddr, useLive, useNow, type Agent, type Call, type Coin, type DebateRow, type Decision } from "../../../lib/api";
-import { DecisionItem, Empty, JevPick, Mark, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../../lib/ui";
+import { DecisionItem, More, Empty, JevPick, Mark, Medal, Offline, Pnl, Who, XpBar, callStatus } from "../../../lib/ui";
 import { moodOf } from "../../../lib/sprite";
 
 /** Solana: the agent's money sits in a vault PDA. Anyone can top it up; only the owner's wallet can withdraw. */
@@ -93,6 +93,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
   const calls = useLive<{ predictions: Call[] }>(`/v1/predictions?agent=${handle}&limit=6`);
   const debates = useLive<{ debates: DebateRow[] }>(`/v1/debates?agent=${handle}&limit=4`);
   const [copied, setCopied] = useState(false);
+  const [decShown, setDecShown] = useState(8);
   const symbols = useMemo(() => new Map((coins.data?.coins ?? []).map((c) => [c.token, c.symbol])), [coins.data]);
 
   if (d.missing) return <Empty title={`There's no agent called @${handle}.`}><a href="/">Back to live decisions</a></Empty>;
@@ -140,12 +141,13 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
 
       <div className="arena">
         <section className="panel" aria-labelledby="dec-h">
-          <div className="panel-head"><h2 id="dec-h">Decisions</h2><span className="muted">Latest 30 turns</span></div>
+          <div className="panel-head"><h2 id="dec-h">Decisions</h2><span className="muted">Most recent first</span></div>
           {d.data.decisions.length === 0 ? <Empty title="No turns yet.">{a.external ? "This agent acts when its owner's software calls the API." : "It takes its first turn within a few seconds."}</Empty> : (
             <ul className="wire">
-              {d.data.decisions.map((x) => <DecisionItem key={x.traceId} d={x} symbols={symbols} now={now} showWho={false} />)}
+              {d.data.decisions.slice(0, decShown).map((x) => <DecisionItem key={x.traceId} d={x} symbols={symbols} now={now} showWho={false} />)}
             </ul>
           )}
+          <More shown={decShown} total={d.data.decisions.length} onMore={setDecShown} label="Show earlier turns" />
         </section>
 
         <div className="stack">

@@ -375,3 +375,75 @@ body {
 .label-icon { width: 15px; height: 15px; vertical-align: -2px; margin-right: 7px; fill: var(--lamp); }
 .label-icon .cut { fill: var(--ink); }
 .label-icon .cut-stroke { fill: none; stroke: var(--lamp); stroke-width: 1.6; stroke-linecap: round; }
+
+/* ---------------------------------------------------------------- review fixes */
+/* Long lists start short; the button to see more is a strip of card at the sheet's foot. */
+.more-btn {
+  display: block; width: calc(100% - 36px); margin: 4px 18px 16px; padding: 9px 12px; font: inherit; font-weight: 700; font-size: 14px;
+  color: var(--ink); background: var(--paper) var(--grain); border: 1px dashed var(--kraft); border-radius: 3px; cursor: pointer;
+}
+.more-btn:hover { background-color: color-mix(in oklab, var(--lamp) 35%, var(--paper)); border-style: solid; }
+.more-btn .muted { font-weight: 600; }
+/* The shorter column rides along while the long one scrolls, so neither leaves a hole. */
+@media (min-width: 961px) { .arena > .stack, .arena > aside { position: sticky; top: 18px; align-self: start; } }
+/* Lore and long quotes show three lines, ending in an ellipsis. */
+.dank-meme .why, .dank-lore { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Stacked sheets leave room for the next sheet's label. */
+.panel + .panel, .section-gap { margin-top: 38px; }
+.stack { gap: 34px; }
+
+/* Text inside a sheet always uses the sheet's own inks, whatever the sky is doing. */
+.panel .facts, .panel .facts span { color: var(--muted); }
+.panel .facts b { color: var(--ink); }
+
+/* The explainer is two labelled sheets. */
+.explainer.sheets { border-top: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; margin-top: 46px; padding-top: 0; }
+.explainer.sheets .steps, .explainer.sheets .rules { padding: 18px 20px 20px; }
+.explainer.sheets .steps p, .explainer.sheets .rules dd { color: var(--muted); }
+.explainer.sheets .steps li::before { border-color: var(--ink); color: var(--ink); }
+@media (max-width: 960px) { .explainer.sheets { grid-template-columns: minmax(0, 1fr); } }
+
+/* Trace: the timeline runs full width, the step's detail full width below it. */
+.trace-grid { grid-template-columns: minmax(0, 1fr); }
+.detail { position: static; }
+.wf-name { overflow: hidden; }
+.wf-kind { flex: none; }
+
+/* Stats strips fit their own count of cells. */
+.readout { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+@media (max-width: 640px) { .readout { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); } .readout div:nth-child(n) { border-left: 0; border-top: 0; padding-left: 0; } }
+
+/* Rankings table on a phone: handles stay whole, model and style step aside. */
+.who .handle { white-space: nowrap; }
+@media (max-width: 640px) {
+  [aria-labelledby="agents-h"] table :is(th, td):is(:nth-child(2), :nth-child(5), :nth-child(6), :nth-child(8)) { display: none; }
+  [aria-labelledby="agents-h"] td:nth-child(4) .muted { display: none; }
+  [aria-labelledby="agents-h"] td { padding: 10px 6px; }
+}
+
+/* Phone header: sign and button on the first row, every link visible on the second. */
+@media (max-width: 640px) {
+  .top .shell { flex-wrap: wrap; height: auto; padding-top: 12px; padding-bottom: 8px; row-gap: 8px; }
+  .top .btn { display: inline-flex; margin-left: auto; }
+  .nav { order: 3; flex-basis: 100%; mask-image: none; padding-right: 0; justify-content: space-between; }
+  .nav a { padding: 6px 8px; }
+  .p3-label { font-size: 10px !important; padding: 1px 5px !important; }
+  .p3-label.small { display: none; }
+}
+.street .crease { stroke: rgba(10, 12, 30, 0.35); stroke-width: 1; }
+/* By day the town is the same white card and kraft as the paper model on the World page. */
+@media (prefers-color-scheme: light) {
+  :root { --bldg-far: #b9cbdc; --bldg-mid: #f1e8d4; --bldg-mid-2: #e4d7bb; --bldg-roof: #8b6d4e; --window: #c9d8e6; }
+}
+@media (max-width: 760px) {
+  .street-scroll { scroll-snap-type: x proximity; mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .street-scroll .street { width: 980px; }
+}
+/* Sheets side by side in a grid line up; only stacked sheets need the extra room. */
+.explainer.sheets > .panel, .around > .panel, .podium2 + .panel { margin-top: 14px; }
+@media (max-width: 640px) {
+  .pnl-cell { min-width: 0; grid-template-columns: auto; }
+  .pnl-cell .diverge { display: none; }
+  [aria-labelledby="models-h"] table :is(th, td):nth-child(4) { display: none; }
+}
