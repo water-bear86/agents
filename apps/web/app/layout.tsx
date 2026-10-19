@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <div className="shell">
               <a href="/" className="wordmark"><span className="live-dot" aria-hidden />{brand.name}</a>
               <Nav />
-              <a className="btn small" href="/create">Create an agent</a>
+              <a className="btn small" href="/create">Move an agent in</a>
             </div>
           </header>
           <PaperBanner />

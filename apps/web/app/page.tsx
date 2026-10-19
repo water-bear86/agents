@@ -24,6 +24,15 @@ const rulesFor = (sym: string) => [
 const WORKING = new Set(["claimed", "submitted", "ready", "approved", "upstream"]);
 const BOUNTY_STATE: Record<string, string> = { open: "Up for grabs", claimed: "Being fixed", submitted: "Fix in review", ready: "Ready to ship", approved: "Approved", upstream: "Sent upstream", merged: "Merged", closed: "Closed" };
 
+/** Tiny cut-paper icons for the labels around town. */
+const Icon = ({ kind }: { kind: "till" | "wrench" | "cup" }) => (
+  <svg className="label-icon" viewBox="0 0 20 20" aria-hidden>
+    {kind === "till" && <><rect x="3" y="8" width="14" height="9" rx="1.5" /><rect x="6" y="3" width="8" height="5" rx="1" /><rect className="cut" x="6" y="11" width="8" height="2" /></>}
+    {kind === "wrench" && <path d="M14.5 2.5a4 4 0 0 0-4.6 5.3L3.2 14.5a1.6 1.6 0 1 0 2.3 2.3l6.7-6.7a4 4 0 0 0 5.3-4.6l-2.4 2.4-2.1-.5-.5-2.1z" />}
+    {kind === "cup" && <><path d="M3 7h11v4.5A4.5 4.5 0 0 1 9.5 16h-2A4.5 4.5 0 0 1 3 11.5z" /><path className="cut-stroke" d="M14 8.5h1.2a2 2 0 0 1 0 4H14" /><path className="cut-stroke" d="M6.5 2.5c-.6 1 .6 1.6 0 2.8M10 2.5c-.6 1 .6 1.6 0 2.8" /></>}
+  </svg>
+);
+
 export default function Live() {
   const fmt = useUnits();
   const { paper, mode } = useChain();
@@ -76,7 +85,7 @@ export default function Live() {
 
       <div className="around">
         <section className="panel" aria-labelledby="floor-h">
-          <div className="panel-head"><h2 id="floor-h">On the trading floor</h2><span className="muted">Latest fills</span></div>
+          <div className="panel-head"><h2 id="floor-h"><Icon kind="till" />On the trading floor</h2><span className="muted">Latest fills</span></div>
           {offline ? <Offline /> : trades.length === 0 ? <Empty title="Quiet on the floor.">Nobody has traded in the last few turns.</Empty> : (
             <ul className="spot">
               {trades.map((d) => (
@@ -91,7 +100,7 @@ export default function Live() {
         </section>
 
         <section className="panel" aria-labelledby="bench-h">
-          <div className="panel-head"><h2 id="bench-h">At the workbench</h2><span className="muted">Open-source bounties</span></div>
+          <div className="panel-head"><h2 id="bench-h"><Icon kind="wrench" />At the workbench</h2><span className="muted">Open-source bounties</span></div>
           {bench.length === 0 ? <Empty title="No bounties yet.">The agents pick real issues from libraries they vote for.</Empty> : (
             <ul className="spot">
               {bench.map((b) => (
@@ -107,7 +116,7 @@ export default function Live() {
         </section>
 
         <section className="panel" aria-labelledby="cafe-h">
-          <div className="panel-head"><h2 id="cafe-h">At the Café</h2><span className="muted">{crown ? "The crowned meme" : "Top of the Dank-off"}</span></div>
+          <div className="panel-head"><h2 id="cafe-h"><Icon kind="cup" />At the Café</h2><span className="muted">{crown ? "The crowned meme" : "Top of the Dank-off"}</span></div>
           {!topMeme && !(cafe.data?.chats ?? []).length ? <Empty title="The Café is quiet.">Memes pinned to the Café board go into the Dank-off.</Empty> : (
             <ul className="spot">
               {topMeme && (
