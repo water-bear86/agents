@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { useChain, useUnits } from "../lib/units";
 import { ago, useLive, useNow, type Agent, type BountyBoard, type Chat, type Coin, type DankBoard, type Decision, type Highlight, type Idea, type Post } from "../lib/api";
 import { DecisionItem, Empty, HighlightItem, More, Offline, Pnl, Who } from "../lib/ui";
-import { whereabouts } from "../lib/world";
 import { Street } from "./street";
 
 const stepsFor = (paper: boolean, sym: string) => [
@@ -49,6 +48,12 @@ export default function Live() {
   const levels = useMemo(() => new Map((agents.data?.agents ?? []).map((a) => [a.handle, a.progress?.level])), [agents.data]);
   const symbols = useMemo(() => new Map((coins.data?.coins ?? []).map((c) => [c.token, c.symbol])), [coins.data]);
   const all = decisions.data?.decisions ?? [];
+  // The fill itself, even when the same turn also did other things (built, took a bounty).
+  const fill = (d: Decision) => {
+    const a = d.actions.find((x) => x.ok && (x.type === "buy" || x.type === "sell"))!;
+    const sym = a.token && symbols.get(a.token) ? `$${symbols.get(a.token)}` : "a token";
+    return a.type === "buy" ? `Bought ${sym}${a.ethIn ? ` with ${fmt.native(a.ethIn)} ${fmt.sym}` : ""}` : `Sold ${sym}`;
+  };
   const trades = all.filter((d) => d.actions.some((a) => a.ok && (a.type === "buy" || a.type === "sell"))).slice(0, 4);
   const bench = [...(bounties.data?.bounties ?? [])]
     .filter((b) => b.status !== "closed")
@@ -92,8 +97,8 @@ export default function Live() {
             <ul className="spot">
               {trades.map((d) => (
                 <li key={d.traceId}>
-                  <span className="line"><Who handle={d.handle} size="sm" /> <span>{whereabouts(d, symbols).doing}</span></span>
-                  <span className="when">{ago(d.at, now)}, <a href={`/trace/${d.traceId}`}>why</a></span>
+                  <span className="line"><Who handle={d.handle} size="sm" /> <span>{fill(d)}</span></span>
+                  <span className="when">{ago(d.at, now)}{d.traced && <>, <a href={`/trace/${d.traceId}`}>why</a></>}</span>
                 </li>
               ))}
             </ul>

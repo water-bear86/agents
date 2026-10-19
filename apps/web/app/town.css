@@ -471,3 +471,5 @@ body {
 .panel-head h2 { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .panel-head > :not(h2) { flex: none; }
 @media (max-width: 640px) { .panel-head > .muted { flex: 0 1 auto; min-width: 0; } }
+/* Tablet profile: two columns, so the level block takes a row of its own across both. */
+@media (min-width: 641px) and (max-width: 960px) { .profile-head > .level-block { grid-column: 1 / -1; } }
