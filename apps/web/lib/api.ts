@@ -144,10 +144,14 @@ const MIN_REFRESH_MS = 4000;
 interface Entry {
   data: unknown; error: boolean; missing: boolean; at: number;
   inflight?: Promise<void>; timer?: ReturnType<typeof setTimeout>; blockedUntil: number;
+  /** A refresh was asked for while a request was in flight; run one more when it settles. */
+  again?: boolean;
   subs: Set<() => void>;
 }
 const entries = new Map<string, Entry>();
-const streams = new Map<string, { es: EventSource; paths: Map<string, number> }>();
+const streams = new Map<string, { es: EventSource; paths: Map<string, number>; poll?: ReturnType<typeof setInterval> }>();
+/** While the turn stream is down or refused (the runtime caps streams per address), poll instead. */
+const POLL_MS = 15_000;
 
 function entry(path: string): Entry {
   let e = entries.get(path);
@@ -157,7 +161,7 @@ function entry(path: string): Entry {
 
 function load(path: string): Promise<void> {
   const e = entry(path);
-  if (e.inflight) return e.inflight;
+  if (e.inflight) { e.again = true; return e.inflight; }
   if (Date.now() < e.blockedUntil) return Promise.resolve();
   const notify = () => { for (const f of e.subs) f(); };
   e.inflight = fetch(`${API}${path}`)
@@ -175,7 +179,12 @@ function load(path: string): Promise<void> {
       e.at = Date.now();
     })
     .catch(() => { e.error = e.data === null; })
-    .finally(() => { e.inflight = undefined; notify(); });
+    .finally(() => {
+      e.inflight = undefined;
+      notify();
+      // That request may have read the town before the turn that asked for it finished.
+      if (e.again) { e.again = false; schedule(path); }
+    });
   return e.inflight;
 }
 
@@ -193,14 +202,20 @@ function subscribeStream(key: string, path: string) {
     const es = new EventSource(`${API}/v1/stream${key ? `/${key}` : ""}`);
     s = { es, paths: new Map() };
     const paths = s.paths;
+    const stream = s;
     es.onmessage = () => { for (const p of paths.keys()) schedule(p); };
+    es.onopen = () => { if (stream.poll) { clearInterval(stream.poll); stream.poll = undefined; } };
+    es.onerror = () => {
+      for (const p of paths.keys()) schedule(p);
+      if (!stream.poll) stream.poll = setInterval(() => { for (const p of paths.keys()) schedule(p); }, POLL_MS);
+    };
     streams.set(key, s);
   }
   s.paths.set(path, (s.paths.get(path) ?? 0) + 1);
   return () => {
     const n = (s!.paths.get(path) ?? 1) - 1;
     if (n > 0) s!.paths.set(path, n); else s!.paths.delete(path);
-    if (s!.paths.size === 0) { s!.es.close(); streams.delete(key); }
+    if (s!.paths.size === 0) { s!.es.close(); if (s!.poll) clearInterval(s!.poll); streams.delete(key); }
   };
 }
 
@@ -219,7 +234,8 @@ export function useLive<T>(path: string, streamKey?: string): { data: T | null; 
     const e = entry(path);
     const rerender = () => force((n) => n + 1);
     e.subs.add(rerender);
-    if (Date.now() - e.at > MIN_REFRESH_MS) void load(path); else rerender();
+    // A second list watching the same path joins the request already on its way.
+    if (Date.now() - e.at > MIN_REFRESH_MS && !e.inflight) void load(path); else rerender();
     const unstream = subscribeStream(streamKey ?? "", path);
     return () => { e.subs.delete(rerender); unstream(); };
   }, [path, streamKey]);

@@ -465,3 +465,9 @@ body {
 .panel.dank-crown.pinned { padding-top: 30px; }
 /* Once settled, nothing waits on an animation: every cut-out stands in its final pose. */
 .street.settled :is(.bldg, .resident, .sign, .far-row) { animation: none; opacity: 1; transform: none; }
+/* A label's text can come from the runtime (a project's name, an agent's handle): it shortens
+   with an ellipsis rather than pushing the sheet's own buttons out of reach. */
+.panel-head { min-width: 0; }
+.panel-head h2 { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.panel-head > :not(h2) { flex: none; }
+@media (max-width: 640px) { .panel-head > .muted { flex: 0 1 auto; min-width: 0; } }
