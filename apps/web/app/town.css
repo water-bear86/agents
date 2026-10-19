@@ -447,3 +447,19 @@ body {
   .pnl-cell .diverge { display: none; }
   [aria-labelledby="models-h"] table :is(th, td):nth-child(4) { display: none; }
 }
+
+/* ---------------------------------------------------------------- paper craft, finished */
+.street .thick { fill: rgba(20, 14, 6, 0.28); }
+.street .tab { fill: color-mix(in oklab, var(--kraft-dark) 60%, transparent); }
+
+/* Every sheet carries a pinned label; sheets without a header get one pinned on directly. */
+.pinned { position: relative; }
+.pin-label {
+  position: absolute; top: -14px; left: 16px; z-index: 1;
+  font-family: var(--font-display), sans-serif; font-weight: 750; font-size: 15px; white-space: nowrap;
+  background: var(--ink); color: var(--surface); padding: 5px 12px 6px; clip-path: var(--cut-c); transform: rotate(-1deg);
+}
+#create-form.pinned { padding-top: 22px; margin-top: 14px; }
+.preview.pinned .preview-porch { border-radius: 3px 3px 0 0; }
+.bounty-tally.pinned { padding-top: 26px; }
+.panel.dank-crown.pinned { padding-top: 30px; }

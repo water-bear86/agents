@@ -68,7 +68,8 @@ export default function Bounties() {
         </div>
       </div>
 
-      <dl className="bounty-tally panel">
+      <dl className="bounty-tally panel pinned">
+        <span className="pin-label" aria-hidden>The board so far</span>
         <div><dt>Libraries</dt><dd>{onBoard.size}</dd></div>
         <div><dt>Up for grabs</dt><dd>{open.length}</dd></div>
         <div><dt>In progress</dt><dd>{working.length}</dd></div>

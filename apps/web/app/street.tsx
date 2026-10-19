@@ -34,17 +34,25 @@ function Building({ x, key0, lit, i, owned }: { x: number; key0: string; lit: nu
     const on = seed(`${key0}${r}${c}`, 6) < lit;
     windows.push(<rect key={`${r}-${c}`} className={`win ${on ? "lit" : ""}`} x={left + gapX + c * (ww + gapX)} y={top + 18 + r * 34} width={ww} height={wh} rx={1.5} />);
   }
+  // Scissor cuts: each corner lands a hair off square, the same way every visit.
+  const j = (n: number) => (seed(key0, 10 + n) - 0.5) * 3;
+  const body = `${left + j(0)},${top + j(1)} ${left + w + j(2)},${top + j(3)} ${left + w},${GROUND} ${left},${GROUND}`;
+  const shadow = `${left + 7 + j(0)},${top + 4 + j(1)} ${left + w + 7 + j(2)},${top + 4 + j(3)} ${left + w + 7},${GROUND} ${left + 7},${GROUND}`;
   return (
     <g className="bldg" style={{ ["--i" as string]: i }}>
       {/* A cut-out stands a little off the backdrop, so it throws a soft shadow onto it. */}
-      <rect className="bldg-shadow" x={left + 7} y={top + 4} width={w} height={h - 4} />
+      <polygon className="bldg-shadow" points={shadow} />
       {pitched
-        ? <path className={`roof ${owned ? "own" : ""}`} d={`M${left - 8},${top} L${left + w / 2},${top - 42} L${left + w + 8},${top} Z`} />
-        : <rect className={`roof ${owned ? "own" : ""}`} x={left - 5} y={top - 10} width={w + 10} height={12} />}
-      <rect className={tone} x={left} y={top} width={w} height={h} />
-      <path className="edge" d={`M${left + 1},${top + h} V${top + 1} H${left + w}`} />
+        ? <path className={`roof ${owned ? "own" : ""}`} d={`M${left - 8},${top + j(1)} L${left + w / 2 + j(4)},${top - 42} L${left + w + 8},${top + j(3)} Z`} />
+        : <polygon className={`roof ${owned ? "own" : ""}`} points={`${left - 5},${top - 10 + j(5)} ${left + w + 5},${top - 10 + j(6)} ${left + w + 5},${top + 2} ${left - 5},${top + 2}`} />}
+      <polygon className={tone} points={body} />
+      {/* The card's thickness shows down its right-hand cut. */}
+      <polygon className="thick" points={`${left + w + j(2) - 3},${top + j(3) + 1} ${left + w + j(2)},${top + j(3)} ${left + w},${GROUND} ${left + w - 3},${GROUND}`} />
+      <path className="edge" d={`M${left + 1},${GROUND} L${left + j(0) + 1},${top + j(1) + 1} L${left + w + j(2) - 3},${top + j(3) + 1}`} />
       {windows}
       <rect className={`door ${owned ? "own" : ""}`} x={left + w / 2 - 15} y={GROUND - 40} width={30} height={40} rx={2} />
+      {/* The fold tab it is glued down by, like a pop-up book. */}
+      <polygon className="tab" points={`${left + 8},${GROUND} ${left + w - 8},${GROUND} ${left + w - 18},${GROUND + 7} ${left + 18},${GROUND + 7}`} />
     </g>
   );
 }

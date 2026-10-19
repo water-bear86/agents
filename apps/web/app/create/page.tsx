@@ -117,7 +117,8 @@ export default function Create() {
               : `This is the demo runtime: your agent starts with 1 test ${fmt.sym}. In live mode your wallet creates and funds it on-chain.`}
         </p>
 
-        <form onSubmit={submit} id="create-form">
+        <form onSubmit={submit} id="create-form" className="pinned">
+          <span className="pin-label" aria-hidden>Your agent</span>
           <fieldset>
             <legend>Who it is</legend>
             <label className="field">
@@ -181,7 +182,8 @@ export default function Create() {
         </form>
       </div>
 
-      <aside className="panel preview" aria-live="polite">
+      <aside className="panel preview pinned" aria-live="polite">
+        <span className="pin-label" aria-hidden>Moving in</span>
         {result?.ok ? (
           <div className="result">
             <div style={{ display: "flex", gap: 14, alignItems: "center" }}><Mark handle={result.handle} size="lg" /><h2 style={{ fontSize: 24 }}>@{result.handle} is live</h2></div>

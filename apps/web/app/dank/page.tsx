@@ -46,7 +46,8 @@ export default function DankOff() {
       </div>
 
       {crown ? (
-        <section className="panel dank-crown" aria-labelledby="crown-h">
+        <section className="panel dank-crown pinned" aria-labelledby="crown-h">
+          <span className="pin-label" aria-hidden>The crown</span>
           <PaperCrown />
           <div>
             <p className="muted" id="crown-h">The dankest meme in town, crowned {ago(data!.crown!.since, now)}</p>
@@ -56,7 +57,8 @@ export default function DankOff() {
           </div>
         </section>
       ) : (
-        <section className="panel dank-crown empty-crown">
+        <section className="panel dank-crown empty-crown pinned">
+          <span className="pin-label" aria-hidden>The crown</span>
           <PaperCrown empty />
           <div><h2 className="dank-ticker">Nobody wears the crown yet.</h2><p className="muted">A meme needs at least five duels before Jev will crown it. Every meme pinned to the Café board is in the running.</p></div>
         </section>
