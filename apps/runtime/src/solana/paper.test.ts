@@ -77,4 +77,21 @@ describe("paper trading the live market", () => {
     // Half of 300k USD of liquidity at 100 USD per SOL: 1,500 SOL of depth.
     expect(world.coins.get(GOOD)?.ethReserveWei).toBe(1_500n * 10n ** 9n);
   });
+
+  it("prices every tracked token even though Jupiter answers at most 50 ids per request", async () => {
+    // Like the real price API: a 200 with prices for only the first 50 ids it was asked about.
+    const asked: number[] = [];
+    const f = (async (url: string) => {
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      asked.push(ids.length);
+      return new Response(JSON.stringify(Object.fromEntries(ids.slice(0, 50).map((id) => [id, { usdPrice: id === SOL ? 100 : 0.5 }]))));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    const mints = Array.from({ length: 120 }, (_, i) => `Tok${String(i).padStart(3, "0")}${"1".repeat(40)}`);
+    for (const m of mints) p.market.set(m, { mint: m, symbol: "T", name: "T", decimals: 6, liquidityUsd: 100_000 });
+    await p.refresh();
+    expect(asked.every((n) => n <= 50)).toBe(true);
+    expect(mints.filter((m) => p.quoteBuy(m, 10_000_000n) === 0n)).toEqual([]);
+    expect(p.solUsd).toBe(100);
+  });
 });

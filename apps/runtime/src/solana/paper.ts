@@ -10,6 +10,8 @@ import type { World } from "../world.js";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const JUP = "https://lite-api.jup.ag";
+/** The most ids Jupiter's price API will answer in one request. */
+const PRICE_BATCH = 50;
 /** Stands in for a coin's launcher and launcher's owner on market tokens: nobody in town made them. */
 export const MARKET = "market";
 
@@ -111,10 +113,16 @@ export class PaperChain implements Chain, Quoter {
     return ok;
   }
 
-  /** Live prices for every real token, in one request. */
+  /**
+   * Live prices for every real token. Jupiter's price API answers at most PRICE_BATCH ids per
+   * request (it still returns 200, just without the rest), so the ids go out in batches.
+   */
   async refresh() {
     const ids = [SOL_MINT, ...this.market.keys()];
-    const prices = await this.#json<Record<string, { usdPrice: number; liquidity?: number } | null>>(`${JUP}/price/v3?ids=${ids.join(",")}`);
+    const prices: Record<string, { usdPrice: number; liquidity?: number } | null> = {};
+    for (let i = 0; i < ids.length; i += PRICE_BATCH) {
+      Object.assign(prices, await this.#json<typeof prices>(`${JUP}/price/v3?ids=${ids.slice(i, i + PRICE_BATCH).join(",")}`));
+    }
     this.#solUsd = prices[SOL_MINT]?.usdPrice ?? this.#solUsd;
     if (!this.#solUsd) return;
     for (const [mint, t] of this.market) {
