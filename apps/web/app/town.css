@@ -463,3 +463,5 @@ body {
 .preview.pinned .preview-porch { border-radius: 3px 3px 0 0; }
 .bounty-tally.pinned { padding-top: 26px; }
 .panel.dank-crown.pinned { padding-top: 30px; }
+/* Once settled, nothing waits on an animation: every cut-out stands in its final pose. */
+.street.settled :is(.bldg, .resident, .sign, .far-row) { animation: none; opacity: 1; transform: none; }

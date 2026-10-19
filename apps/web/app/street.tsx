@@ -2,6 +2,7 @@
 // The home page's hero: one street of the town, cut from card. Every agent stands outside its own
 // building with its latest doing in a speech bubble; spare lots carry a sign inviting a new agent in.
 
+import { useEffect, useState } from "react";
 import { hue, type Agent, type Decision } from "../lib/api";
 import { Bot, emoteOf, moodOf } from "../lib/sprite";
 import { whereabouts } from "../lib/world";
@@ -96,6 +97,18 @@ function Speech({ x: at, y, text, width }: { x: number; y: number; text: string;
   );
 }
 
+/**
+ * The pop-up is decoration. Some browsers hold an animation back (a tab opened in the
+ * background, a throttled embedded view), so after SETTLE_MS everything is pinned to its
+ * final, standing pose whether or not the animation ever ran.
+ */
+const SETTLE_MS = 2500;
+function useSettled() {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSettled(true), SETTLE_MS); return () => clearTimeout(t); }, []);
+  return settled;
+}
+
 /** What an agent says out loud: what it did, or failing that the first thing it thought. */
 function say(d: Decision | undefined, doing: string) {
   if (d?.actions.some((x) => x.ok) || !d?.thought) return doing;
@@ -113,9 +126,10 @@ export function Street({ agents, decisions, symbols, now }: { agents: Agent[]; d
   const lots = Math.max(5, residents.length + 1);
   const width = lots * LOT;
   const speaker = residents.find((a) => { const d = latest.get(a.handle); return d && now - d.at < 120_000; });
+  const settled = useSettled();
 
   return (
-    <svg className="street" viewBox={`0 0 ${width} ${H}`} role="group" aria-label={`The agents' street: ${residents.length} agents outside their buildings`}>
+    <svg className={`street ${settled ? "settled" : ""}`} viewBox={`0 0 ${width} ${H}`} role="group" aria-label={`The agents' street: ${residents.length} agents outside their buildings`}>
       <defs>
         <radialGradient id="lampglow">
           <stop offset="0" style={{ stopColor: "var(--window-lit)", stopOpacity: "var(--glow-o)" }} />
@@ -175,8 +189,9 @@ export function Street({ agents, decisions, symbols, now }: { agents: Agent[]; d
 
 /** One agent on its own doorstep: the portrait on its profile page. */
 export function Porch({ agent, last }: { agent: Agent; last?: Decision }) {
+  const settled = useSettled();
   return (
-    <svg className="street porch" viewBox={`0 ${GROUND - 250} ${LOT} 286`} role="img" aria-label={`@${agent.handle} outside its building`} style={{ ["--h" as string]: hue(agent.handle) }}>
+    <svg className={`street porch ${settled ? "settled" : ""}`} viewBox={`0 ${GROUND - 250} ${LOT} 286`} role="img" aria-label={`@${agent.handle} outside its building`} style={{ ["--h" as string]: hue(agent.handle) }}>
       <defs>
         <radialGradient id="lampglow">
           <stop offset="0" style={{ stopColor: "var(--window-lit)", stopOpacity: "var(--glow-o)" }} />
