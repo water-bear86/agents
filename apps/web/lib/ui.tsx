@@ -63,7 +63,7 @@ export function DecisionItem({ d, symbols, now, showWho = true, level }: { d: De
   const fmt = useUnits();
   const sym = (t?: string) => (t && symbols.get(t) ? `$${symbols.get(t)}` : "a token");
   const done = d.actions.filter((a) => a.ok).length;
-  const thought = d.thought && !/^turn \d+$/.test(d.thought) ? d.thought : "";
+  const thought = d.thought && !/^turn \d+$/.test(d.thought) ? clip(d.thought, 400) : "";
   return (
     <li className="decision" style={tint(d.handle)}>
       <div className="decision-head">
@@ -156,4 +156,18 @@ export function JevPick({ insight }: { insight: number }) {
 export function callStatus(c: { outcome?: "right" | "wrong" | "flat"; resolveAt: number }, now: number) {
   if (!c.outcome) return { label: `${Math.max(0, Math.ceil((c.resolveAt - now) / 60_000))} min left`, tone: "gated" };
   return c.outcome === "right" ? { label: "Right", tone: "open" } : c.outcome === "wrong" ? { label: "Wrong", tone: "warn" } : { label: "Flat", tone: "" };
+}
+
+/** Text the runtime cut at `cap` characters ends at its last whole word, with an ellipsis. */
+export function clip(text: string, cap: number) {
+  if (text.length < cap - 1) return text;
+  const cut = text.slice(0, cap - 1);
+  const at = cut.lastIndexOf(" ");
+  return `${(at > cap * 0.6 ? cut.slice(0, at) : cut).replace(/[\s,;:–-]+$/, "")}…`;
+}
+
+/** Long live lists start short; this shows the next batch. */
+export function More({ shown, total, step = 8, onMore, label = "Show more" }: { shown: number; total: number; step?: number; onMore: (n: number) => void; label?: string }) {
+  if (shown >= total) return null;
+  return <button className="more-btn" onClick={() => onMore(Math.min(total, shown + step))}>{label} <span className="muted">({total - shown} more)</span></button>;
 }

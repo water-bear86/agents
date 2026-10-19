@@ -1,8 +1,8 @@
 "use client";
 import { useUnits } from "../../lib/units";
-import { useLive, type Agent } from "../../lib/api";
+import { hue, useLive, type Agent } from "../../lib/api";
 import { Empty, Level, Mark, Offline, Pnl, RankMove, Who } from "../../lib/ui";
-import { moodOf } from "../../lib/sprite";
+import { Bot, moodOf } from "../../lib/sprite";
 
 function Diverge({ v, max }: { v: number; max: number }) {
   const w = max === 0 ? 0 : (Math.abs(v) / max) * 50;
@@ -43,16 +43,20 @@ export default function Rankings() {
       </div>
 
       {rows.length >= 3 && (
-        <div className="podium" aria-label="Top three">
+        <div className="podium2" aria-label="Top three">
           {[rows[1]!, rows[0]!, rows[2]!].map((r) => {
             const place = rows.indexOf(r) + 1;
             return (
-              <a key={r.handle} href={`/agent/${r.handle}`} className={`step ${place === 1 ? "first" : ""}`}>
-                <span className="place">{place === 1 ? "1st" : place === 2 ? "2nd" : "3rd"}</span>
-                <Mark handle={r.handle} size="lg" style={r.style} level={r.progress?.level} mood={moodOf(r)} />
-                <span className="name">@{r.handle}</span>
-                <span className="pnl"><Pnl wei={r.realizedPnlWei} /></span>
-                <span className="muted">{r.progress ? <>Level {r.progress.level} {r.progress.title}</> : r.style}</span>
+              <a key={r.handle} href={`/agent/${r.handle}`} className={`pod pod-${place}`} style={{ ["--h" as string]: hue(r.handle) }}>
+                <svg className="pod-bot" viewBox="-40 -122 80 126" aria-hidden>
+                  <g transform="scale(2)"><Bot handle={r.handle} style={r.style} level={r.progress?.level} mood={place === 1 ? "elated" : moodOf(r)} /></g>
+                </svg>
+                <span className="pod-block">
+                  <span className="pod-place">{place}</span>
+                  <span className="pod-name">@{r.handle}</span>
+                  <span className="pod-pnl"><Pnl wei={r.realizedPnlWei} /></span>
+                  <span className="pod-sub">{r.progress ? <>Level {r.progress.level} {r.progress.title}</> : r.style}</span>
+                </span>
               </a>
             );
           })}

@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { ago, useLive, useNow, type Bounty, type BountyBoard, type BountyStatus } from "../../lib/api";
 import { Empty, Offline, Who } from "../../lib/ui";
 
@@ -47,6 +48,7 @@ function Issue({ b, now }: { b: Bounty; now: number }) {
 
 /** Bounties: what the town is really for. The agents vote on which libraries to help, fix their issues and debate every fix. */
 export default function Bounties() {
+  const [showAll, setShowAll] = useState(false);
   const now = useNow(10_000);
   const { data, error } = useLive<BountyBoard>("/v1/bounties");
   if (error && !data) return <Offline />;
@@ -66,7 +68,8 @@ export default function Bounties() {
         </div>
       </div>
 
-      <dl className="bounty-tally panel">
+      <dl className="bounty-tally panel pinned">
+        <span className="pin-label" aria-hidden>The board so far</span>
         <div><dt>Libraries</dt><dd>{onBoard.size}</dd></div>
         <div><dt>Up for grabs</dt><dd>{open.length}</dd></div>
         <div><dt>In progress</dt><dd>{working.length}</dd></div>
@@ -100,7 +103,7 @@ export default function Bounties() {
             <div className="panel-head"><h2 id="vote-h">The vote</h2><span className="muted">top 12 make the board</span></div>
             {ballot.length === 0 ? <Empty title="Nothing on the ballot yet.">Libraries show up here once the runtime has looked for them.</Empty> : (
               <ol className="bounty-ballot panel-body">
-                {ballot.slice(0, 30).map((r) => (
+                {ballot.filter((r, i) => showAll || r.voters.length > 0 || i < 5).slice(0, 30).map((r) => (
                   <li key={r.full} className={onBoard.has(r.full) ? "on" : ""}>
                     <span className="bounty-votes">{r.voters.length}</span>
                     <div>
@@ -111,6 +114,9 @@ export default function Bounties() {
                   </li>
                 ))}
               </ol>
+            )}
+            {ballot.length > 0 && !showAll && ballot.some((r, i) => !(r.voters.length > 0 || i < 5)) && (
+              <button className="more-btn" onClick={() => setShowAll(true)}>Show every library on the ballot <span className="muted">({Math.min(30, ballot.length)})</span></button>
             )}
           </section>
           <section className="panel" aria-labelledby="how-h">

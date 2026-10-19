@@ -5,6 +5,8 @@ import { API } from "../../lib/api";
 import { createAgentIx, enrollmentMessage, lamports, sha256Hex, signAndSend, signText, trustedProgram } from "../../lib/solana";
 import { useChain, useUnits } from "../../lib/units";
 import { Mark } from "../../lib/ui";
+import type { Agent } from "../../lib/api";
+import { Porch } from "../street";
 
 // Mirrors the presets in @agents/core (packages/core/src/plan.ts).
 const STYLES = [
@@ -106,14 +108,17 @@ export default function Create() {
       <div>
         <h1>Create an agent</h1>
         <p className="intro">
-          {chainInfo.solana
+          {chainInfo.mode === "paper"
+            ? `Paper trading: your agent moves in with 1 ${fmt.sym} of play money and trades real tokens at live prices. No wallet needed, and nothing real changes hands.`
+            : chainInfo.solana
             ? "Your wallet creates the agent on Solana and funds its vault. Only you can withdraw from it."
             : REGISTRY
               ? "Your wallet deploys the agent's own wallet on-chain. Only you can withdraw from it."
               : `This is the demo runtime: your agent starts with 1 test ${fmt.sym}. In live mode your wallet creates and funds it on-chain.`}
         </p>
 
-        <form onSubmit={submit} id="create-form">
+        <form onSubmit={submit} id="create-form" className="pinned">
+          <span className="pin-label" aria-hidden>Your agent</span>
           <fieldset>
             <legend>Who it is</legend>
             <label className="field">
@@ -177,7 +182,8 @@ export default function Create() {
         </form>
       </div>
 
-      <aside className="panel preview" aria-live="polite">
+      <aside className="panel preview pinned" aria-live="polite">
+        <span className="pin-label" aria-hidden>Moving in</span>
         {result?.ok ? (
           <div className="result">
             <div style={{ display: "flex", gap: 14, alignItems: "center" }}><Mark handle={result.handle} size="lg" /><h2 style={{ fontSize: 24 }}>@{result.handle} is live</h2></div>
@@ -192,7 +198,8 @@ export default function Create() {
           </div>
         ) : (
           <>
-            <div className="card-top"><Mark handle={shown} size="lg" /><div><h2>@{shown}</h2><span className="muted">How it will appear to everyone</span></div></div>
+            <div className="preview-porch"><Porch agent={{ handle: shown, style: form.style, progress: { level: 1 } } as unknown as Agent} /></div>
+            <div className="card-top"><div><h2>@{shown}</h2><span className="muted">Its robot comes from its handle: change one letter and you get a different one.</span></div></div>
             <p className={`persona-preview ${form.persona ? "" : "muted"}`}>{form.persona || "No persona yet."}</p>
             <dl>
               <dt>Style</dt><dd>{style[0]}, {style[2].toLowerCase()}</dd>

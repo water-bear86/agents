@@ -134,34 +134,113 @@ export interface Act {
 }
 export interface Decision { handle?: string; traceId: string; at: number; thought: string; model?: string; costUsd: number; traced: boolean; actions: Act[] }
 
-/** Fetches `path` and refetches on every finished agent turn (SSE).
- *  `error` is set when the API is unreachable or fails; `missing` when it answers 404. */
-export function useLive<T>(path: string, streamKey?: string): { data: T | null; error: boolean; missing: boolean } {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState(false);
-  const [missing, setMissing] = useState(false);
-  useEffect(() => {
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = () =>
-      fetch(`${API}${path}`)
-        .then((r) => {
-          if (stop) return;
-          setMissing(r.status === 404);
-          if (!r.ok) { setError(r.status !== 404); return; }
-          return r.json().then((d: T) => { if (!stop) { setData(d); setError(false); } });
-        })
-        .catch(() => { if (!stop) setError(true); });
-    load();
-    const es = new EventSource(`${API}/v1/stream${streamKey ? `/${streamKey}` : ""}`);
-    es.onmessage = () => {
-      clearTimeout(timer);
-      timer = setTimeout(load, 300); // debounce bursts of turn events
+// ---------------------------------------------------------------- live data
+// Every page shows several live lists. They share one connection to the turn stream and one
+// fetch per path: a burst of finished turns refreshes each path at most once per MIN_REFRESH_MS,
+// a hidden tab refreshes nothing until it is looked at again, and a 429 backs off politely.
+
+const MIN_REFRESH_MS = 4000;
+
+interface Entry {
+  data: unknown; error: boolean; missing: boolean; at: number;
+  inflight?: Promise<void>; timer?: ReturnType<typeof setTimeout>; blockedUntil: number;
+  /** A refresh was asked for while a request was in flight; run one more when it settles. */
+  again?: boolean;
+  subs: Set<() => void>;
+}
+const entries = new Map<string, Entry>();
+const streams = new Map<string, { es: EventSource; paths: Map<string, number>; poll?: ReturnType<typeof setInterval> }>();
+/** While the turn stream is down or refused (the runtime caps streams per address), poll instead. */
+const POLL_MS = 15_000;
+
+function entry(path: string): Entry {
+  let e = entries.get(path);
+  if (!e) entries.set(path, (e = { data: null, error: false, missing: false, at: 0, blockedUntil: 0, subs: new Set() }));
+  return e;
+}
+
+function load(path: string): Promise<void> {
+  const e = entry(path);
+  if (e.inflight) { e.again = true; return e.inflight; }
+  if (Date.now() < e.blockedUntil) return Promise.resolve();
+  const notify = () => { for (const f of e.subs) f(); };
+  e.inflight = fetch(`${API}${path}`)
+    .then(async (r) => {
+      e.missing = r.status === 404;
+      if (r.status === 429) {
+        // Keep showing what we have; try again when the server says, or in 15 seconds.
+        e.blockedUntil = Date.now() + (Number(r.headers.get("retry-after")) || 15) * 1000;
+        if (e.data === null) e.error = true;
+        return;
+      }
+      if (!r.ok) { e.error = r.status !== 404; return; }
+      e.data = await r.json();
+      e.error = false;
+      e.at = Date.now();
+    })
+    .catch(() => { e.error = e.data === null; })
+    .finally(() => {
+      e.inflight = undefined;
+      notify();
+      // That request may have read the town before the turn that asked for it finished.
+      if (e.again) { e.again = false; schedule(path); }
+    });
+  return e.inflight;
+}
+
+/** Refresh `path` soon, but never more than once per MIN_REFRESH_MS, and not while the tab is hidden. */
+function schedule(path: string) {
+  const e = entry(path);
+  if (e.timer || typeof document !== "undefined" && document.hidden) return;
+  const wait = Math.max(300, MIN_REFRESH_MS - (Date.now() - e.at), e.blockedUntil - Date.now());
+  e.timer = setTimeout(() => { e.timer = undefined; void load(path); }, wait);
+}
+
+function subscribeStream(key: string, path: string) {
+  let s = streams.get(key);
+  if (!s) {
+    const es = new EventSource(`${API}/v1/stream${key ? `/${key}` : ""}`);
+    s = { es, paths: new Map() };
+    const paths = s.paths;
+    const stream = s;
+    es.onmessage = () => { for (const p of paths.keys()) schedule(p); };
+    es.onopen = () => { if (stream.poll) { clearInterval(stream.poll); stream.poll = undefined; } };
+    es.onerror = () => {
+      for (const p of paths.keys()) schedule(p);
+      if (!stream.poll) stream.poll = setInterval(() => { for (const p of paths.keys()) schedule(p); }, POLL_MS);
     };
-    es.onerror = () => { clearTimeout(timer); timer = setTimeout(load, 3000); };
-    return () => { stop = true; es.close(); clearTimeout(timer); };
+    streams.set(key, s);
+  }
+  s.paths.set(path, (s.paths.get(path) ?? 0) + 1);
+  return () => {
+    const n = (s!.paths.get(path) ?? 1) - 1;
+    if (n > 0) s!.paths.set(path, n); else s!.paths.delete(path);
+    if (s!.paths.size === 0) { s!.es.close(); if (s!.poll) clearInterval(s!.poll); streams.delete(key); }
+  };
+}
+
+if (typeof document !== "undefined") {
+  // Coming back to the tab catches up on everything that is being watched.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) for (const [p, e] of entries) if (e.subs.size) schedule(p);
+  });
+}
+
+/** Fetches `path` and refreshes it as agents finish turns (SSE). `error` is set when the API is
+ *  unreachable or fails before any data arrived; `missing` when it answers 404. */
+export function useLive<T>(path: string, streamKey?: string): { data: T | null; error: boolean; missing: boolean } {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const e = entry(path);
+    const rerender = () => force((n) => n + 1);
+    e.subs.add(rerender);
+    // A second list watching the same path joins the request already on its way.
+    if (Date.now() - e.at > MIN_REFRESH_MS && !e.inflight) void load(path); else rerender();
+    const unstream = subscribeStream(streamKey ?? "", path);
+    return () => { e.subs.delete(rerender); unstream(); };
   }, [path, streamKey]);
-  return { data, error, missing };
+  const e = entries.get(path);
+  return { data: (e?.data as T) ?? null, error: e?.error ?? false, missing: e?.missing ?? false };
 }
 
 /** Re-renders every `ms` so relative times stay fresh between data updates. */
