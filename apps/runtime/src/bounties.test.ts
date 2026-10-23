@@ -93,21 +93,24 @@ describe("bounties", () => {
     expect((await act(fresh, { type: "review_fix", id: "acme/lib#7", verdict: "approve", note: "looks right to me, the test covers it" })).ok).toBe(true);
   });
 
-  it("leaves issues a person is already on: an open pull request, an assignee, or someone who said they're taking it", async () => {
+  it("leaves issues a person is already on: an open or merged pull request, an assignee, or someone who said they're taking it", async () => {
     const day = 24 * 3600_000, now = Date.now();
     const at = (ago: number) => new Date(now - ago).toISOString();
     useGitHub(fakeGitHub({
       "/repos/acme/lib/issues/1/timeline": [{ event: "cross-referenced", source: { issue: { state: "open", pull_request: {}, html_url: "https://github.com/acme/lib/pull/50" } } }],
-      "/repos/acme/lib/issues/2/timeline": [{ event: "cross-referenced", source: { issue: { state: "closed", pull_request: {} } } }, { event: "commented", created_at: at(day), user: { login: "a" }, body: "Thanks for the report!" }],
+      "/repos/acme/lib/issues/2/timeline": [{ event: "cross-referenced", source: { issue: { state: "closed", pull_request: { merged_at: null } } } }, { event: "commented", created_at: at(day), user: { login: "a" }, body: "Thanks for the report!" }],
       "/repos/acme/lib/issues/3/timeline": [{ event: "commented", created_at: at(2 * day), user: { login: "dev" }, body: "I'd like to work on this one if that's ok" }],
       "/repos/acme/lib/issues/4/timeline": [{ event: "commented", created_at: at(90 * day), user: { login: "dev" }, body: "I'll take this" }],
       "/repos/acme/lib/issues/5/timeline": [{ event: "assigned" }],
+      // nushell/nushell#19003: merged pull requests fixed it, but nobody closed the issue.
+      "/repos/acme/lib/issues/6/timeline": [{ event: "cross-referenced", source: { issue: { state: "closed", pull_request: { merged_at: "2026-10-10T00:00:00Z" }, html_url: "https://github.com/acme/lib/pull/52" } } }],
     }));
     expect(await takenBySomeone("acme/lib", 1, now)).toMatch(/open pull request/);
-    expect(await takenBySomeone("acme/lib", 2, now)).toBeNull(); // a closed PR and a plain comment don't count
+    expect(await takenBySomeone("acme/lib", 2, now)).toBeNull(); // a PR closed without merging and a plain comment don't count
     expect(await takenBySomeone("acme/lib", 3, now)).toMatch(/@dev said they're working on it/);
     expect(await takenBySomeone("acme/lib", 4, now)).toBeNull(); // dibs from three months ago have gone cold
     expect(await takenBySomeone("acme/lib", 5, now)).toMatch(/assigned/);
+    expect(await takenBySomeone("acme/lib", 6, now)).toBe("already resolved by https://github.com/acme/lib/pull/52");
   });
 
   it("takes an issue off the board when someone started on it after intake", async () => {
@@ -115,6 +118,14 @@ describe("bounties", () => {
     const r = await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
     expect(r.ok).toBe(false);
     expect(r.detail).toMatch(/off the board: an open pull request/);
+    expect(world.bounties.find((b) => b.id === "acme/lib#7")).toBeUndefined();
+  });
+
+  it("takes an issue off the board when a merged pull request already resolved it", async () => {
+    useGitHub(fakeGitHub({ "/repos/acme/lib/issues/7/timeline": [{ event: "cross-referenced", source: { issue: { state: "closed", pull_request: { merged_at: "2026-10-10T00:00:00Z" }, html_url: "https://github.com/acme/lib/pull/53" } } }] }));
+    const r = await act(fixer, { type: "claim_bounty", id: "acme/lib#7" });
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/off the board: already resolved by https:\/\/github.com\/acme\/lib\/pull\/53/);
     expect(world.bounties.find((b) => b.id === "acme/lib#7")).toBeUndefined();
   });
 

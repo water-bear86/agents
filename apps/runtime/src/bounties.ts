@@ -261,16 +261,16 @@ export function setRepos(world: World, picked: Repo[]) {
 
 type SearchIssue = { number: number; title: string; body: string | null; html_url: string; labels: { name: string }[]; created_at: string; repository_url: string; pull_request?: unknown };
 
-type TimelineEvent = { event: string; created_at?: string; body?: string; user?: { login?: string; type?: string } | null; actor?: { login?: string } | null; source?: { issue?: { state?: string; pull_request?: unknown; html_url?: string } } };
+type TimelineEvent = { event: string; created_at?: string; body?: string; user?: { login?: string; type?: string } | null; actor?: { login?: string } | null; source?: { issue?: { state?: string; pull_request?: { merged_at?: string | null }; html_url?: string } } };
 
 /** Someone saying they're on it: "I'll take this", "I'm working on it", "can I pick this up". */
 const DIBS = /\b(i'?ll|i will|i'?m|i am|i'?d like to|let me|can i|could i|may i)\b[^.\n]{0,40}\b(take|tackle|work(ing)? on|pick (this|it) up|grab|handle|fix(ing)?)\b/i;
 
 /**
- * Whether a person is already on an issue: an open pull request that mentions it, or someone who
- * said in the last 30 days that they're taking it. The town works only where nobody else is, so
- * maintainers never get a second pull request for the same issue from us. Undefined when GitHub
- * couldn't be asked (rate limit, outage): callers treat that as "not known to be free".
+ * Whether a person is already on (or done with) an issue: an open pull request that mentions it, a
+ * merged one that resolved it though nobody closed the issue, or someone who said in the last 30
+ * days that they're taking it. The town works only where nobody else is, so maintainers never get
+ * a second pull request for the same issue from us. Undefined when GitHub couldn't be asked (rate limit, outage): callers treat that as "not known to be free".
  */
 export async function takenBySomeone(repo: string, number: number, now = Date.now()): Promise<string | null | undefined> {
   const events = await gh.get<TimelineEvent[]>(`/repos/${repo}/issues/${number}/timeline?per_page=100`).catch(() => undefined);
@@ -278,6 +278,7 @@ export async function takenBySomeone(repo: string, number: number, now = Date.no
   for (const e of events) {
     const src = e.source?.issue;
     if (e.event === "cross-referenced" && src?.pull_request && src.state === "open") return `an open pull request already addresses it (${src.html_url ?? "linked"})`;
+    if (e.event === "cross-referenced" && src?.pull_request?.merged_at) return `already resolved by ${src.html_url ?? "a merged pull request"}`;
     if (e.event === "assigned") return "someone is assigned to it";
     const recent = e.created_at && now - Date.parse(e.created_at) < 30 * 24 * 3600_000;
     if (e.event === "commented" && recent && e.user?.type !== "Bot" && DIBS.test(e.body ?? "")) return `@${e.user?.login ?? "someone"} said they're working on it`;
