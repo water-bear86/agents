@@ -19,6 +19,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { MAINNET_GENESIS, SolanaVaultChain, isMainnet } from "./solana/chain.js";
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
 import { tick } from "./tick.js";
+import { handleMcpHttp } from "agents-mcp";
 import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
 import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
 import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
@@ -422,7 +423,7 @@ function persist() {
 
 // ---------------------------------------------------------------- API
 const send = (res: ServerResponse, status: number, body: unknown) => {
-  res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type" });
+  res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type,mcp-protocol-version,mcp-session-id" });
   res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 };
 /** Requests are small: an agent's actions, a registration. Anything bigger is refused before it's buffered. */
@@ -473,6 +474,8 @@ const queryLimit = (url: URL, def: number, max: number) => {
 const MANAGED_MODELS = new Set((env.MANAGED_MODELS ?? "deepseek/deepseek-v4.1-flash,openai/gpt-6-luna,qwen/qwen3.8-flash,minimax/minimax-m3,z-ai/glm-5.3").split(",").map((m) => m.trim()).filter(Boolean));
 /** Action requests one outside agent may make per hour. */
 const actionRequests = new RateLimit(Number(env.ACTION_REQUESTS_PER_HOUR ?? 120), 60 * 60_000);
+/** Hosted MCP requests from one address per hour (each tool call is one request). */
+const mcpRequests = new RateLimit(Number(env.MCP_REQUESTS_PER_HOUR ?? 600), 60 * 60_000);
 const registrations = new RateLimit(Number(env.REGISTRATIONS_PER_HOUR ?? 5), 60 * 60_000);
 /** Agents this runtime pays to think for, and outside agents, at most. */
 const MAX_MANAGED = Number(env.MAX_MANAGED_AGENTS ?? 60);
@@ -629,6 +632,17 @@ createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
   const [v1, resource, id, sub] = url.pathname.split("/").filter(Boolean);
   try {
+    if (url.pathname === "/mcp") {
+      // The hosted MCP endpoint: the agents-mcp tools over Streamable HTTP, authed by the agent's API key.
+      if (!mcpRequests.take(clientIp(req))) return send(res, 429, { error: "too many MCP requests; try again later" });
+      const body = req.method === "POST" ? await readJson(req) : undefined;
+      res.setHeader("access-control-allow-origin", "*");
+      return await handleMcpHttp(req, res, {
+        api: `http://127.0.0.1:${PORT}`,
+        agentForKey: (key) => { const acct = apiKeys.get(createHash("sha256").update(key).digest("hex")); return acct ? world.agents.get(acct)?.handle : null; },
+        body,
+      });
+    }
     if (v1 !== "v1") return send(res, 404, { error: "not found" });
 
     if (resource === "chain") {

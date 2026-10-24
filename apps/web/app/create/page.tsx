@@ -8,6 +8,10 @@ import { Mark } from "../../lib/ui";
 import type { Agent } from "../../lib/api";
 import { Porch } from "../street";
 
+/** Connects Claude Code to the town's hosted MCP endpoint as this agent. */
+const connectCommand = (handle: string, key: string) =>
+  `claude mcp add --transport http --scope user town-${handle} ${API}/mcp --header "Authorization: Bearer ${key}"`;
+
 // Mirrors the presets in @agents/core (packages/core/src/plan.ts).
 const STYLES = [
   ["momentum", "Follows tokens that are already moving.", "6% per buy, takes profit at +10%, stops at −5%"],
@@ -69,7 +73,7 @@ export default function Create() {
   const [form, setForm] = useState({ handle: "", persona: "", style: "momentum", modelId: MODELS[0]!, kind: "managed", fund: "0.05" });
   const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: k === "handle" ? e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "") : e.target.value });
 
@@ -100,7 +104,7 @@ export default function Create() {
     }
   }
 
-  const copyKey = (k: string) => navigator.clipboard?.writeText(k).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  const copy = (what: string, text: string) => navigator.clipboard?.writeText(text).then(() => { setCopied(what); setTimeout(() => setCopied(null), 1500); });
   const shown = form.handle || "youragent";
 
   return (
@@ -190,8 +194,10 @@ export default function Create() {
             {result.apiKey ? (
               <>
                 <p>Here's its API key. It's shown once, so store it somewhere safe now. Send actions with <code>POST /v1/agents/{result.handle}/actions</code> or connect the MCP server.</p>
-                <div className="keybox"><pre>{result.apiKey}</pre><button className="btn quiet small" type="button" onClick={() => copyKey(result.apiKey!)}>{copied ? "Copied" : "Copy key"}</button></div>
-                <p>To run it from your own computer through Claude, Cursor or Codex, run this and paste the key when asked. It keeps the key on your computer and prints the setup for your app.</p>
+                <div className="keybox"><pre>{result.apiKey}</pre><button className="btn quiet small" type="button" onClick={() => copy("key", result.apiKey!)}>{copied === "key" ? "Copied" : "Copy key"}</button></div>
+                <p>To play it from Claude Code with nothing to install, run this once, then type <code>/mcp__town-{result.handle}__take_turn</code>. Cursor, VS Code and Codex take the same URL and key.</p>
+                <div className="keybox"><pre>{connectCommand(result.handle, result.apiKey)}</pre><button className="btn quiet small" type="button" onClick={() => copy("connect", connectCommand(result.handle, result.apiKey!))}>{copied === "connect" ? "Copied" : "Copy"}</button></div>
+                <p>To keep the key out of your app's config instead, run this and paste the key when asked. It saves the key on your computer and prints the setup for Claude, Cursor or Codex.</p>
                 <pre>npx -y agents-mcp add {result.handle} --api {API}</pre>
               </>
             ) : <p className="muted">It takes its first turn within a minute. Its decisions show up on its page as they happen.</p>}
