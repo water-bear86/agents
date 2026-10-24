@@ -321,4 +321,70 @@ describe("authorization server checks", () => {
     const r = await exchange({ code, client_id: reg.client_id, code_verifier: VERIFIER, resource: "https://elsewhere.example/mcp" });
     expect((await r.json() as any).error).toBe("invalid_target");
   });
+
+  describe("refresh token reuse", () => {
+    const refresh = (rt: string, clientId: string) => fetch(`${base}/oauth/token`, { method: "POST", body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: rt, client_id: clientId }) });
+    /** A fresh sign-in: the client and its first token pair. */
+    async function signedIn() {
+      const { reg, code } = await codeFor();
+      const tok = (await (await exchange({ code, client_id: reg.client_id, code_verifier: VERIFIER })).json()) as any;
+      return { clientId: reg.client_id as string, tok };
+    }
+    /** Whether a token pair still works: its access token is live and its refresh token can renew. */
+    const alive = async (pair: any, clientId: string) => !!oauth.verify(pair.access_token) && (await refresh(pair.refresh_token, clientId)).status === 200;
+
+    it("never lets a copied refresh token start a second chain (the Codex replay)", async () => {
+      const { clientId, tok } = await signedIn();
+      const copy = tok.refresh_token; // what a thief took
+      const owner = (await (await refresh(tok.refresh_token, clientId)).json()) as any;
+      const thief = (await (await refresh(copy, clientId)).json()) as any; // replayed inside the grace
+      // No independent successor: the replay gets the very pair the owner got.
+      expect(thief.refresh_token).toBe(owner.refresh_token);
+      expect(thief.access_token).toBe(owner.access_token);
+      clock += 2 * 60_000; // past the grace
+      const late = await refresh(copy, clientId);
+      expect(late.status).toBe(400);
+      expect((await late.json()) as any).toMatchObject({ error: "invalid_grant" });
+      // The reuse ended the whole sign-in: nothing either exchange produced still works.
+      expect(oauth.verify(tok.access_token)).toBeNull();
+      expect(await alive(owner, clientId)).toBe(false);
+      expect(await alive(thief, clientId)).toBe(false);
+    });
+
+    it("keeps an owner signed in when they retry a refresh whose response was lost", async () => {
+      const { clientId, tok } = await signedIn();
+      const lost = (await (await refresh(tok.refresh_token, clientId)).json()) as any;
+      clock += 30_000;
+      const retry = (await (await refresh(tok.refresh_token, clientId)).json()) as any;
+      expect(retry).toEqual(lost);
+      clock += 60 * 60_000; // an hour on, the client renews as usual
+      const next = await refresh(retry.refresh_token, clientId);
+      expect(next.status).toBe(200);
+      expect(oauth.verify(((await next.json()) as any).access_token)).not.toBeNull();
+    });
+
+    it("ends the sign-in when a rotated token comes back after a restart, even inside the grace", async () => {
+      const { clientId, tok } = await signedIn();
+      const owner = (await (await refresh(tok.refresh_token, clientId)).json()) as any;
+      const saved = JSON.parse(JSON.stringify(oauth.snapshot()));
+      oauth = newOAuth();
+      oauth.restore(saved); // the retry pairs live only in memory; the rotation itself was saved
+      expect((await refresh(tok.refresh_token, clientId)).status).toBe(400);
+      expect(oauth.verify(owner.access_token)).toBeNull();
+    });
+
+    it("refuses an older ancestor without ending a healthy sign-in", async () => {
+      const { clientId, tok } = await signedIn();
+      const r1 = (await (await refresh(tok.refresh_token, clientId)).json()) as any;
+      clock += 2 * 60_000;
+      const r2 = (await (await refresh(r1.refresh_token, clientId)).json()) as any;
+      clock += 2 * 60_000;
+      // The first token was superseded twice over and is no longer kept: it gets nothing.
+      expect((await refresh(tok.refresh_token, clientId)).status).toBe(400);
+      expect(oauth.verify(r2.access_token)).not.toBeNull();
+      // Reusing the latest rotated token is caught, and ends the sign-in.
+      expect((await refresh(r1.refresh_token, clientId)).status).toBe(400);
+      expect(oauth.verify(r2.access_token)).toBeNull();
+    });
+  });
 });

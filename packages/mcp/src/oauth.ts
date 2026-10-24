@@ -29,7 +29,10 @@ export const SCOPES = ["read", "act"] as const;
 const ACCESS_TTL = 60 * 60; // seconds
 const REFRESH_TTL = 30 * 24 * 60 * 60;
 const CODE_TTL = 5 * 60;
-/** A rotated refresh token keeps working this long, so a client retrying a lost response isn't signed out. */
+/**
+ * For this long after a refresh token is rotated, presenting it again returns the same new pair, so a
+ * client retrying a response it never got isn't signed out. Any other reuse revokes the whole sign-in.
+ */
 const ROTATE_GRACE = 60;
 const MAX_CLIENTS = 10_000;
 const MAX_GRANTS = 100_000;
@@ -62,6 +65,23 @@ interface Grant {
   expiresAt: number;
   /** Every token from one sign-in shares a family, so revoking one sign-in revokes all of it. */
   family: string;
+  /** When a refresh token was exchanged (seconds). It's kept so a later reuse can be caught. */
+  rotatedAt?: number;
+}
+
+/** The pair a refresh token was rotated into, kept in memory only, for the retry grace. */
+interface Successor {
+  family: string;
+  at: number;
+  response: TokenResponse;
+}
+
+interface TokenResponse {
+  access_token: string;
+  token_type: "Bearer";
+  expires_in: number;
+  refresh_token: string;
+  scope: string;
 }
 
 interface AuthRequest {
@@ -118,6 +138,7 @@ export class TownOAuth {
   #clients = new Map<string, OAuthClient>();
   #grants = new Map<string, Grant>(); // sha256(token) -> grant
   #codes = new Map<string, Code>(); // sha256(code) -> code
+  #successors = new Map<string, Successor>(); // sha256(rotated refresh token) -> what it became
   readonly #o: OAuthOptions;
 
   constructor(o: OAuthOptions) {
@@ -385,17 +406,31 @@ export class TownOAuth {
       const g = this.#grants.get(h);
       if (!g || g.kind !== "refresh" || g.expiresAt <= this.#now() || g.clientId !== client.client_id) throw new OAuthError("invalid_grant", "the refresh token is unknown or expired; sign in again");
       if (g.account && !this.#o.handleOf(g.account)) throw new OAuthError("invalid_grant", "that agent is gone");
+      if (g.rotatedAt !== undefined) {
+        // Already exchanged. A quick retry of the same exchange gets the same pair back, so it never
+        // starts a second chain; anything else is reuse (RFC 9700 4.14.2): someone else may hold this
+        // token, so the whole sign-in ends, for the thief and the owner alike.
+        const next = this.#successors.get(h);
+        if (next && this.#now() - next.at <= ROTATE_GRACE && this.#grants.has(sha256(next.response.refresh_token))) return next.response;
+        this.#revokeFamily(g.family);
+        throw new OAuthError("invalid_grant", "the refresh token was already used; sign in again");
+      }
       const had = g.scope.split(" ");
       const asked = s("scope")?.split(" ").filter(Boolean) ?? had;
       if (!asked.every((x) => had.includes(x))) throw new OAuthError("invalid_scope", "a refresh can't widen the sign-in");
-      g.expiresAt = Math.min(g.expiresAt, this.#now() + ROTATE_GRACE);
-      return this.#issue(client.client_id, g.account, asked.join(" "), g.family);
+      // Only the latest rotated token is kept to catch reuse: older ones can't be exchanged anyway, and
+      // keeping every one for 30 days would fill the store with a busy client's hourly refreshes.
+      for (const [h2, g2] of this.#grants) if (g2.family === g.family && g2.rotatedAt !== undefined) { this.#grants.delete(h2); this.#successors.delete(h2); }
+      g.rotatedAt = this.#now();
+      const response = this.#issue(client.client_id, g.account, asked.join(" "), g.family);
+      this.#successors.set(h, { family: g.family, at: g.rotatedAt, response });
+      return response;
     }
 
     throw new OAuthError("unsupported_grant_type", "grant_type must be authorization_code or refresh_token");
   }
 
-  #issue(clientId: string, account: string | null, scope: string, family: string) {
+  #issue(clientId: string, account: string | null, scope: string, family: string): TokenResponse {
     if (this.#grants.size >= MAX_GRANTS) this.#sweep();
     if (this.#grants.size >= MAX_GRANTS) throw new OAuthError("temporarily_unavailable", "too many sign-ins; try again later", 503);
     const now = this.#now();
@@ -418,6 +453,7 @@ export class TownOAuth {
 
   #revokeFamily(family: string) {
     for (const [h, g] of this.#grants) if (g.family === family) this.#grants.delete(h);
+    for (const [h, n] of this.#successors) if (n.family === family) this.#successors.delete(h);
     this.#changed();
   }
 
@@ -426,6 +462,7 @@ export class TownOAuth {
     const now = this.#now();
     for (const [h, g] of this.#grants) if (g.expiresAt <= now) this.#grants.delete(h);
     for (const [h, c] of this.#codes) if (c.expiresAt <= now) this.#codes.delete(h);
+    for (const [h, n] of this.#successors) if (now - n.at > ROTATE_GRACE) this.#successors.delete(h);
   }
 
   // ------------------------------------------------------------ responses
