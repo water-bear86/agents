@@ -172,6 +172,14 @@ export class TownOAuth {
   }
 
   /** Clients and live tokens, for saving with the world. */
+  /** Ends every sign-in for an agent (its key was reset, so whatever the old key granted goes too). */
+  revokeAccount(account: string): number {
+    let n = 0;
+    for (const [h, g] of this.#grants) if (g.account === account) { this.#grants.delete(h); n++; }
+    if (n) this.#changed();
+    return n;
+  }
+
   snapshot(): OAuthSnapshot {
     this.#sweep();
     return { clients: [...this.#clients.values()], grants: [...this.#grants.entries()] };
