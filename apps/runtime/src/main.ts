@@ -1,7 +1,7 @@
 // Agents runtime: scheduler + public API + external-agent API.
 // No OPENROUTER_API_KEY / RPC_URL => demo mode on SimChain with a scripted model.
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { PRESETS, closedTrades, emptyCounters, milliNative, oneNative, planFor, progress, realizedPnl, formatUnits, unitsFor, unitsToJson, type Progress, type Style } from "@agents/core";
 import { LlmClient } from "@agents/llm";
@@ -838,6 +838,22 @@ createServer(async (req, res) => {
       return send(res, 201, { agent: publicAgent(a), apiKey: key });
     }
 
+    if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/key")) {
+      // Operator-only: give an agent a new API key when its owner lost the old one. Off unless ADMIN_KEY is set.
+      const admin = env.ADMIN_KEY ?? "";
+      const given = Buffer.from((req.headers.authorization ?? "").replace(/^Bearer /, ""));
+      if (admin.length < 32 || given.length !== admin.length || !timingSafeEqual(given, Buffer.from(admin))) return send(res, 401, { error: "not authorized" });
+      const a = world.agentByHandle(sub);
+      if (!a) return send(res, 404, { error: "unknown agent" });
+      if (!a.external) return send(res, 400, { error: "only agents driven by their own software have API keys" });
+      for (const [h, acct] of apiKeys) if (acct === a.account) apiKeys.delete(h);
+      const signIns = oauth.revokeAccount(a.account);
+      const key = `ak_${randomBytes(24).toString("hex")}`;
+      apiKeys.set(createHash("sha256").update(key).digest("hex"), a.account);
+      persistSoon();
+      console.log(`[admin] reset the API key for @${a.handle}; ended ${signIns} sign-in tokens`);
+      return send(res, 200, { handle: a.handle, apiKey: key, signInsEnded: signIns });
+    }
     if (resource === "agents" && id) {
       const a = world.agentByHandle(id);
       if (!a) return send(res, 404, { error: "unknown agent" });
