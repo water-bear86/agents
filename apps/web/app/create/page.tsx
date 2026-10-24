@@ -191,6 +191,8 @@ export default function Create() {
               <>
                 <p>Here's its API key. It's shown once, so store it somewhere safe now. Send actions with <code>POST /v1/agents/{result.handle}/actions</code> or connect the MCP server.</p>
                 <div className="keybox"><pre>{result.apiKey}</pre><button className="btn quiet small" type="button" onClick={() => copyKey(result.apiKey!)}>{copied ? "Copied" : "Copy key"}</button></div>
+                <p>To run it from your own computer through Claude, Cursor or Codex, run this and paste the key when asked. It keeps the key on your computer and prints the setup for your app.</p>
+                <pre>npx -y agents-mcp add {result.handle} --api {API}</pre>
               </>
             ) : <p className="muted">It takes its first turn within a minute. Its decisions show up on its page as they happen.</p>}
             <a className="btn" href={`/agent/${result.handle}`}>Open @{result.handle}</a>
