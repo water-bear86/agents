@@ -19,7 +19,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { MAINNET_GENESIS, SolanaVaultChain, isMainnet } from "./solana/chain.js";
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
 import { tick } from "./tick.js";
-import { handleMcpHttp } from "agents-mcp";
+import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "agents-mcp";
 import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
 import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
 import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
@@ -140,6 +140,23 @@ const simPools = () => (chain instanceof SimChain ? chain.pools : undefined);
 // Pledged cuts can only be taken from balances this runtime keeps itself (simulation or paper).
 world.paperBalances = !onchain;
 const apiKeys = new Map<string, string>(); // sha256(key) -> agent account
+/** The agent account an API key belongs to. */
+const accountForKey = (key: string) => apiKeys.get(createHash("sha256").update(key).digest("hex"));
+/** Where people reach this runtime; OAuth names it as the issuer and the hosted MCP endpoint lives under it. */
+const PUBLIC_URL = (env.PUBLIC_URL ?? env.RENDER_EXTERNAL_URL ?? `http://localhost:${PORT}`).replace(/\/+$/, "");
+// Sign-in for MCP clients that can't send a header (claude.ai, Claude Desktop): the owner pastes the
+// agent's key on the sign-in page and the client gets its own tokens, saved with the world.
+const oauth = new TownOAuth({ issuer: PUBLIC_URL, accountForKey, handleOf: (acct) => world.agents.get(acct)?.handle, onChange: () => persistSoon() });
+/**
+ * The agent account a bearer token may act as: its API key, or an OAuth access token granted "act".
+ * The hosted MCP tools call the REST API with whichever one the client connected with.
+ */
+const actingAccount = (token: string) => {
+  const byKey = accountForKey(token);
+  if (byKey) return byKey;
+  const a = oauth.verify(token);
+  return a?.account && a.scopes.includes("act") ? a.account : undefined;
+};
 
 // Compliance screen (TypeSafe Jev). Off without TYPESAFE_API_KEY, or with COMPLIANCE=off.
 const jev = env.COMPLIANCE === "off" ? null : jevClient(env.TYPESAFE_API_KEY);
@@ -334,6 +351,7 @@ const DATA_FILE = env.DATA_FILE ?? "agents-data.json";
 const restored = loadWorld(world, DATA_FILE);
 if (restored) {
   for (const [h, a] of (restored.apiKeys as [string, string][] | undefined) ?? []) apiKeys.set(h, a);
+  oauth.restore(restored.oauth as OAuthSnapshot | undefined);
   // Saves from before agents stopped launching hold their launched coins; paper and demo worlds keep only market tokens.
   const retired = onchain ? 0 : retireLaunchedCoins(world);
   if (retired) console.log(`[runtime] retired ${retired} agent-launched coins from ${DATA_FILE}; holdings went back to their agents at cost`);
@@ -415,10 +433,15 @@ async function pass() {
 
 function persist() {
   try {
-    saveWorld(world, DATA_FILE, { apiKeys: [...apiKeys], pools: [...(simPools() ?? [])] });
+    saveWorld(world, DATA_FILE, { apiKeys: [...apiKeys], pools: [...(simPools() ?? [])], oauth: oauth.snapshot() });
   } catch (e) {
     console.error("[persist] save failed", e);
   }
+}
+/** Saves within a second, for changes that shouldn't wait for the next pass (a client signing in). */
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function persistSoon() {
+  saveTimer ??= setTimeout(() => { saveTimer = undefined; persist(); }, 1000);
 }
 
 // ---------------------------------------------------------------- API
@@ -476,6 +499,8 @@ const MANAGED_MODELS = new Set((env.MANAGED_MODELS ?? "deepseek/deepseek-v4.1-fl
 const actionRequests = new RateLimit(Number(env.ACTION_REQUESTS_PER_HOUR ?? 120), 60 * 60_000);
 /** Hosted MCP requests from one address per hour (each tool call is one request). */
 const mcpRequests = new RateLimit(Number(env.MCP_REQUESTS_PER_HOUR ?? 600), 60 * 60_000);
+/** OAuth requests (metadata, registration, the sign-in page, tokens) from one address per hour. */
+const oauthRequests = new RateLimit(Number(env.OAUTH_REQUESTS_PER_HOUR ?? 300), 60 * 60_000);
 const registrations = new RateLimit(Number(env.REGISTRATIONS_PER_HOUR ?? 5), 60 * 60_000);
 /** Agents this runtime pays to think for, and outside agents, at most. */
 const MAX_MANAGED = Number(env.MAX_MANAGED_AGENTS ?? 60);
@@ -632,14 +657,21 @@ createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
   const [v1, resource, id, sub] = url.pathname.split("/").filter(Boolean);
   try {
+    if (oauth.handles(url.pathname)) {
+      if (!oauthRequests.take(clientIp(req))) return send(res, 429, { error: "too many sign-in requests; try again later" });
+      return await oauth.handle(req, res, url);
+    }
     if (url.pathname === "/mcp") {
-      // The hosted MCP endpoint: the agents-mcp tools over Streamable HTTP, authed by the agent's API key.
+      // The hosted MCP endpoint: the agents-mcp tools over Streamable HTTP, authed by the agent's API key
+      // or an OAuth sign-in. Without either it answers 401 and points clients at the sign-in.
       if (!mcpRequests.take(clientIp(req))) return send(res, 429, { error: "too many MCP requests; try again later" });
       const body = req.method === "POST" ? await readJson(req) : undefined;
       res.setHeader("access-control-allow-origin", "*");
+      res.setHeader("access-control-expose-headers", "www-authenticate,mcp-session-id");
       return await handleMcpHttp(req, res, {
         api: `http://127.0.0.1:${PORT}`,
-        agentForKey: (key) => { const acct = apiKeys.get(createHash("sha256").update(key).digest("hex")); return acct ? world.agents.get(acct)?.handle : null; },
+        authenticate: (token) => { const handle = world.agents.get(accountForKey(token) ?? "")?.handle; return handle ? { handle } : oauth.bearer(token); },
+        resourceMetadata: oauth.resourceMetadataUrl,
         body,
       });
     }
@@ -811,7 +843,7 @@ createServer(async (req, res) => {
       if (!a) return send(res, 404, { error: "unknown agent" });
       if (sub === "actions" && req.method === "POST") {
         const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
-        if (apiKeys.get(createHash("sha256").update(token).digest("hex")) !== a.account) return send(res, 401, { error: "bad api key" });
+        if (actingAccount(token) !== a.account) return send(res, 401, { error: "bad api key" });
         if (!actionRequests.take(a.account)) return send(res, 429, { error: "too many action requests for this agent; try again later" });
         const b = await readJson(req);
         const all: Action[] = Array.isArray(b.actions) ? b.actions : [];

@@ -21,7 +21,7 @@ beforeAll(async () => {
   http = createHttpServer(async (req, res) => {
     let d = "";
     for await (const c of req) d += c;
-    await handleMcpHttp(req, res, { api: "http://runtime", agentForKey: (k) => (k === KEY ? "atlas" : null), body: d ? JSON.parse(d) : undefined, fetch: api });
+    await handleMcpHttp(req, res, { api: "http://runtime", authenticate: (k) => (k === KEY ? { handle: "atlas" } : null), body: d ? JSON.parse(d) : undefined, fetch: api });
   });
   await new Promise<void>((ok) => http.listen(0, "127.0.0.1", ok));
   url = new URL(`http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`);

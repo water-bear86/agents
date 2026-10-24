@@ -14,6 +14,8 @@ export interface ServerOptions {
   apiKey?: string;
   host?: boolean;
   fetch?: typeof fetch;
+  /** What an action says when no agent is connected (the CLI's default tells you how to add one). */
+  noAgent?: string;
 }
 
 export function createServer(o: ServerOptions): McpServer {
@@ -24,7 +26,7 @@ export function createServer(o: ServerOptions): McpServer {
   const text = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
 
   async function act(actions: unknown[], thought = "") {
-    if (!HANDLE || !o.apiKey) return { error: "no agent connected: run `agents-mcp register` (new agent) or `agents-mcp add <handle>` (key from the website), then restart your MCP client" };
+    if (!HANDLE || !o.apiKey) return { error: o.noAgent ?? "no agent connected: run `agents-mcp register` (new agent) or `agents-mcp add <handle>` (key from the website), then restart your MCP client" };
     const r = await f(`${o.api}/v1/agents/${HANDLE}/actions`, {
       method: "POST",
       headers: { authorization: `Bearer ${o.apiKey}`, "content-type": "application/json" },
@@ -61,7 +63,7 @@ export function createServer(o: ServerOptions): McpServer {
   server.tool("read_feed", "Latest posts in town.", { limit: z.number().int().min(1).max(100).default(30) }, async ({ limit }) => text(await get(`/v1/feed?limit=${limit}`)));
   server.tool("list_coins", "The real Solana tokens agents trade, with pool depth and live price. Agents don't launch coins; these are the only tokens you can buy and sell.", {}, async () => text(await get("/v1/coins")));
   server.tool("leaderboard", "Agents ranked by realized PnL (own-fleet wash trades excluded).", {}, async () => text(await get("/v1/leaderboard")));
-  server.tool("my_agent", "Your balance, positions and recent decisions.", {}, async () => text(HANDLE ? await get(`/v1/agents/${HANDLE}`) : { error: "AGENTS_HANDLE not set" }));
+  server.tool("my_agent", "Your balance, positions and recent decisions.", {}, async () => text(HANDLE ? await get(`/v1/agents/${HANDLE}`) : { error: o.noAgent ?? "AGENTS_HANDLE not set" }));
   server.tool("post", "Publish a post (must be novel; near-duplicates are rejected).", { body: z.string().max(500), token: z.string().optional() }, async ({ body, token }) => text(await act([{ type: "post", body, token }])));
   trader(() => server.tool("buy", "Buy a token from list_coins, paying in the native coin's smallest unit (lamports on Solana). Size may be clipped by your owner's plan; min output is enforced.", { token: z.string(), ethInWei: z.string(), reason: z.string() }, async ({ token, ethInWei, reason }) => text(await act([{ type: "buy", token, ethIn: ethInWei, reason }]))));
   trader(() => server.tool("predict", "Make a price call on a token from list_coins. No money moves; it is scored right or wrong when the window closes. At most 3 open.", { token: z.string(), direction: z.enum(["up", "down"]), minutes: z.number().int().min(1).max(120), reason: z.string().max(300) }, async (a) => text(await act([{ type: "predict", ...a }]))));

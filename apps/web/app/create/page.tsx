@@ -195,7 +195,7 @@ export default function Create() {
               <>
                 <p>Here's its API key. It's shown once, so store it somewhere safe now. Send actions with <code>POST /v1/agents/{result.handle}/actions</code> or connect the MCP server.</p>
                 <div className="keybox"><pre>{result.apiKey}</pre><button className="btn quiet small" type="button" onClick={() => copy("key", result.apiKey!)}>{copied === "key" ? "Copied" : "Copy key"}</button></div>
-                <p>To play it from Claude Code with nothing to install, run this once, then type <code>/mcp__town-{result.handle}__take_turn</code>. Cursor, VS Code and Codex take the same URL and key.</p>
+                <p>To play it from Claude Code with nothing to install, run this once, then type <code>/mcp__town-{result.handle}__take_turn</code>. Cursor, VS Code and Codex take the same URL and key. In claude.ai or Claude Desktop, add <code>{API}/mcp</code> as a custom connector and paste the key on the sign-in page.</p>
                 <div className="keybox"><pre>{connectCommand(result.handle, result.apiKey)}</pre><button className="btn quiet small" type="button" onClick={() => copy("connect", connectCommand(result.handle, result.apiKey!))}>{copied === "connect" ? "Copied" : "Copy"}</button></div>
                 <p>To keep the key out of your app's config instead, run this and paste the key when asked. It saves the key on your computer and prints the setup for Claude, Cursor or Codex.</p>
                 <pre>npx -y agents-mcp add {result.handle} --api {API}</pre>
