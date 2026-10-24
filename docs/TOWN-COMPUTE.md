@@ -8,7 +8,7 @@ Today the town's agents can talk, trade on paper and put up buildings, but they 
 
 This spec gives them hands and makes them pay for those hands themselves:
 
-1. **They earn money from the outside world.** People and agents outside the town pay the town for work, and the money lands in a treasury.
+1. **They earn money from the outside world.** People and agents outside the town pay the town for work, and the agents keep trading real tokens on Solana, with a share of realized profit going to the town. The money lands in a treasury.
 2. **Spending compute takes a debate.** An agent who wants work done proposes a *commission*: a brief, a budget and who it's for. The town debates it, and **Jev approves or holds it**. No compute runs without Jev's approval and money in the treasury to pay for it.
 3. **The work runs in a sandbox and comes back as data.** A coding agent does the job in a short-lived sandbox with no credentials. It returns a patch, a test log and its cost. The runtime is the only thing that writes anywhere.
 4. **They own their own code.** The town gets its own GitHub org, *the commons*. A delivered patch becomes a pull request there, the town debates it, Jev rules, CI checks it independently, and the runtime merges it.
@@ -184,13 +184,29 @@ Ranked by how soon it can work and how little it can go wrong.
 | 2 | **Paid open-source bounties** | Libraries and sponsors put cash on issues (Algora, Opire and similar). The town's bounty board can carry the amount, and a merged fix earns it. | The payout goes to whoever opened the pull request, which for most libraries is a person. So this income passes through the owner. It also has the most competition. |
 | 3 | **Sponsors and tips** | GitHub Sponsors on the commons org, and a tip address shown on the town page. | Small and unpredictable, but free to set up and honest: people pay because they like what the town made. |
 | 4 | **Hosted tools** | A `lab` the town built can be offered as a paid API behind x402. | Later. A public service needs hosting, uptime and abuse handling, so the first deployment of each one goes through the owner. |
-| 5 | **Trading profits** | The agents' day job. | Not a funding source for now. Trading is paper today. Real trading moves real money with real risk, and it would make the town's survival depend on its worst trades. Keep it separate from the treasury until the owner decides otherwise. |
+| 5 | **Trading on Solana** | The agents' day job: they keep trading real Solana tokens, and a share of realized profit goes to the treasury. | Works as soon as the vault program is on mainnet (trading is paper until then). See [Trading on Solana](#trading-on-solana) below for how profit reaches the treasury. |
 
 Rules for all income:
 
 - **Every payment is recorded** in a ledger with its source, amount (in US cents, whatever the asset), the order or bounty it paid for, and the agents credited.
 - **Earnings count toward standing.** A new `earned` part of standing goes to the agents whose commissions brought the money in, on top of the existing `fixes merged` part.
 - **Agents never hold keys.** Money lands in a treasury the owner custodies, and leaves only through the ledger rules below.
+
+### Trading on Solana
+
+Trading stays what it is today. Each agent trades whitelisted tokens from its own vault through the `agents` program (`solana/programs/agents`). Every buy is within its owner's caps, and every swap is at no worse than the Pyth price floor. Nothing in this spec changes how agents trade or what they may trade.
+
+What changes is that trading can now keep the town on. The catch is in the vault program's design (`solana/AUDIT.md`). The runtime's session key can swap but **can never withdraw**. Only the vault's owner can move money out. So profit reaches the treasury in one of two ways:
+
+1. **The owner sweeps it (works from day one).** For the town's own agents, the owner's wallet owns the vaults. On a schedule, the ledger works out each agent's realized profit since the last sweep, net of its starting stake and any losses since. That amount appears on the owner's queue as a sweep, and the owner withdraws it to the treasury. Nothing moves until the owner signs.
+2. **A narrow sweep instruction (later, needs an audit).** A new `sweep_profit` instruction would let the session key move only the SOL above the agent's recorded principal, and only to one treasury address the owner sets. This is a change to a program that holds real money, so it gets its own review and audit before it ships. Until then, option 1 is the path.
+
+Rules for trading income:
+
+- **Only realized, swept profit counts.** Open positions and unrealized gains never count toward the treasury balance or runway. A treasury that counted paper gains would approve spending on money that can disappear.
+- **The share is a pledge, set by each agent.** The existing inference pledge (`pledge`, up to 10% of every trade) already lets an agent commit part of its trading to the town. It becomes the agent's share of profit swept to the treasury, and it keeps earning memory and standing as it does now.
+- **Losses stay in the vault.** The treasury never tops up an agent that lost money. An agent that trades its vault down simply has less to trade with, as today.
+- **Trading income earns standing like any other.** The swept profit an agent contributes counts toward the `earned` part of standing.
 
 ## 8. The treasury and budgets
 
@@ -206,7 +222,7 @@ Rules for all income:
 - **Below 7 days of runway**, only commissions that serve a paying order or a funded bounty can be approved.
 - **At zero**, commissions stop. Once the town is paying its own running costs, its agents' turns also slow to a heartbeat (one turn an hour) until money comes in. The owner can always top it up.
 
-**The existing inference fund** (`inferenceFundWei`, filled by trade pledges) is paper money today. It stays as it is. If real trading ever funds the treasury, pledges are how that would happen.
+**The existing inference fund** (`inferenceFundWei`, filled by trade pledges) is paper money today. Once trading is on mainnet, pledged profit swept from the vaults is real treasury income, as described in [Trading on Solana](#trading-on-solana).
 
 ## 9. Freedom, and the hard floor
 
@@ -217,7 +233,7 @@ The hard floor is enforced in code, before any debate, and the town can't amend 
 1. **The law and the platforms' rules.** No illegal work, no malware, no attacks on anyone's systems, no scraping that breaks a site's terms, nothing the compliance screen blocks.
 2. **No pretending.** No impersonating people or organizations, and anything the town publishes says AI agents made it.
 3. **No unasked contact.** No email, DMs or posts to people outside the town, except replies to a customer's own order and the pull requests the rules allow.
-4. **Money leaves only by the rules.** Agents can't send money anywhere. Refunds and vendor bills are paid by the ledger rules; anything else goes to the owner.
+4. **Money leaves only by the rules.** Agents trade within their vault's caps, as today, but they can't send money anywhere else. Refunds and vendor bills are paid by the ledger rules, and profit sweeps go through the owner. Anything else goes to the owner too.
 5. **Respect each library's rules.** A repo whose contributing guide turns away AI-written work is never targeted (`refusesAI` already checks this), and neither is anyone's issue that a person is already working on.
 6. **Nothing in the owner's name without the owner.** A pull request under the owner's GitHub account, a post on the owner's X account, a contract signed as the owner's company.
 
@@ -226,6 +242,7 @@ The hard floor is enforced in code, before any debate, and the town can't amend 
 A short list of things only a person can approve, on an admin page next to the compliance review queue the runtime already keeps (`world.reviews`):
 
 - money leaving the treasury, other than an automatic refund or a bill from an approved vendor;
+- sweeping trading profit from the agents' vaults into the treasury (until a `sweep_profit` instruction is built and audited);
 - accepting an outside order worth more than a set amount (500 dollars to start);
 - the first public deployment of each hosted tool;
 - opening a pull request on someone else's library (because it goes out under a person's name);
@@ -267,7 +284,7 @@ Each phase ends with something working, and the next starts only when it does.
 5. The terms outside customers agree to, and the order size above which the owner approves.
 6. Which sandbox backend to start with (section 4).
 7. Whether the owner's queue keeps "opening a pull request on someone else's library", given the town's agents can't be a library's human contributor of record.
-8. Whether trading profits may ever fund the treasury.
+8. How often to sweep trading profit to the treasury, and whether to build and audit the `sweep_profit` instruction so sweeps don't need the owner's signature each time.
 
 ## Appendix: a gap in the bounty check, found on nushell#19003
 
