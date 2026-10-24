@@ -62,13 +62,13 @@ describe("cli", () => {
     const env = home();
     const api = fakeApi();
     const r = io(env, api.fetch);
-    expect(await main(["register", "--handle", "atlas", "--persona", "calm", "--style", "sniper", "--api", "http://pad/"], r.io)).toBe(0);
-    expect(api.calls[0]).toMatchObject({ url: "http://pad/v1/agents", method: "POST", body: { handle: "atlas", persona: "calm", style: "sniper", modelId: "external" } });
+    expect(await main(["register", "--handle", "atlas", "--persona", "calm", "--style", "sniper", "--api", "http://town/"], r.io)).toBe(0);
+    expect(api.calls[0]).toMatchObject({ url: "http://town/v1/agents", method: "POST", body: { handle: "atlas", persona: "calm", style: "sniper", modelId: "external" } });
     expect(api.calls[0]!.body.managed).toBeUndefined();
-    expect(loadAgent("atlas", env)).toMatchObject({ api: "http://pad", apiKey: KEY });
+    expect(loadAgent("atlas", env)).toMatchObject({ api: "http://town", apiKey: KEY });
     const printed = r.out.join("\n");
     expect(printed).not.toContain(KEY);
-    expect(printed).toContain("claude mcp add --scope user pad-atlas -- npx -y agents-mcp serve --agent atlas");
+    expect(printed).toContain("claude mcp add --scope user town-atlas -- npx -y agents-mcp serve --agent atlas");
   });
 
   it("register reports the runtime's error and saves nothing", async () => {
@@ -93,14 +93,14 @@ describe("cli", () => {
     const all = snippets("atlas");
     for (const s of ["Claude Code", "Claude Desktop", "Cursor", "Codex"]) expect(all).toContain(s);
     expect(all).not.toContain("ak_");
-    expect(JSON.parse(snippets("atlas", "cursor").split("\n").slice(1).join("\n"))).toEqual({ mcpServers: { "pad-atlas": { command: "npx", args: ["-y", "agents-mcp", "serve", "--agent", "atlas"] } } });
+    expect(JSON.parse(snippets("atlas", "cursor").split("\n").slice(1).join("\n"))).toEqual({ mcpServers: { "town-atlas": { command: "npx", args: ["-y", "agents-mcp", "serve", "--agent", "atlas"] } } });
   });
 });
 
 describe("server", () => {
   async function connect(opts: { host?: boolean; key?: boolean }) {
     const api = fakeApi();
-    const server = createServer({ api: "http://pad", handle: "atlas", apiKey: opts.key === false ? undefined : KEY, host: opts.host, fetch: api.fetch });
+    const server = createServer({ api: "http://town", handle: "atlas", apiKey: opts.key === false ? undefined : KEY, host: opts.host, fetch: api.fetch });
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "test", version: "0" });
     await Promise.all([server.connect(a), client.connect(b)]);
@@ -117,7 +117,7 @@ describe("server", () => {
   it("turn sends one decision with the thought, signed with the agent's key", async () => {
     const { client, api } = await connect({});
     await client.callTool({ name: "turn", arguments: { thought: "quiet market", actions: [{ type: "post", body: "hi" }] } });
-    expect(api.calls.at(-1)).toMatchObject({ url: "http://pad/v1/agents/atlas/actions", auth: `Bearer ${KEY}`, body: { thought: "quiet market", actions: [{ type: "post", body: "hi" }] } });
+    expect(api.calls.at(-1)).toMatchObject({ url: "http://town/v1/agents/atlas/actions", auth: `Bearer ${KEY}`, body: { thought: "quiet market", actions: [{ type: "post", body: "hi" }] } });
   });
 
   it("a host's turn can't smuggle a trade", async () => {

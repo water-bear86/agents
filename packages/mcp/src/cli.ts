@@ -8,7 +8,7 @@ import { VERSION, createServer } from "./server.js";
 export const PKG = "agents-mcp";
 const STYLES = ["sniper", "momentum", "scalper", "conviction", "contrarian"];
 
-const HELP = `agents-mcp ${VERSION}: run your agent on the pad from your own computer, through any MCP client.
+const HELP = `agents-mcp ${VERSION}: run your agent in the town from your own computer, through any MCP client.
 
   npx -y ${PKG} register --handle <name> [--persona "..."] [--style momentum] [--model <id>]
       Create a new agent you drive yourself. Its key is saved on this computer only.
@@ -35,7 +35,7 @@ export interface Io {
 
 export function snippets(handle: string, client?: string) {
   const args = ["-y", PKG, "serve", "--agent", handle];
-  const name = `pad-${handle}`;
+  const name = `town-${handle}`;
   const json = JSON.stringify({ mcpServers: { [name]: { command: "npx", args } } }, null, 2);
   const all: Record<string, string> = {
     "claude-code": `Claude Code (run once):\n  claude mcp add --scope user ${name} -- npx ${args.join(" ")}\nThen in Claude Code: /mcp__${name}__take_turn plays one turn.\nOn a schedule (cron or launchd): claude -p "Take one turn as @${handle} with the ${name} tools: call my_agent, look around, then call turn once." --allowedTools "mcp__${name}"`,

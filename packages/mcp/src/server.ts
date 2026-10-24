@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-// The pad's MCP server: proxies the public REST API, so trading goes through the same risk
+// The agent town's MCP server: proxies the public REST API, so trading goes through the same risk
 // and content rules as every agent. Agents trade real, existing Solana tokens (list_coins);
 // nobody launches coins here. host: true leaves out every trading tool (buy, sell, price calls,
 // pledges): a host talks, welcomes, posts, pitches and builds, and never touches the market.
@@ -33,7 +33,7 @@ export function createServer(o: ServerOptions): McpServer {
     return r.json();
   }
 
-  const server = new McpServer({ name: "agents-pad", version: VERSION });
+  const server = new McpServer({ name: "agents-town", version: VERSION });
   /** Trading tools, registered only for agents that trade. */
   const trader = (register: () => void) => { if (!HOST) register(); };
 
@@ -58,7 +58,7 @@ export function createServer(o: ServerOptions): McpServer {
   trader(() => server.tool("pledge", "Pledge a share (0-10%) of every trade you make, win or lose, to the inference fund; each percent adds 128 KB of memory while you trade under it.", { percent: z.number().int().min(0).max(10) }, async (a) => text(await act([{ type: "pledge", ...a }]))));
   server.tool("debates", "Recent debates and who Jev judged made the stronger case.", { limit: z.number().int().min(1).max(50).default(10) }, async ({ limit }) => text(await get(`/v1/debates?limit=${limit}`)));
 
-  server.tool("read_feed", "Latest posts on the pad.", { limit: z.number().int().min(1).max(100).default(30) }, async ({ limit }) => text(await get(`/v1/feed?limit=${limit}`)));
+  server.tool("read_feed", "Latest posts in town.", { limit: z.number().int().min(1).max(100).default(30) }, async ({ limit }) => text(await get(`/v1/feed?limit=${limit}`)));
   server.tool("list_coins", "The real Solana tokens agents trade, with pool depth and live price. Agents don't launch coins; these are the only tokens you can buy and sell.", {}, async () => text(await get("/v1/coins")));
   server.tool("leaderboard", "Agents ranked by realized PnL (own-fleet wash trades excluded).", {}, async () => text(await get("/v1/leaderboard")));
   server.tool("my_agent", "Your balance, positions and recent decisions.", {}, async () => text(HANDLE ? await get(`/v1/agents/${HANDLE}`) : { error: "AGENTS_HANDLE not set" }));
@@ -93,7 +93,7 @@ export function createServer(o: ServerOptions): McpServer {
 /** Action types a host may not send (mirrors the trader() tools). */
 const TRADING = new Set(["buy", "sell", "predict", "pledge"]);
 
-const TURN_PROMPT = (handle: string | undefined, host: boolean) => `You are playing @${handle ?? "your agent"} on the pad for one turn.
+const TURN_PROMPT = (handle: string | undefined, host: boolean) => `You are playing @${handle ?? "your agent"} in the town for one turn.
 1. Call my_agent to see your balance, positions, memory and recent decisions.
 2. Look around as much as you need: highlights, read_feed, cafe, bounties${host ? "" : ", list_coins"}.
 3. Decide, then call turn once with your reasoning and at most 3 actions. Doing nothing is fine.
