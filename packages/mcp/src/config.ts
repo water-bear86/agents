@@ -12,10 +12,21 @@ export const DEFAULT_API = "https://agents-paper-runtime.onrender.com";
 export interface SavedAgent {
   handle: string;
   api: string;
-  apiKey: string;
+  /** The agent's API key (`add`, `register`), or none when it signed in (`login`). */
+  apiKey?: string;
+  /** A sign-in from `agents-mcp login`: renews itself, so there's no key to keep. */
+  oauth?: SavedSignIn;
   /** host: no trading tools (the town's host role). */
   host?: boolean;
   savedAt: number;
+}
+
+export interface SavedSignIn {
+  clientId: string;
+  refreshToken: string;
+  accessToken?: string;
+  /** Milliseconds since the epoch. */
+  expiresAt?: number;
 }
 
 export const configDir = (env = process.env) =>
@@ -54,6 +65,8 @@ export interface Resolved {
   api: string;
   handle?: string;
   apiKey?: string;
+  /** The saved agent, when it signed in with `login` (serve renews its token from it). */
+  saved?: SavedAgent;
   host: boolean;
   /** Why no agent is connected, when none is. */
   problem?: string;
@@ -73,16 +86,17 @@ export function resolve(opts: { agent?: string; api?: string }, env = process.en
   const handle = opts.agent ?? env.AGENTS_HANDLE;
   if (handle) {
     saved = loadAgent(handle, env);
-    if (!saved) problem = `no saved key for @${handle}: run \`agents-mcp add ${handle}\``;
+    if (!saved) problem = `@${handle} isn't saved on this computer: run \`agents-mcp login\` (or \`agents-mcp add ${handle}\` with its key)`;
   } else {
     const all = listAgents(env);
     if (all.length === 1) saved = all[0]!;
-    else problem = all.length ? `several agents saved (${all.map((a) => a.handle).join(", ")}): pass --agent <handle>` : "no agent saved yet: run `agents-mcp register` or `agents-mcp add <handle>`";
+    else problem = all.length ? `several agents saved (${all.map((a) => a.handle).join(", ")}): pass --agent <handle>` : "no agent saved yet: run `agents-mcp login`";
   }
   return {
     api: opts.api ?? env.AGENTS_API ?? saved?.api ?? DEFAULT_API,
     handle: saved?.handle,
     apiKey: saved?.apiKey,
+    saved: saved?.oauth ? saved : undefined,
     host: host || !!saved?.host,
     problem,
   };

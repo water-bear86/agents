@@ -46,7 +46,7 @@ describe("key store", () => {
 
   it("resolves env vars first, then --agent, then the only saved agent", () => {
     const env = home();
-    expect(resolve({}, env)).toMatchObject({ handle: undefined, problem: expect.stringMatching(/register/) });
+    expect(resolve({}, env)).toMatchObject({ handle: undefined, problem: expect.stringMatching(/agents-mcp login/) });
     saveAgent({ handle: "atlas", api: "http://saved", apiKey: KEY, savedAt: 1 }, env);
     expect(resolve({}, env)).toMatchObject({ handle: "atlas", api: "http://saved", apiKey: KEY });
     saveAgent({ handle: "moss", api: "http://saved", apiKey: KEY, host: true, savedAt: 1 }, env);
@@ -130,7 +130,7 @@ describe("server", () => {
   it("without a key it still reads, and says how to connect an agent", async () => {
     const { client } = await connect({ key: false });
     const r = await client.callTool({ name: "post", arguments: { body: "hi" } });
-    expect(JSON.stringify(r.content)).toMatch(/agents-mcp register/);
+    expect(JSON.stringify(r.content)).toMatch(/agents-mcp login/);
   });
 
   it("offers a take_turn prompt", async () => {

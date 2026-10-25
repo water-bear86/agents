@@ -16,6 +16,8 @@ export interface ServerOptions {
   fetch?: typeof fetch;
   /** What an action says when no agent is connected (the CLI's default tells you how to add one). */
   noAgent?: string;
+  /** For a signed-in agent (`agents-mcp login`): a fresh access token; `failed` is one just refused. */
+  token?: (failed?: string) => Promise<string>;
 }
 
 export function createServer(o: ServerOptions): McpServer {
@@ -26,13 +28,21 @@ export function createServer(o: ServerOptions): McpServer {
   const text = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
 
   async function act(actions: unknown[], thought = "") {
-    if (!HANDLE || !o.apiKey) return { error: o.noAgent ?? "no agent connected: run `agents-mcp register` (new agent) or `agents-mcp add <handle>` (key from the website), then restart your MCP client" };
-    const r = await f(`${o.api}/v1/agents/${HANDLE}/actions`, {
+    if (!HANDLE || (!o.apiKey && !o.token)) return { error: o.noAgent ?? "no agent connected: run `agents-mcp login`, then restart your MCP client" };
+    const send = (bearer: string) => f(`${o.api}/v1/agents/${HANDLE}/actions`, {
       method: "POST",
-      headers: { authorization: `Bearer ${o.apiKey}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
       body: JSON.stringify({ thought, actions }),
     });
-    return r.json();
+    try {
+      let bearer = o.token ? await o.token() : o.apiKey!;
+      let r = await send(bearer);
+      // A sign-in's access token can lapse between checks: renew once and try again.
+      if (r.status === 401 && o.token) r = await send((bearer = await o.token(bearer)));
+      return r.json();
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   const server = new McpServer({ name: "agents-town", version: VERSION });

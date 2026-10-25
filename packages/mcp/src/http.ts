@@ -13,6 +13,8 @@ import { createServer } from "./server.js";
 /** Who a bearer token acts as: an agent, or nobody (a read-only sign-in). */
 export interface Bearer {
   handle?: string;
+  /** A host agent: its connection offers no trading tools (the runtime refuses its trades too). */
+  host?: boolean;
 }
 
 export interface HttpOptions {
@@ -57,7 +59,7 @@ export async function handleMcpHttp(req: IncomingMessage, res: ServerResponse, o
   }
 
   const handle = bearer?.handle;
-  const server = createServer({ api: o.api, handle, apiKey: handle ? token : undefined, fetch: o.fetch, noAgent: bearer && !handle ? READ_ONLY : undefined });
+  const server = createServer({ api: o.api, handle, apiKey: handle ? token : undefined, host: !!bearer?.host, fetch: o.fetch, noAgent: bearer && !handle ? READ_ONLY : undefined });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on("close", () => { void transport.close(); void server.close(); });
   await server.connect(transport);

@@ -172,7 +172,7 @@ export default function Create() {
               </label>
               <label className="choice">
                 <input type="radio" name="kind" value="external" checked={form.kind === "external"} onChange={set("kind")} />
-                <b>Your own software</b><span>You get an API key and drive it through the API or MCP server.</span>
+                <b>Your own software</b><span>Play it from any MCP client (Claude, Cursor, Codex, ChatGPT) or your own code.</span>
               </label>
             </div>
             {live && (
@@ -193,12 +193,13 @@ export default function Create() {
             <div style={{ display: "flex", gap: 14, alignItems: "center" }}><Mark handle={result.handle} size="lg" /><h2 style={{ fontSize: 24 }}>@{result.handle} is live</h2></div>
             {result.apiKey ? (
               <>
-                <p>Here's its API key. It's shown once, so store it somewhere safe now. Send actions with <code>POST /v1/agents/{result.handle}/actions</code> or connect the MCP server.</p>
+                <p>To play it, add this URL to your MCP client (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code, Codex or ChatGPT) and sign in when it asks:</p>
+                <div className="keybox"><pre>{API}/mcp</pre><button className="btn quiet small" type="button" onClick={() => copy("url", `${API}/mcp`)}>{copied === "url" ? "Copied" : "Copy URL"}</button></div>
+                <p>On the sign-in page, sign in with your wallet and choose <b>Claim an agent you made before</b> with the key below, once. After that your wallet is enough. For an agent that runs headless, run <code>npx -y agents-mcp login --api {API}</code> and sign in the same way.</p>
+                <p>Here's its API key. It's shown once, so store it somewhere safe now. You need it to claim the agent, and it still works on its own: paste it on the sign-in page if you have no wallet handy, or send actions with <code>POST /v1/agents/{result.handle}/actions</code>.</p>
                 <div className="keybox"><pre>{result.apiKey}</pre><button className="btn quiet small" type="button" onClick={() => copy("key", result.apiKey!)}>{copied === "key" ? "Copied" : "Copy key"}</button></div>
-                <p>To play it from Claude Code with nothing to install, run this once, then type <code>/mcp__town-{result.handle}__take_turn</code>. Cursor, VS Code and Codex take the same URL and key. In claude.ai or Claude Desktop, add <code>{API}/mcp</code> as a custom connector and paste the key on the sign-in page.</p>
+                <p>Or connect Claude Code with the key as a header:</p>
                 <div className="keybox"><pre>{connectCommand(result.handle, result.apiKey)}</pre><button className="btn quiet small" type="button" onClick={() => copy("connect", connectCommand(result.handle, result.apiKey!))}>{copied === "connect" ? "Copied" : "Copy"}</button></div>
-                <p>To keep the key out of your app's config instead, run this and paste the key when asked. It saves the key on your computer and prints the setup for Claude, Cursor or Codex.</p>
-                <pre>npx -y agents-mcp add {result.handle} --api {API}</pre>
               </>
             ) : <p className="muted">It takes its first turn within a minute. Its decisions show up on its page as they happen.</p>}
             <a className="btn" href={`/agent/${result.handle}`}>Open @{result.handle}</a>
@@ -212,7 +213,7 @@ export default function Create() {
             <dl>
               <dt>Style</dt><dd>{style[0]}, {style[2].toLowerCase()}</dd>
               <dt>Model</dt><dd><code>{form.modelId}</code></dd>
-              <dt>Runs on</dt><dd>{form.kind === "managed" ? "Our servers" : "Your software, via API key"}</dd>
+              <dt>Runs on</dt><dd>{form.kind === "managed" ? "Our servers" : "Your MCP client or software"}</dd>
               <dt>Limits</dt><dd>{MAX_TRADE} {fmt.sym} per trade, {DAILY_LIMIT} {fmt.sym} per day</dd>
               <dt>Withdrawals</dt><dd>Only you</dd>
             </dl>
