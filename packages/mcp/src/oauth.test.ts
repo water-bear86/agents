@@ -83,7 +83,7 @@ class TestProvider implements OAuthClientProvider {
 const unescape = (s: string) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 
 /** The owner in a browser: open the sign-in page, then submit its form the way the page does. */
-async function ownerSubmits(authUrl: URL, decision: "allow" | "read" | "deny", key?: string) {
+async function ownerSubmits(authUrl: URL, decision: "key" | "read" | "deny", key?: string) {
   const pageRes = await fetch(authUrl);
   const html = await pageRes.text();
   expect(pageRes.status).toBe(200);
@@ -97,7 +97,7 @@ async function ownerSubmits(authUrl: URL, decision: "allow" | "read" | "deny", k
 }
 
 /** Connect with OAuth, sign in on the page, and come back connected. */
-async function signIn(p: TestProvider, decision: "allow" | "read" = "allow", key: string | undefined = KEY) {
+async function signIn(p: TestProvider, decision: "key" | "read" = "key", key: string | undefined = KEY) {
   const first = new StreamableHTTPClientTransport(mcpUrl(), { authProvider: p });
   await expect(new Client({ name: "t", version: "0" }).connect(first)).rejects.toThrow(UnauthorizedError);
   const { location } = await ownerSubmits(p.authUrl!, decision, key);
@@ -122,7 +122,8 @@ describe("hosted MCP sign-in (OAuth 2.1)", () => {
       token_endpoint: `${base}/oauth/token`,
       registration_endpoint: `${base}/oauth/register`,
       code_challenge_methods_supported: ["S256"],
-      grant_types_supported: ["authorization_code", "refresh_token"],
+      grant_types_supported: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+      device_authorization_endpoint: `${base}/oauth/device_authorization`,
     });
   });
 
@@ -188,7 +189,7 @@ describe("hosted MCP sign-in (OAuth 2.1)", () => {
     const p = new TestProvider();
     const t = new StreamableHTTPClientTransport(mcpUrl(), { authProvider: p });
     await expect(new Client({ name: "t", version: "0" }).connect(t)).rejects.toThrow(UnauthorizedError);
-    const { res, html } = await ownerSubmits(p.authUrl!, "allow", "ak_wrong");
+    const { res, html } = await ownerSubmits(p.authUrl!, "key", "ak_wrong");
     expect(html).toContain("Claude &lt;test&gt;"); // the client's name is escaped
     expect(res.status).toBe(401);
     expect(res.headers.get("location")).toBeNull();
@@ -252,7 +253,7 @@ describe("authorization server checks", () => {
   /** Registers a client and gets a code for it, as the page would. */
   async function codeFor(extra: Record<string, unknown> = {}) {
     const reg = await (await register({ client_name: "x", redirect_uris: ["https://claude.ai/api/mcp/auth_callback"], token_endpoint_auth_method: "none", ...extra })).json() as any;
-    const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: "https://claude.ai/api/mcp/auth_callback", code_challenge: pkce(VERIFIER), code_challenge_method: "S256", state: "s", resource: `${base}/mcp`, decision: "allow", key: KEY });
+    const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: "https://claude.ai/api/mcp/auth_callback", code_challenge: pkce(VERIFIER), code_challenge_method: "S256", state: "s", resource: `${base}/mcp`, decision: "key", key: KEY });
     const r = await fetch(`${base}/oauth/authorize`, { method: "POST", body: q, redirect: "manual" });
     return { reg, code: new URL(r.headers.get("location")!).searchParams.get("code")! };
   }
@@ -308,7 +309,7 @@ describe("authorization server checks", () => {
     expect(without.status).toBe(401);
     const basic = Buffer.from(`${reg.client_id}:${reg.client_secret}`).toString("base64");
     const { code: code2 } = await (async () => {
-      const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: "https://claude.ai/api/mcp/auth_callback", code_challenge: pkce(VERIFIER), code_challenge_method: "S256", decision: "allow", key: KEY });
+      const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: "https://claude.ai/api/mcp/auth_callback", code_challenge: pkce(VERIFIER), code_challenge_method: "S256", decision: "key", key: KEY });
       const r = await fetch(`${base}/oauth/authorize`, { method: "POST", body: q, redirect: "manual" });
       return { code: new URL(r.headers.get("location")!).searchParams.get("code")! };
     })();

@@ -98,7 +98,7 @@ export class Indexer {
     for (const l of created) {
       const a = l.args;
       const existing = this.world.agents.get(a.account!);
-      if (existing) { existing.owner = a.owner!; existing.modelId = a.modelId!; }
+      if (existing) { existing.owner = a.owner!; existing.ownerVerified = true; existing.modelId = a.modelId!; }
     }
     for (const l of launched) {
       const a = l.args;

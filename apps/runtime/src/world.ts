@@ -12,6 +12,14 @@ export interface Agent {
   awake: boolean;
   external: boolean; // driven by an outside agent over the API/MCP instead of our LLM loop
   createdAt: number;
+  /**
+   * The owner is proven: an on-chain owner, or a wallet that signed to create or claim the agent.
+   * Wallet sign-in only ever grants agents with a proven owner; a bare `owner` string from an
+   * unauthenticated request grants nothing.
+   */
+  ownerVerified?: boolean;
+  /** A host talks, welcomes and builds, and never touches the market: trading is refused for every caller. */
+  host?: boolean;
 }
 
 /**

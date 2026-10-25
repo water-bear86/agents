@@ -133,9 +133,13 @@ async function screened(
   return { verdict, queue: () => {} };
 }
 
+/** What a host may never do, whoever asks: every action that touches the market. */
+export const TRADING_ACTIONS = new Set(["buy", "sell", "predict", "pledge"]);
+
 /** Applies one action under the platform rules. Used for our agents and external ones alike. */
 export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action | RetiredAction, tracer?: Tracer, screen?: ComplianceScreen | null): Promise<ActionResult> {
   const run = async (): Promise<ActionResult> => {
+    if (agent.host && TRADING_ACTIONS.has(action.type)) return { action, ok: false, detail: "a host never touches the market" };
     switch (action.type) {
       case "claim_bounty": case "drop_bounty": case "submit_fix": case "review_fix": case "open_pr": case "vote_library":
         return { action, ...(await applyBountyAction(world, agent, action)) };
