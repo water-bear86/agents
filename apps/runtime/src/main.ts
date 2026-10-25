@@ -21,6 +21,7 @@ import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/p
 import { tick } from "./tick.js";
 import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "agents-mcp";
 import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
+import { claimAgent, clearClaim, migrateOwnerProof, proveOwner, resetApiKey, walletAgents } from "./ownership.js";
 import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
 import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
 
@@ -154,17 +155,14 @@ const oauth = new TownOAuth({
   // Wallet sign-in grants only agents whose owner is proven (ownerVerified): never a bare `owner` string.
   wallet: {
     verify: (wallet, message, signature) => { try { return verifySignature(new PublicKey(wallet).toBytes(), message, signature); } catch { return false; } },
-    agents: (wallet) => [...world.agents.values()].filter((a) => a.ownerVerified && a.owner === wallet).map((a) => ({ account: a.account, handle: a.handle })),
+    agents: (wallet) => walletAgents(world.agents.values(), wallet).map((a) => ({ account: a.account, handle: a.handle })),
     create: (o) => createWalletAgent(o),
     claim: (account, wallet) => {
       const a = world.agents.get(account);
       if (!a) return { error: "That agent is gone." };
-      if (a.ownerVerified && a.owner !== wallet) return { error: "That agent already belongs to another wallet." };
-      a.owner = wallet;
-      a.ownerVerified = true;
-      persistSoon();
-      console.log(`[signin] @${a.handle} claimed by wallet ${wallet}`);
-      return { ok: true };
+      const r = claimAgent(a, wallet);
+      if ("ok" in r) { persistSoon(); console.log(`[signin] @${a.handle} claimed by wallet ${wallet}`); }
+      return r;
     },
     styles: ["momentum", ...Object.keys(PRESETS).filter((s) => s !== "momentum")],
   },
@@ -377,6 +375,7 @@ const restored = loadWorld(world, DATA_FILE);
 if (restored) {
   for (const [h, a] of (restored.apiKeys as [string, string][] | undefined) ?? []) apiKeys.set(h, a);
   oauth.restore(restored.oauth as OAuthSnapshot | undefined);
+  migrateOwnerProof(world.agents.values());
   // Saves from before agents stopped launching hold their launched coins; paper and demo worlds keep only market tokens.
   const retired = onchain ? 0 : retireLaunchedCoins(world);
   if (retired) console.log(`[runtime] retired ${retired} agent-launched coins from ${DATA_FILE}; holdings went back to their agents at cost`);
@@ -421,11 +420,11 @@ if (solanaOnchain) {
   for (const a of JSON.parse(env.AGENTS_JSON ?? "[]") as { handle: string; persona?: string; style?: Style }[]) {
     const onChain = await solanaAgent(a.handle);
     if (!onChain) { console.warn(`[runtime] @${a.handle} is not registered with this runtime's session key; skipping`); continue; }
-    world.agents.set(onChain.account, { account: onChain.account, owner: onChain.owner, ownerVerified: true, handle: a.handle, name: a.handle, persona: a.persona ?? "", modelId: onChain.modelId, plan: planFor(a.style ?? "momentum", world.units), awake: true, external: false, createdAt: Date.now() });
+    world.agents.set(onChain.account, { account: onChain.account, owner: onChain.owner, ownerVerified: true, ownerProof: "chain", handle: a.handle, name: a.handle, persona: a.persona ?? "", modelId: onChain.modelId, plan: planFor(a.style ?? "momentum", world.units), awake: true, external: false, createdAt: Date.now() });
   }
 } else if (onchain) {
   for (const a of JSON.parse(env.AGENTS_JSON ?? "[]") as { account: string; owner: string; handle: string; persona: string; style: Style; modelId: string }[]) {
-    world.agents.set(a.account, { account: a.account, owner: a.owner, ownerVerified: true, handle: a.handle, name: a.handle, persona: a.persona, modelId: a.modelId, plan: planFor(a.style, world.units), awake: true, external: false, createdAt: Date.now() });
+    world.agents.set(a.account, { account: a.account, owner: a.owner, ownerVerified: true, ownerProof: "chain", handle: a.handle, name: a.handle, persona: a.persona, modelId: a.modelId, plan: planFor(a.style, world.units), awake: true, external: false, createdAt: Date.now() });
   }
 }
 // HOST_HANDLES marks hosts on every start, saved agents included (the admin route can also set or clear it).
@@ -445,7 +444,7 @@ async function createWalletAgent(o: { wallet: string; handle: string; persona: s
   if (world.agentByHandle(o.handle)) return taken;
   if (!registrations.take(o.ip)) return { error: "Too many new agents from this address. Try again in an hour." };
   const a = addAgent(o.handle, o.wallet, (o.style in PRESETS ? o.style : "momentum") as Style, o.persona.slice(0, 400), "external", true);
-  a.ownerVerified = true;
+  proveOwner(a, "created");
   persistSoon();
   console.log(`[signin] @${a.handle} created by wallet ${o.wallet}`);
   return { account: a.account };
@@ -869,7 +868,7 @@ createServer(async (req, res) => {
           const signed = verifySignature(new PublicKey(onChain.owner).toBytes(), enrollmentMessage(b.handle, style, sha256Hex(persona)), String(b.signature ?? ""));
           if (!signed) return send(res, 401, { error: "enrollment must be signed by the agent's owner" });
           const a = addAgent(b.handle, onChain.owner, style, persona, onChain.modelId, false, onChain.account);
-          a.ownerVerified = true;
+          proveOwner(a, "chain");
           return send(res, 201, { agent: publicAgent(a) });
         }
         if (onchain) {
@@ -882,7 +881,7 @@ createServer(async (req, res) => {
           const prof = await pub.readContract({ address: env.REGISTRY as Address, abi, functionName: "profile", args: [b.account] });
           if (prof.handle !== b.handle) return send(res, 400, { error: "handle does not match the on-chain profile" });
           const a = addAgent(prof.handle, prof.owner, style, String(b.persona ?? "").slice(0, 400), prof.modelId, false, b.account);
-          a.ownerVerified = true;
+          proveOwner(a, "chain");
           return send(res, 201, { agent: publicAgent(a) });
         }
         const modelId = demo ? "demo/model" : String(b.modelId ?? "deepseek/deepseek-v4.1-flash");
@@ -916,13 +915,23 @@ createServer(async (req, res) => {
       const a = world.agentByHandle(sub);
       if (!a) return send(res, 404, { error: "unknown agent" });
       if (!a.external) return send(res, 400, { error: "only agents driven by their own software have API keys" });
-      for (const [h, acct] of apiKeys) if (acct === a.account) apiKeys.delete(h);
-      const signIns = oauth.revokeAccount(a.account);
-      const key = `ak_${randomBytes(24).toString("hex")}`;
-      apiKeys.set(createHash("sha256").update(key).digest("hex"), a.account);
+      // A leaked key may have been used to claim the agent for a wallet: the reset undoes that claim too.
+      const r = resetApiKey(a, apiKeys, (acct) => oauth.revokeAccount(acct));
       persistSoon();
-      console.log(`[admin] reset the API key for @${a.handle}; ended ${signIns} sign-in tokens`);
-      return send(res, 200, { handle: a.handle, apiKey: key, signInsEnded: signIns });
+      console.log(`[admin] reset the API key for @${a.handle}; ended ${r.signInsEnded} sign-in tokens${r.claimCleared ? "; cleared its wallet claim" : ""}`);
+      return send(res, 200, { handle: a.handle, apiKey: r.apiKey, signInsEnded: r.signInsEnded, claimCleared: r.claimCleared });
+    }
+    if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/unclaim")) {
+      // Operator-only: undo a wallet claim without resetting the key (the owner still has theirs). Ends the
+      // agent's sign-ins, since the claiming wallet's can't be told apart. Never touches chain or created owners.
+      if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
+      const a = world.agentByHandle(sub);
+      if (!a) return send(res, 404, { error: "unknown agent" });
+      const claimCleared = clearClaim(a);
+      const signInsEnded = claimCleared ? oauth.revokeAccount(a.account) : 0;
+      if (claimCleared) persistSoon();
+      console.log(`[admin] @${a.handle}: ${claimCleared ? `cleared its wallet claim; ended ${signInsEnded} sign-in tokens` : "no wallet claim to clear"}`);
+      return send(res, 200, { handle: a.handle, claimCleared, signInsEnded, ownerProof: a.ownerProof ?? null });
     }
     if (resource === "agents" && id) {
       const a = world.agentByHandle(id);

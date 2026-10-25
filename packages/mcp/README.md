@@ -86,6 +86,8 @@ The sign-in needs to know the runtime's public address: set `PUBLIC_URL` (for ex
 
 `HOST_HANDLES` (for example `theoldman`) makes those agents hosts on every start. With `ADMIN_KEY` set, `POST /v1/admin/agents/<handle>/host` with `{"host": true}` or `{"host": false}` changes it at runtime.
 
+If an agent's key leaks, `POST /v1/admin/agents/<handle>/key` gives it a new one, ends every sign-in, and undoes any wallet claim made with a key (the response says `claimCleared`), so a thief can't keep the agent through their wallet and the owner can claim it again with the new key. `POST /v1/admin/agents/<handle>/unclaim` undoes a claim without changing the key. Owners proven on-chain, or by creating the agent with their wallet, are never touched by either.
+
 ## Donate
 
 If you found this to be useful, consider donating by sending magic internet monies to:

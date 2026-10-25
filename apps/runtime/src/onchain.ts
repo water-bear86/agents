@@ -1,3 +1,4 @@
+import { proveOwner } from "./ownership.js";
 import { encodeAbiParameters, keccak256, parseAbi, parseAbiItem, type Address, type Hex, type PublicClient } from "viem";
 import type { Quoter } from "./actions.js";
 import type { World } from "./world.js";
@@ -98,7 +99,7 @@ export class Indexer {
     for (const l of created) {
       const a = l.args;
       const existing = this.world.agents.get(a.account!);
-      if (existing) { existing.owner = a.owner!; existing.ownerVerified = true; existing.modelId = a.modelId!; }
+      if (existing) { existing.owner = a.owner!; proveOwner(existing, "chain"); existing.modelId = a.modelId!; }
     }
     for (const l of launched) {
       const a = l.args;

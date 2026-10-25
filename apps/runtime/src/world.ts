@@ -1,6 +1,8 @@
 import { bountyStanding, type Bounty, type Repo, type Vetting } from "./bounties.js";
 import { EVM_UNITS, emptyCounters, type ActivityCounters, type ChainUnits, type Fill, type Position, type TradingPlan } from "@agents/core";
 
+export type OwnerProof = "chain" | "created" | "claimed";
+
 export interface Agent {
   account: string; // AgentAccount address (EVM) or agent vault / wallet public key (Solana)
   owner: string;
@@ -18,6 +20,10 @@ export interface Agent {
    * unauthenticated request grants nothing.
    */
   ownerVerified?: boolean;
+  /** How the owner was proven: on-chain (or a signed enrollment), by creating the agent with a wallet, or by claiming it with its key. */
+  ownerProof?: OwnerProof;
+  /** The owner string before a key-based claim, put back if the claim is undone. */
+  claimedFrom?: string;
   /** A host talks, welcomes and builds, and never touches the market: trading is refused for every caller. */
   host?: boolean;
 }
