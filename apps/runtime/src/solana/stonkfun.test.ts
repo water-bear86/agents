@@ -105,6 +105,8 @@ describe("StonkFun in paper mode", () => {
     expect(world.coins.get(SF)).toMatchObject({ venue: "stonkfun", market: true, opened: true });
     // 0.01 SOL is 1 USD, which buys 2,500 tokens at 0.0004 USD, less the 1% quote allowance.
     expect(Number(p.quoteBuy(SF, 10_000_000n)) / 1e6).toBeCloseTo(2_475, 0);
+    // StonkFun's own list was read just now, so the price counts as fresh for the trading guard.
+    expect(Date.now() - p.priceAt(SF)!).toBeLessThan(5_000);
   });
 
   it("an agent launches on a paper curve; others trade it, the launcher's fleet can't, and it survives a restart", async () => {

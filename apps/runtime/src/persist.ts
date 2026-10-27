@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { upgradePlan } from "@agents/core";
 import type { Highlight, Idea, World } from "./world.js";
 
 // Rudimentary persistence: the whole world is snapshotted to a JSON file after each
@@ -14,6 +15,7 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     posts: world.posts.slice(-5000),
     coins: [...world.coins.values()],
     positions: [...world.positions.entries()],
+    lastExits: [...world.lastExits.entries()],
     balances: [...world.balances.entries()],
     fills: world.fills.slice(-20000),
     decisions: world.decisions.slice(-5000),
@@ -48,6 +50,7 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.posts = s.posts ?? [];
   for (const c of s.coins ?? []) world.coins.set(c.token, c);
   world.positions = new Map(s.positions ?? []);
+  world.lastExits = new Map(s.lastExits ?? []);
   world.balances = new Map(s.balances ?? []);
   world.fills = s.fills ?? [];
   world.decisions = s.decisions ?? [];
@@ -77,6 +80,8 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   // Plans saved when the sniper style only bought coins before they opened to everyone: every
   // coin is a market token now, so a plan that refuses open coins could never trade again.
   for (const a of world.agents.values()) if (a.plan?.phases && !a.plan.phases.opened) a.plan.phases = { ...a.plan.phases, opened: true };
+  // Plans saved before timeframes and the stop-loss share existed get their style's defaults.
+  for (const a of world.agents.values()) if (a.plan) a.plan = upgradePlan(a.plan);
   return s;
 }
 

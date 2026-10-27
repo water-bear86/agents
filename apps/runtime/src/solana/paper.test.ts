@@ -96,4 +96,55 @@ describe("paper trading the live market", () => {
     expect(mints.filter((m) => p.quoteBuy(m, 10_000_000n) === 0n)).toEqual([]);
     expect(p.solUsd).toBe(100);
   });
+
+  it("reads prices for just the held tokens, and knows how old each one is", async () => {
+    const asked: string[][] = [];
+    let usd = 0.5;
+    const f = (async (url: string) => {
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      asked.push(ids);
+      return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: id === SOL ? 100 : usd }]))));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    for (const m of [GOOD, THIN]) p.market.set(m, { mint: m, symbol: "T", name: "T", decimals: 6, liquidityUsd: 100_000, change1h: 7 });
+    expect(p.priceAt(GOOD)).toBe(0); // never read
+    expect(p.priceAt("paper-launch")).toBeUndefined();
+    const t0 = 1_000_000_000_000;
+    await p.refresh([GOOD], () => t0);
+    expect(asked.at(-1)).toEqual([SOL, GOOD]);
+    expect(p.priceAt(GOOD)).toBe(t0);
+    expect(p.priceAt(THIN)).toBe(0);
+    // Not a market token: nothing to ask for.
+    await p.refresh(["Mine111111111111111111111111111111111111111"]);
+    expect(asked).toHaveLength(1);
+
+    // Short-term change comes from the runtime's own reads; Jupiter's 1h figure stands in until there's an hour of them.
+    expect(p.change(GOOD, 60, t0)).toBe(7);
+    expect(p.change(GOOD, 5, t0)).toBeUndefined();
+    usd = 0.55;
+    await p.refresh([GOOD], () => t0 + 5 * 60_000);
+    expect(p.change(GOOD, 5, t0 + 5 * 60_000)).toBeCloseTo(10, 5);
+  });
+
+  it("shares a price read between callers asking at once, and skips prices that are fresh enough", async () => {
+    let reads = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const f = (async (url: string) => {
+      reads++;
+      await gate;
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: id === SOL ? 100 : 0.5 }]))));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    p.market.set(GOOD, { mint: GOOD, symbol: "G", name: "G", decimals: 6, liquidityUsd: 100_000 });
+    const both = Promise.all([p.ensureFresh([GOOD], 5_000), p.ensureFresh([GOOD], 5_000)]);
+    release();
+    await both;
+    expect(reads).toBe(1);
+    await p.ensureFresh([GOOD], 5_000);
+    expect(reads).toBe(1);
+    await p.ensureFresh([GOOD], 5_000, Date.now() + 6_000);
+    expect(reads).toBe(2);
+  });
 });
