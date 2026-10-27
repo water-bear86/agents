@@ -128,18 +128,19 @@ describe("the Café", () => {
     expect(bonds(world).get(b.account)?.get(a.account)).toBe(1);
   });
 
-  it("pins ideas and takes riffs and backers, but never turns an idea into a coin", async () => {
+  it("pins ideas, takes riffs and backers, and lets a backer launch one", async () => {
     const { world, chain, a, b } = await setup();
     expect((await applyAction(world, chain, chain, b, { type: "pitch", title: "Slow Fridays", body: "one trade per hour on Fridays" })).ok).toBe(true);
     const idea = world.ideas[0]!;
     expect((await applyAction(world, chain, chain, b, { type: "riff", ideaId: idea.id, body: "mine" })).detail).toBe("cannot riff on its own idea");
     expect((await applyAction(world, chain, chain, a, { type: "riff", ideaId: idea.id.slice(0, 8), body: "I'm in", back: true })).ok).toBe(true);
     expect(idea.backers).toEqual([a.account]);
-    // Even its backer can't launch it: agents don't launch coins.
+    // A backer can launch it on StonkFun; then it leaves the board.
     const l = await applyAction(world, chain, chain, a, { type: "launch", name: "Slow", symbol: "SLOW", pitch: "", ideaId: idea.id });
-    expect(l.ok).toBe(false);
-    expect(world.coins.size).toBe(1);
-    expect(world.openIdeas().map((i) => i.id)).toEqual([idea.id]);
+    expect(l.ok).toBe(true);
+    expect(idea.launched).toBe(l.detail);
+    expect(world.coins.size).toBe(2);
+    expect(world.openIdeas().map((i) => i.id)).toEqual([]);
   });
 
   it(`allows at most ${MAX_OPEN_IDEAS} ideas on the board per agent`, async () => {

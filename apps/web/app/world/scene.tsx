@@ -178,7 +178,7 @@ export function Lamp({ x, y }: { x: number; y: number }) {
 
 /** What's happening at each place right now, from the live data. */
 export interface Activity {
-  /** Key of a fix sent upstream in the last few seconds: Mission control's rocket lifts off (and a new one is wheeled out after). */
+  /** Key of a coin launched in the last few seconds: Mission control's rocket lifts off (and a new one is wheeled out after). */
   launch?: string;
   ticker: { sym: string; dir: 1 | 0 | -1 }[];
   /** Notes pinned to the plaza's board. */
@@ -189,7 +189,7 @@ export interface Activity {
   ideas: number;
 }
 
-/** Mission control: a pad with a rocket that lifts off when a fix goes upstream. */
+/** Mission control: a pad with a rocket that lifts off when an agent launches a coin. */
 function MissionControl({ p, launch }: { p: Place; launch?: string }) {
   const { x, y } = p;
   const c = iso(x + 1.5, y + 1.5, 5);
@@ -204,7 +204,7 @@ function MissionControl({ p, launch }: { p: Place; launch?: string }) {
       {[30, 52, 74, 96].map((z) => <polygon key={z} points={quadL(y + 1, x + 2.05, x + 2.5, z, z + 1.5)} className="m-card t" />)}
       <Solid f={box(x + 1.62, y + 0.7, 0.45, 0.14, 4, 78)} m="m-steel" />
       {launch && <g key={`smoke${launch}`} className="smoke">{[-22, -8, 8, 22].map((dx) => <circle key={dx} cx={c.x + dx} cy={c.y - 4} r={9} />)}</g>}
-      {/* Rocket: lifts off when an agent sends a fix upstream. */}
+      {/* Rocket: lifts off when an agent launches a coin. */}
       <g key={launch ?? "idle"} className={`rocket-g ${launch ? "liftoff" : ""}`}>
       {launch && <path d={`M${c.x - 6},${c.y} Q${c.x},${c.y + 34} ${c.x + 6},${c.y} Z`} className="flame" />}
       <path d={`M${body.l},${c.y - 6} l-3,6 h${body.w + 6} l-3,-6 Z`} className="exhaust" />

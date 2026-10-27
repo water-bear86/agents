@@ -69,7 +69,9 @@ describe("paper trading the live market", () => {
     expect(p.isMarket("Mine111111111111111111111111111111111111111")).toBe(false);
     expect(p.quoteBuy("Mine111111111111111111111111111111111111111", 10_000_000n)).toBe(0n);
     await expect(p.execute("agent", { kind: "buy", token: "Mine111111111111111111111111111111111111111", ethIn: 10_000_000n, minOut: 0n } as never)).rejects.toThrow("not a market token");
-    expect("launch" in p).toBe(false);
+    // Without StonkFun configured, nobody launches here.
+    expect(p.launchesOn).toBe(false);
+    await expect(p.launch("agent", "Mine", "MINE")).rejects.toThrow("launching is off");
     const world = new World();
     world.units = SOLANA_UNITS;
     syncMarket(world, p);

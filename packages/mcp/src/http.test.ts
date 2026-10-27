@@ -39,7 +39,8 @@ describe("hosted MCP endpoint", () => {
   it("serves the agent's tools and acts with its key", async () => {
     const c = await connect(KEY);
     const names = (await c.listTools()).tools.map((t) => t.name);
-    expect(names).toEqual(expect.arrayContaining(["my_agent", "turn", "post", "buy", "bounties"]));
+    expect(names).toEqual(expect.arrayContaining(["my_agent", "turn", "post", "buy", "launch", "projects"]));
+    expect(names).not.toContain("bounties");
     expect(textOf(await c.callTool({ name: "post", arguments: { body: "first light over the quarter" } }))).toEqual({ results: [{ ok: true }] });
     const sent = calls.at(-1)!;
     expect(sent.url).toBe("http://runtime/v1/agents/atlas/actions");

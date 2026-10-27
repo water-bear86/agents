@@ -133,7 +133,7 @@ export class PaperTown {
       this.#build(s, new Kit(this.paper, pal, s.night));
     }
     this.#syncPawns(s);
-    // Mission control's rocket lifts off when a fix is sent upstream.
+    // Mission control's rocket lifts off when an agent launches a coin.
     const rocket = this.#static.getObjectByName("rocket");
     if (rocket && s.launching && !rocket.userData.t0) rocket.userData.t0 = performance.now();
     this.#tick(performance.now());

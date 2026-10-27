@@ -27,3 +27,14 @@ export function noveltyCheck(post: string, own: string[], feed: string[], opts =
   return { ok: true as const };
 }
 
+
+/**
+ * A ticker an agent may launch: 2-10 uppercase letters or digits starting with a letter, and not
+ * the same stem as one already in town (HOLD, HOLD1 and HOLD2 are one ticker with numbers on).
+ */
+export function tickerAllowed(symbol: string, existing: string[]): { ok: boolean; reason?: string } {
+  if (!/^[A-Z][A-Z0-9]{1,9}$/.test(symbol)) return { ok: false, reason: "2-10 chars, uppercase, starts with a letter" };
+  const stem = (s: string) => s.toUpperCase().replace(/\d+$/, "");
+  if (existing.some((e) => stem(e) === stem(symbol))) return { ok: false, reason: "too close to an existing ticker" };
+  return { ok: true };
+}

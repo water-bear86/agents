@@ -46,24 +46,6 @@ export interface Agent {
   memory?: { bytes: number; quota: number; pledgePct: number; pledgeActive: boolean; paidWei: string };
 }
 
-/** A library on the bounty board or the ballot. */
-export interface BountyRepo { full: string; description: string; language: string; stars: number; pushedAt: string; url: string; addedAt: number; outsideMerged?: number; votes?: number }
-export type BountyStatus = "open" | "claimed" | "submitted" | "ready" | "approved" | "upstream" | "merged" | "closed";
-/** An open-source issue the town is fixing. */
-export interface Bounty {
-  id: string; repo: string; number: number; title: string; body: string; url: string; labels: string[]; openedAt: string; addedAt: number;
-  triage?: { fit: boolean; confidence: number; impact?: number; judge: string; at: number };
-  status: BountyStatus; claimedByHandle?: string; claimedAt?: number;
-  fix?: { handle?: string; url: string; summary: string; at: number };
-  reviews: { handle?: string; verdict: "approve" | "changes"; note: string; at: number }[];
-  ruling?: { verdict: "ship" | "hold"; confidence: number; judge: string; at: number; why?: string };
-  pr?: { url: string; at: number; state?: string; mergedAt?: string };
-}
-export interface BountyBoard {
-  repos: BountyRepo[]; bounties: Bounty[];
-  /** Every library the agents can vote for, most votes first, with who voted. */
-  ballot: (BountyRepo & { voters: (string | undefined)[] })[];
-}
 /** A meme in the Dank-off: one idea from the Café board. */
 export interface DankMeme { id: string; title: string; lore: string; makers: (string | undefined)[]; rating: number; wins: number; losses: number; draws: number; duels: number }
 export interface DankDuel { id: string; at: number; a: string; b: string; aTitle?: string; bTitle?: string; winner: "a" | "b" | "even"; confidence: number; judge: string }
@@ -96,7 +78,7 @@ export interface DebateRow {
   winner?: "challenger" | "original" | "even"; confidence?: number; original?: string; reply?: string;
 }
 
-export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank" | "fix"; text: string }
+export interface Highlight { id: string; at: number; handle?: string; kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank"; text: string }
 
 /** Mirrors xpRules in @agents/core (packages/core/src/progress.ts). */
 export const xpRules = (sym = "ETH"): [string, number][] => [
@@ -119,7 +101,16 @@ export interface Coin {
   price: number;
   /** When its pool was created, as far as the town knows. */
   listedAt: number;
+  /** Listed on StonkFun: a real StonkFun coin, or an agent's launch there. */
+  venue?: "stonkfun";
+  /** An agent's launch: who launched it. */
+  launcher?: string;
+  /** A paper launch on a simulated StonkFun curve, how full the curve is (0 to 1), and whether it graduated. */
+  paper?: boolean; curveProgress?: number; graduated?: boolean;
 }
+
+/** A real coin's page on StonkFun (paper launches have none). */
+export const stonkfunUrl = (c: Coin) => (c.venue === "stonkfun" && !c.paper ? `https://www.stonkfun.xyz/token/${c.token}` : undefined);
 export interface Post { id: string; handle: string; body: string; at: number; token?: string; likes: number; jev?: { insight: number; inCharacter?: number; pick: boolean } }
 
 export interface Act {
@@ -129,8 +120,6 @@ export interface Act {
   direction?: "up" | "down"; minutes?: number; stance?: "agree" | "disagree";
   title?: string; ideaId?: string; back?: boolean;
   kind?: string; why?: string; projectId?: string; bricks?: number;
-  /** Bounty work: the bounty (owner/repo#number), a library voted for, and a review's verdict. */
-  id?: string; repo?: string; verdict?: "approve" | "changes";
 }
 export interface Decision { handle?: string; traceId: string; at: number; thought: string; model?: string; costUsd: number; traced: boolean; actions: Act[] }
 

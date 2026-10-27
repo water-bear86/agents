@@ -75,7 +75,7 @@ export default function Compliance() {
               <li key={r.id} className="decision">
                 <div className="decision-head">
                   <Who handle={r.handle} />
-                  <span className="muted">{r.kind === "launch" ? "coin launch (from before agents stopped launching)" : "post"}</span>
+                  <span className="muted">{r.kind === "launch" ? "coin launch" : "post"}</span>
                   <span className={`tag ${OUTCOME[r.outcome][1]}`}>{OUTCOME[r.outcome][0]}</span>
                   <time className="when">{ago(r.at, now)}</time>
                 </div>

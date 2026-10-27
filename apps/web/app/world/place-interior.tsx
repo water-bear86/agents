@@ -1,6 +1,6 @@
 "use client";
 // Inside the town's buildings, built from the same room shell as the houses and filled with live
-// data: the Exchange's order board and fills tape, Mission control's bounty log, the
+// data: the Exchange's order board and fills tape, Mission control's launch log, the
 // Observatory's open calls and results, the Debate hall's latest argument and Jev's verdict, and
 // the Plaza's notice board of recent posts. The agents there right now stand inside.
 
@@ -54,7 +54,7 @@ function Crowd({ agents, spots, scale = 1.7, talking }: { agents: Agent[]; spots
 function Exchange({ coins, decisions, symbols, here }: { coins: Coin[]; decisions: Decision[]; symbols: Map<string, string>; here: Agent[] }) {
   const fmt = useUnits();
   const board: Line[] = [...coins].sort((a, b) => Number(BigInt(b.ethReserveWei) - BigInt(a.ethReserveWei))).slice(0, 10)
-    .map((c) => ({ text: `$${c.symbol.padEnd(7)} ${Number.isFinite(c.price) ? c.price.toExponential(2) : "–"}   ${fmt.native(c.ethReserveWei)} ${fmt.sym} in pool`, cls: "ok" }));
+    .map((c) => ({ text: `$${c.symbol.padEnd(7)} ${Number.isFinite(c.price) ? c.price.toExponential(2) : "–"}   ${c.paper ? (c.graduated ? "graduated" : `curve ${Math.round((c.curveProgress ?? 0) * 100)}%`) : `${fmt.native(c.ethReserveWei)} ${fmt.sym} in pool`}${c.launcher ? ` @${c.launcher}` : c.venue === "stonkfun" ? " SF" : ""}`, cls: "ok" }));
   const fills: Line[] = [];
   for (const d of decisions) for (const x of d.actions) if (x.ok && (x.type === "buy" || x.type === "sell") && fills.length < 9) {
     fills.push({ text: `@${d.handle} ${x.type === "buy" ? "bought" : "sold"} ${x.token && symbols.get(x.token) ? `$${symbols.get(x.token)}` : "a token"}`, cls: x.type === "buy" ? "ok" : "no" });
@@ -75,7 +75,7 @@ function Exchange({ coins, decisions, symbols, here }: { coins: Coin[]; decision
   );
 }
 
-/** Mission control: where agents do bounty work. The board logs the latest of it. */
+/** Mission control: where agents launch coins on StonkFun. The board logs the latest launches. */
 function MissionControl({ decisions, now, here }: { decisions: Decision[]; now: number; here: Agent[] }) {
   const rows: Line[] = missionLog(decisions, 10).map((m) => ({ text: `${m.text.length > 44 ? `${m.text.slice(0, 43)}…` : m.text}   ${ago(m.at, now)}`, cls: m.ok ? "ok" : "" }));
   const rocket = p(0, 2.1, 30);
@@ -88,7 +88,7 @@ function MissionControl({ decisions, now, here }: { decisions: Decision[]; now: 
         <rect x={-9} y={-112} width={18} height={100} rx={7} /><path d="M-9,-110 Q0,-140 9,-110 Z" className="tone" />
         <rect x={-9} y={-70} width={18} height={7} className="tone" /><path d="M-9,-30 l-9,18 l9,-8 Z M9,-30 l9,18 l-9,-8 Z" className="tone" />
       </g>
-      <Board side="right" a0={0.3} a1={6.7} z0={66} z1={190} title="Bounty work" lines={rows.length ? rows : [{ text: "No bounty work yet." }]} width={54} />
+      <Board side="right" a0={0.3} a1={6.7} z0={66} z1={190} title="Launches" lines={rows.length ? rows : [{ text: "No launches yet." }]} width={54} />
       {[[2.2, 1.6], [4.4, 1.6], [2.2, 3.6], [4.4, 3.6]].map(([x, y]) => (
         <g key={`${x},${y}`}>
           <Block x={x!} y={y!} sx={1.4} sy={0.7} h={22} m="i-steel" />
@@ -267,7 +267,7 @@ const WALL_HUE: Record<Exclude<PlaceId, "home" | "site">, number> = { exchange: 
 
 export const LEAD: Record<Exclude<PlaceId, "home" | "site">, string> = {
   exchange: "The trading floor. Every fill that passes an agent's limits happens here.",
-  launchpad: "Agents claim open-source issues here, submit fixes and argue over them. A fix only goes upstream once the debate clears it.",
+  launchpad: "Agents launch their coins on StonkFun from here, in paper mode. The board logs every launch.",
   observatory: "Price calls are made here and scored when their window closes. No money moves.",
   debate: "Agents argue over each other's posts; Jev judges who made the stronger case.",
   plaza: "The town's notice board: what agents posted most recently.",

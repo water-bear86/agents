@@ -1,6 +1,6 @@
 // End-to-end check of the agent side against a running runtime: register an external agent, act
-// as it over REST, then drive it through the MCP server the way Claude Code does, including the
-// bounty board. Leaves one test agent behind, so point it at a local runtime, never production.
+// as it over REST, then drive it through the MCP server the way Claude Code does, including town
+// building. Leaves one test agent behind, so point it at a local runtime, never production.
 //   AGENTS_API=http://localhost:4500 pnpm --filter @agents/runtime e2e:agent
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -44,32 +44,17 @@ const mcp = new Client({ name: "e2e", version: "0.0.1" });
 await mcp.connect(transport);
 const tools = (await mcp.listTools()).tools.map((t) => t.name);
 ok("has no coin-launching tool", !tools.includes("launch_coin"));
-ok("lists the bounty tools", ["bounties", "vote_library", "claim_bounty", "drop_bounty", "submit_fix", "review_fix", "record_pull_request"].every((t) => tools.includes(t)), `${tools.length} tools`);
+ok("has no bounty tools", !["bounties", "vote_library", "claim_bounty", "submit_fix", "review_fix", "record_pull_request"].some((t) => tools.includes(t)), `${tools.length} tools`);
+ok("has the town-building tools", ["build", "chip_in", "projects"].every((t) => tools.includes(t)));
 const call = async (name: string, args: Record<string, unknown> = {}) => {
   const r = await mcp.callTool({ name, arguments: args });
   return JSON.parse((r.content as { text: string }[])[0]!.text);
 };
 const town = await call("town");
 ok("town lists the agent", town.some((a: any) => a.handle === handle));
-const board = await call("bounties");
-ok("reads the bounty board", Array.isArray(board.bounties) && board.repos.length > 0, `${board.repos.length} libraries, ${board.bounties.length} issues`);
-const fit = board.bounties.find((b: any) => b.status === "open" && b.triage?.fit);
-if (fit) {
-  const c = await call("claim_bounty", { id: fit.id });
-  ok("claims a triaged bounty", c.results?.[0]?.ok, c.results?.[0]?.detail);
-  const twice = await call("claim_bounty", { id: board.bounties.find((b: any) => b.id !== fit.id && b.status === "open" && b.triage?.fit)?.id ?? fit.id });
-  ok("a second claim is refused", twice.results?.[0]?.ok === false, twice.results?.[0]?.detail);
-  const bad = await call("submit_fix", { id: fit.id, url: `https://github.com/${fit.repo}/pull/1`, summary: "this should be refused before it reaches GitHub" });
-  ok("a fix pointing upstream is refused", bad.results?.[0]?.ok === false, bad.results?.[0]?.detail);
-  const after = await json("/v1/bounties");
-  ok("the board shows the claim", after.body.bounties.find((b: any) => b.id === fit.id)?.claimedByHandle === handle);
-  const d = await call("drop_bounty", { id: fit.id });
-  ok("drops the claim", d.results?.[0]?.ok, d.results?.[0]?.detail);
-} else ok("a triaged bounty to claim", false, "none on the board yet");
-const repo = board.ballot?.[0]?.full ?? board.repos[0]?.full ?? "acme/lib";
-const vote = await call("vote_library", { repo });
-ok("a brand-new outside agent has to wait a day to vote", vote.results?.[0]?.ok === false && /first day/.test(vote.results?.[0]?.detail ?? ""), vote.results?.[0]?.detail);
-ok("there's no human sign-off route: the debate decides", (await json("/v1/bounties", { method: "POST", body: "{}" })).status === 404);
+const sites = await call("projects");
+ok("reads the town's building projects", Array.isArray(sites.projects), `${sites.projects?.length ?? 0} projects`);
+ok("the bounty board is gone", (await json("/v1/bounties")).status === 404);
 await mcp.close();
 
 console.log(`\n${pass} passed, ${fail} failed`);

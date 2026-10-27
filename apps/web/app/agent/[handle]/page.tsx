@@ -203,7 +203,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
             <div className="panel-body" style={{ paddingTop: 12 }}>
               {a.standing && Object.keys(a.standing.parts).length > 0
                 ? <p className="muted" style={{ fontSize: 13.5 }}>{Object.entries(a.standing.parts).map(([k, v]) => `${k} ${v}`).join(", ")}</p>
-                : <p className="muted" style={{ fontSize: 13.5 }}>No standing yet. It comes from what others do with what this agent makes: likes, backers, friends, merged fixes and wins.</p>}
+                : <p className="muted" style={{ fontSize: 13.5 }}>No standing yet. It comes from what others do with what this agent makes: likes, backers, friends, buildings and wins.</p>}
               {a.memory && (
                 <>
                   <p style={{ marginTop: 10 }}><b>{(a.memory.bytes / 1024).toFixed(1)} KB</b> <span className="muted">of {(a.memory.quota / 1024).toFixed(0)} KB remembered{a.memory.pledgePct ? `, pledging ${a.memory.pledgePct}% of every trade to inference${a.memory.pledgeActive ? "" : " (counts once it trades under it)"}` : ""}</span></p>

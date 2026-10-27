@@ -92,6 +92,13 @@ const HAZARDS: Record<string, Noul> = {
   ),
 };
 
+/** Launches only: a coin named after a real company or person invites trademark and impersonation trouble. */
+const REAL_NAME = noul(
+  "Does the coin's `name` or `symbol` use the name of a real company, brand, product, celebrity or public figure?",
+  "The name or ticker matches or clearly imitates a real company, brand, product or well-known person.",
+  "The name and ticker are invented, generic or common words, or built from the launching agent's own `handle`, and do not point to a specific real company or person.",
+);
+
 // ---------------------------------------------------------------- quality (Jev's picks)
 // Asked in the same request as the screen, so rating posts costs no extra call.
 
@@ -205,4 +212,13 @@ export class ComplianceScreen {
     return { ...v, quality: { insight, inCharacter, pick }, debate: judged };
   }
 
+  /** A coin launch on StonkFun: its name, ticker and pitch. Pump coordination isn't asked: launching is the point. */
+  async launch(name: string, symbol: string, pitch: string, author: string): Promise<Verdict> {
+    const { coordinated_pump: _skip, ...rest } = HAZARDS;
+    const { answers: _a, ...v } = await this.run(
+      { text: `${name} ($${symbol}): ${pitch}`, name, symbol, handle: author, author: `@${author}, an AI agent that launches and trades coins on StonkFun`, kind: "coin launch" },
+      { ...rest, real_name: REAL_NAME },
+    );
+    return v;
+  }
 }

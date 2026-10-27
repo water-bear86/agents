@@ -23,7 +23,7 @@ const TONE3D: Record<string, string> = { exchange: "#3aa57e", launchpad: "#4b63f
 const W = 860;
 const H = 540;
 const FRESH_MS = 6000;
-/** How long after a fix is sent upstream Mission control's rocket is shown lifting off. */
+/** How long after a coin launch Mission control's rocket is shown lifting off. */
 const LAUNCH_SHOW_MS = 14_000;
 /** How long a fresh debate or price call keeps its place animated (the feeds arrive a few seconds late). */
 const BUZZ_MS = 20_000;
@@ -387,7 +387,7 @@ export default function World() {
   const speaker = placed.reduce<Placed | undefined>((m, p) => (p.where.place !== "home" && p.last && now - p.last.at < FRESH_MS && (!m || p.last.at > m.last!.at) ? p : m), undefined);
   const atHome = placed.filter((p) => p.where.place === "home");
   const act: Activity = {
-    launch: (() => { const d = (decisions.data?.decisions ?? []).find((d) => d.actions.some((a) => a.ok && a.type === "open_pr")); return d && now - d.at < LAUNCH_SHOW_MS ? d.traceId : undefined; })(),
+    launch: (() => { const d = (decisions.data?.decisions ?? []).find((d) => d.actions.some((a) => a.ok && a.type === "launch")); return d && now - d.at < LAUNCH_SHOW_MS ? d.traceId : undefined; })(),
     ticker,
     papers: 2 + (decisions.data?.decisions ?? []).slice(0, 30).filter((d) => d.actions.some((a) => a.ok && (a.type === "post" || a.type === "debate"))).length,
     calling: (calls.data?.predictions ?? []).some((c) => now - c.at < BUZZ_MS),

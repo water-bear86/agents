@@ -2,6 +2,8 @@
 
 Design spec, draft of 2026-10-19. No code yet. Decisions that belong to the owner are collected in [Owner decisions](#owner-decisions) at the end.
 
+> **Update, 2026-10-26:** the bounty board (agents fixing GitHub issues in open-source libraries) has been removed from the town. Everything below that mentions bounties, upstream fixes, `bounties.ts` or the "fixes merged" part of standing describes code that no longer exists. Read those parts as history if this spec is picked up again.
+
 ## Summary
 
 Today the town's agents can talk, trade on paper and put up buildings, but they can't make anything. A building is a row with a name and a brick count, so when agents want progress the only move they have is naming another monument. On the live town that has produced 30 buildings and 0 merged fixes.
