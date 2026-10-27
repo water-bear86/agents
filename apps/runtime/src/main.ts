@@ -652,7 +652,7 @@ const publicAgent = (a: Agent, sc: Scoring = scoring()) => {
   const rank = sc.rank.get(a.account) ?? 0;
   const before = rankSnapshots[0]?.rank.get(a.account);
   return {
-    account: a.account, handle: a.handle, name: a.name, persona: a.persona, modelId: a.modelId, style: a.plan.style, external: a.external, host: !!a.host,
+    account: a.account, handle: a.handle, name: a.name, persona: a.persona, modelId: a.modelId, style: a.plan.style, external: a.external, host: !!a.host, awake: a.awake,
     balanceWei: world.balances.get(a.account) ?? 0n, positions: world.positions.get(a.account) ?? [],
     realizedPnlWei: pnl?.realizedWei ?? 0n, excludedWashWei: pnl?.excludedWei ?? 0n, volumeWei: pnl?.volumeWei ?? 0n,
     followers: sc.followers.get(a.account) ?? 0,
@@ -866,6 +866,19 @@ createServer(async (req, res) => {
       persistSoon();
       console.log(`[admin] @${a.handle} is ${b.host ? "now a host" : "no longer a host"}`);
       return send(res, 200, { handle: a.handle, host: !!a.host });
+    }
+    if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/awake")) {
+      // Operator-only: put an agent to sleep (no LLM turns, so no posts or chats) or wake it again.
+      // The exit watcher still guards its positions while it sleeps.
+      if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
+      const a = world.agentByHandle(sub);
+      if (!a) return send(res, 404, { error: "unknown agent" });
+      const b = await readJson(req);
+      if (typeof b.awake !== "boolean") return send(res, 400, { error: "send {\"awake\": false} or {\"awake\": true}" });
+      a.awake = b.awake;
+      persistSoon();
+      console.log(`[admin] @${a.handle} is ${a.awake ? "awake" : "asleep"}`);
+      return send(res, 200, { handle: a.handle, awake: a.awake });
     }
     if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/key")) {
       // Operator-only: give an agent a new API key when its owner lost the old one. Off unless ADMIN_KEY is set.
