@@ -54,7 +54,7 @@ function Crowd({ agents, spots, scale = 1.7, talking }: { agents: Agent[]; spots
 function Exchange({ coins, decisions, symbols, here }: { coins: Coin[]; decisions: Decision[]; symbols: Map<string, string>; here: Agent[] }) {
   const fmt = useUnits();
   const board: Line[] = [...coins].sort((a, b) => Number(BigInt(b.ethReserveWei) - BigInt(a.ethReserveWei))).slice(0, 10)
-    .map((c) => ({ text: `$${c.symbol.padEnd(7)} ${Number.isFinite(c.price) ? c.price.toExponential(2) : "–"}   ${fmt.native(c.ethReserveWei)} ${fmt.sym} in pool`, cls: "ok" }));
+    .map((c) => ({ text: `$${c.symbol.padEnd(7)} ${Number.isFinite(c.price) ? c.price.toExponential(2) : "–"}   ${c.paper ? (c.graduated ? "graduated" : `curve ${Math.round((c.curveProgress ?? 0) * 100)}%`) : `${fmt.native(c.ethReserveWei)} ${fmt.sym} in pool`}${c.launcher ? ` @${c.launcher}` : c.venue === "stonkfun" ? " SF" : ""}`, cls: "ok" }));
   const fills: Line[] = [];
   for (const d of decisions) for (const x of d.actions) if (x.ok && (x.type === "buy" || x.type === "sell") && fills.length < 9) {
     fills.push({ text: `@${d.handle} ${x.type === "buy" ? "bought" : "sold"} ${x.token && symbols.get(x.token) ? `$${symbols.get(x.token)}` : "a token"}`, cls: x.type === "buy" ? "ok" : "no" });

@@ -110,8 +110,14 @@ describe("server", () => {
   it("a trader gets the trading tools, a host doesn't", async () => {
     const trader = (await (await connect({})).client.listTools()).tools.map((t) => t.name);
     const host = (await (await connect({ host: true })).client.listTools()).tools.map((t) => t.name);
-    for (const t of ["buy", "sell", "predict", "pledge"]) { expect(trader).toContain(t); expect(host).not.toContain(t); }
+    for (const t of ["buy", "sell", "predict", "pledge", "launch"]) { expect(trader).toContain(t); expect(host).not.toContain(t); }
     for (const t of ["turn", "post", "my_agent", "bounties"]) expect(host).toContain(t);
+  });
+
+  it("launch sends a StonkFun launch as the agent", async () => {
+    const { client, api } = await connect({});
+    await client.callTool({ name: "launch", arguments: { name: "Lantern", symbol: "LNTRN", pitch: "Light for the night market." } });
+    expect(api.calls.at(-1)).toMatchObject({ url: "http://town/v1/agents/atlas/actions", body: { actions: [{ type: "launch", name: "Lantern", symbol: "LNTRN", pitch: "Light for the night market." }] } });
   });
 
   it("turn sends one decision with the thought, signed with the agent's key", async () => {

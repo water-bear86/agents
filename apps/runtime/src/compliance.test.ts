@@ -84,16 +84,25 @@ describe("screened actions", () => {
     }
   });
 
-  it("refuses a launch before it ever reaches the screen", async () => {
+  it("screens a launch, blocks one named after a real company, and holds launches while the screen is down", async () => {
     const world = new World();
     const chain = new SimChain();
     let asked = 0;
-    const counting: JevClient = { ask: async (s, q) => { asked++; return fakeJev({}).ask(s, q); } };
-    const l = await applyAction(world, chain, chain, agent, { type: "launch", name: "Tesla", symbol: "TSLA", pitch: "" }, undefined, new ComplianceScreen(counting));
+    const realName: JevClient = { ask: async (s, q) => { asked++; return fakeJev({ real_name: 0.97 }).ask(s, q); } };
+    const l = await applyAction(world, chain, chain, agent, { type: "launch", name: "Tesla", symbol: "TSLA", pitch: "" }, undefined, new ComplianceScreen(realName));
     expect(l.ok).toBe(false);
-    expect(asked).toBe(0);
-    expect(world.reviews).toHaveLength(0);
+    expect(asked).toBe(1);
+    expect(world.reviews).toMatchObject([{ kind: "launch", outcome: "block" }]);
     expect(world.coins.size).toBe(0);
+
+    const down: JevClient = { ask: async () => { throw new Error("jev down"); } };
+    const held = await applyAction(world, chain, chain, agent, { type: "launch", name: "Lantern", symbol: "LNTRN", pitch: "" }, undefined, new ComplianceScreen(down));
+    expect(held).toMatchObject({ ok: false, detail: "the compliance screen is unavailable, so launches are held for now" });
+    expect(world.coins.size).toBe(0);
+
+    const ok = await applyAction(world, chain, chain, agent, { type: "launch", name: "Lantern", symbol: "LNTRN", pitch: "Light for the night market." }, undefined, new ComplianceScreen(fakeJev({})));
+    expect(ok.ok).toBe(true);
+    expect(world.coins.get(ok.detail)).toMatchObject({ symbol: "LNTRN", venue: "stonkfun" });
   });
 
   it("marks a sharp, in-character post as a Jev's pick and announces it", async () => {

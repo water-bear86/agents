@@ -11,6 +11,7 @@ import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } fr
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { MARKET, PaperChain, syncMarket } from "./solana/paper.js";
+import { StonkFunClient, curveProgress } from "./solana/stonkfun.js";
 import { chooseRepos, fixJudge, settleDebates, findCandidates, intakeIssues, setRepos, tally, triage, triageJudge, upkeep, vetSome } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
@@ -112,9 +113,12 @@ if (solanaOnchain) {
   indexer = new Indexer(pub, env.REGISTRY as Address, env.HOOK as Address, world, BigInt(env.START_BLOCK ?? 0));
 } else if (paperMode) {
   // Paper trading against the live Solana market: real tokens at mainnet prices, simulated fills.
+  // STONKFUN=0 turns StonkFun off: no StonkFun coins in the market, and no launches.
   const p = new PaperChain(world.units, {
     rpcUrl: env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com",
     maxTokens: Number(env.PAPER_TOKENS ?? 12), minLiquidityUsd: Number(env.PAPER_MIN_LIQUIDITY_USD ?? 50_000),
+    stonkfun: env.STONKFUN === "0" ? null : new StonkFunClient(),
+    stonkfunTokens: Number(env.STONKFUN_TOKENS ?? 8), stonkfunMinLiquidityUsd: Number(env.STONKFUN_MIN_LIQUIDITY_USD ?? 5_000),
   });
   paper = p;
   chain = p;
@@ -744,7 +748,13 @@ createServer(async (req, res) => {
     if (resource === "feed") return send(res, 200, { posts: world.feed(queryLimit(url, 50, 200)).map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle })) });
     if (resource === "coins") {
       // The tokens agents trade: real market tokens (or the offline demo's stand-ins), with pool depth and price.
-      return send(res, 200, { coins: [...world.coins.values()].map((c) => ({ token: c.token, symbol: c.symbol, name: c.name, market: !!c.market, ethReserveWei: c.ethReserveWei, listedAt: c.launchedAt, price: priceOf(quoter, c.token, world.units) })) });
+      return send(res, 200, { coins: [...world.coins.values()].map((c) => ({
+        token: c.token, symbol: c.symbol, name: c.name, market: !!c.market, ethReserveWei: c.ethReserveWei, listedAt: c.launchedAt, price: priceOf(quoter, c.token, world.units),
+        ...(c.venue ? { venue: c.venue } : {}),
+        // An agent's launch: who made it and, on a paper curve, how full it is.
+        ...(!c.market ? { launcher: world.agents.get(c.launcher)?.handle } : {}),
+        ...(c.curve ? { paper: true, curveProgress: curveProgress(c.curve), graduated: c.curve.graduated } : {}),
+      })) });
     }
     if (resource === "decisions") {
       const limit = queryLimit(url, 40, 200);

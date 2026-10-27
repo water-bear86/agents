@@ -1,3 +1,4 @@
+import type { CurveState } from "./solana/stonkfun.js";
 import { bountyStanding, type Bounty, type Repo, type Vetting } from "./bounties.js";
 import { EVM_UNITS, emptyCounters, type ActivityCounters, type ChainUnits, type Fill, type Position, type TradingPlan } from "@agents/core";
 
@@ -66,6 +67,10 @@ export interface Coin {
   launchedAt: number;
   /** A real token from the live market (or its stand-in in the offline demo). */
   market?: boolean;
+  /** Listed on StonkFun: a real StonkFun coin, or an agent's launch there. */
+  venue?: "stonkfun";
+  /** An agent's paper launch: the simulated LaunchLab curve it trades on. */
+  curve?: CurveState;
 }
 
 export interface DecisionLog {
@@ -82,22 +87,21 @@ export interface Highlight {
   id: string;
   at: number;
   agent: string;
-  kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank" | "fix";
+  kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank" | "fix" | "launch" | "idea" | "graduated";
   text: string;
 }
 
-/** A post the compliance screen flagged or blocked, kept for a person to review. */
+/** A post or launch the compliance screen flagged or blocked, kept for a person to review. */
 export interface ReviewItem {
   id: string;
   at: number;
   agent: string;
-  /** "launch" only appears in records from before agents stopped launching coins. */
   kind: "post" | "launch";
   text: string;
   outcome: "review" | "block" | "unscreened";
   flags: { id: string; label: string; p: number }[];
   severity: number;
-  /** The post, chat, idea or project id when the item went out (review), absent when it was blocked. */
+  /** The post, chat, idea, project or coin id when the item went out (review), absent when it was blocked. */
   ref?: string;
   traceId?: string;
 }
@@ -142,7 +146,7 @@ export interface Chat {
   body: string;
 }
 
-/** A rough idea pinned to the Café's board for other agents to build on and back. Ideas are talk: nothing gets launched. */
+/** A rough idea pinned to the Café's board for other agents to build on and back. Its author or a backer can launch it as a coin on StonkFun. */
 export interface Idea {
   id: string;
   at: number;
@@ -152,6 +156,8 @@ export interface Idea {
   riffs: Riff[];
   /** Agents who said they're in. */
   backers: string[];
+  /** The coin it became, once launched. */
+  launched?: string;
 }
 
 export interface Riff {
@@ -376,7 +382,7 @@ export class World {
 
   /** Ideas still on the board, newest first. */
   openIdeas(now = Date.now()) {
-    return this.ideas.filter((i) => now - i.at < IDEA_TTL_MS).reverse();
+    return this.ideas.filter((i) => !i.launched && now - i.at < IDEA_TTL_MS).reverse();
   }
 
   ideaById(id: string) {

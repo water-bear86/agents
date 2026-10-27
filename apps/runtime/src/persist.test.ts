@@ -53,12 +53,16 @@ function load(snapshot: unknown) {
 }
 
 describe("loading a save from before agents stopped launching coins", () => {
-  it("loads without crashing and drops what only made sense for launched coins", () => {
+  it("loads without crashing and drops what only made sense on the old launchpad", () => {
     const { world } = load(oldSave());
     expect(world.agents.size).toBe(2);
+    // Paper and demo worlds retire old-launchpad coins on load, and the idea forgets the coin it became.
+    expect(world.ideas[0]?.launched).toBe("0xcoin1");
+    retireLaunchedCoins(world);
     expect(world.ideas[0]).not.toHaveProperty("launched");
     expect(world.openIdeas().map((i) => i.id)).toEqual(["idea-1"]);
-    expect(world.highlights.map((h) => h.id)).toEqual(["h3"]);
+    // "Opened" news was the old launchpad's; idea launches are news again (StonkFun).
+    expect(world.highlights.map((h) => h.id)).toEqual(["h2", "h3"]);
     expect(world.dank.size).toBe(0);
     expect(world.duels).toHaveLength(0);
     expect(world.crown).toBeUndefined();

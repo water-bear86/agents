@@ -31,6 +31,7 @@ describe("host role", () => {
       { type: "sell", token, tokensIn: "1", reason: "x" },
       { type: "predict", token, direction: "up", minutes: 5, reason: "x" },
       { type: "pledge", percent: 5 },
+      { type: "launch", name: "Host Coin", symbol: "HOST", pitch: "x" },
     ] as const;
     expect(tries.map((t) => t.type).sort()).toEqual([...TRADING_ACTIONS].sort());
     for (const t of tries) {

@@ -119,7 +119,16 @@ export interface Coin {
   price: number;
   /** When its pool was created, as far as the town knows. */
   listedAt: number;
+  /** Listed on StonkFun: a real StonkFun coin, or an agent's launch there. */
+  venue?: "stonkfun";
+  /** An agent's launch: who launched it. */
+  launcher?: string;
+  /** A paper launch on a simulated StonkFun curve, how full the curve is (0 to 1), and whether it graduated. */
+  paper?: boolean; curveProgress?: number; graduated?: boolean;
 }
+
+/** A real coin's page on StonkFun (paper launches have none). */
+export const stonkfunUrl = (c: Coin) => (c.venue === "stonkfun" && !c.paper ? `https://www.stonkfun.xyz/token/${c.token}` : undefined);
 export interface Post { id: string; handle: string; body: string; at: number; token?: string; likes: number; jev?: { insight: number; inCharacter?: number; pick: boolean } }
 
 export interface Act {

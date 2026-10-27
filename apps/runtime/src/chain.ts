@@ -1,11 +1,24 @@
+import type { CurveState } from "./solana/stonkfun.js";
 import { createPublicClient, createWalletClient, http, parseAbi, type Address, type Chain as ViemChain, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { EVM_UNITS, oneNative, type ChainUnits, type Order } from "@agents/core";
 
 /** What the runtime needs from the chain. `ViemChain` in prod, `SimChain` in tests/demo. */
 export interface Chain {
-  execute(account: string, order: Order): Promise<{ txHash: string; out: bigint }>;
+  /** `graduated`: this fill finished a launch's bonding curve. */
+  execute(account: string, order: Order): Promise<{ txHash: string; out: bigint; graduated?: boolean }>;
 }
+
+/** A chain agents can launch coins on (StonkFun in paper mode, the offline demo's pools). */
+export interface Launcher {
+  launch(account: string, name: string, symbol: string): Promise<{ txHash: string; token: string }>;
+  /** False when this chain could launch but the runtime has launching switched off. */
+  readonly launchesOn?: boolean;
+  /** A paper launch's curve, for the world to keep and save. */
+  curveOf?(token: string): CurveState | undefined;
+}
+
+export const canLaunch = (c: Chain): c is Chain & Launcher => typeof (c as Partial<Launcher>).launch === "function";
 
 const accountAbi = parseAbi([
   "function buy((address,address,uint24,int24,address) key, uint256 ethIn, uint256 minTokensOut) returns (uint256)",
@@ -67,6 +80,12 @@ export class SimChain implements Chain {
     const p = this.pools.get(token);
     if (!p) return 0n;
     return ((p.eth * tokensIn) / (p.tokens + tokensIn) * 99n) / 100n;
+  }
+
+  /** The offline demo's launch: a fresh token with its own simulated pool. */
+  async launch(_account: string, _name: string, symbol: string) {
+    const token = this.list(`sim-${symbol.toLowerCase()}-${(++this.#n).toString(36)}`);
+    return { txHash: `0xsim${Date.now().toString(36)}${this.#n}`, token };
   }
 
   async execute(_account: string, o: Order) {

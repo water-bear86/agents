@@ -58,14 +58,14 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.decisions = s.decisions ?? [];
   world.follows = new Set(s.follows ?? []);
   world.counters = new Map(s.counters ?? []);
-  // News about coin launches ("opened", and "idea" for an idea launched as a coin) no longer applies.
-  world.highlights = (s.highlights ?? []).filter((h: { kind: string }) => h.kind !== "opened" && h.kind !== "idea") as Highlight[];
+  // "Opened" news was about the old launchpad's coins opening to everyone; StonkFun coins are open from the start.
+  world.highlights = (s.highlights ?? []).filter((h: { kind: string }) => h.kind !== "opened") as Highlight[];
   world.reviews = s.reviews ?? [];
   world.predictions = s.predictions ?? [];
   world.debates = s.debates ?? [];
   world.chats = s.chats ?? [];
-  // Ideas from when the Café could launch them as coins carried the coin they became; ideas are talk now.
-  world.ideas = (s.ideas ?? []).map(({ launched: _gone, ...i }: Idea & { launched?: string }) => i);
+  // An idea keeps the coin it became only if that coin is still in town (old launchpad coins were retired).
+  world.ideas = (s.ideas ?? []).map(({ launched, ...i }: Idea) => (launched && world.coins.has(launched) ? { ...i, launched } : i));
   world.projects = s.projects ?? [];
   world.memory = new Map(s.memory ?? []);
   world.pledges = new Map(s.pledges ?? []);
@@ -91,15 +91,16 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
 }
 
 /**
- * Drops coins the agents launched themselves, from a save made before agents stopped launching:
- * only market tokens stay tradable. Holdings in a dropped coin go back to the agent at cost, and
+ * Drops coins the agents launched on the old launchpad, from a save made before agents stopped
+ * launching there: market tokens and StonkFun launches stay tradable. Holdings in a dropped coin go back to the agent at cost, and
  * open price calls on one close flat. For paper and demo worlds, whose balances are the runtime's
  * own; on-chain worlds keep what their indexers report. Returns how many coins were dropped.
  */
 export function retireLaunchedCoins(world: World, now = Date.now()): number {
-  const gone = new Set([...world.coins.values()].filter((c) => !c.market).map((c) => c.token));
+  const gone = new Set([...world.coins.values()].filter((c) => !c.market && c.venue !== "stonkfun").map((c) => c.token));
   if (!gone.size) return 0;
   for (const t of gone) world.coins.delete(t);
+  for (const i of world.ideas) if (i.launched && gone.has(i.launched)) delete i.launched;
   for (const [acct, positions] of world.positions) {
     const kept = positions.filter((p) => !gone.has(p.token));
     const refund = positions.filter((p) => gone.has(p.token)).reduce((sum, p) => sum + p.costWei, 0n);

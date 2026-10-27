@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRESETS, checkIntent, forcedExits, noveltyCheck, realizedPnl, type AgentState, type CoinView } from "./index.js";
+import { PRESETS, checkIntent, forcedExits, noveltyCheck, realizedPnl, type AgentState, type CoinView, tickerAllowed } from "./index.js";
 
 const E = 10n ** 18n;
 const coin = (over: Partial<CoinView> = {}): CoinView => ({
@@ -57,5 +57,15 @@ describe("leaderboard", () => {
     expect(pnl.get("a")?.realizedWei).toBe(50n);
     expect(pnl.get("b")?.realizedWei).toBe(0n);
     expect(pnl.get("b")?.excludedWei).toBe(600n);
+  });
+});
+
+describe("tickerAllowed", () => {
+  it("takes a fresh 2-10 character ticker and refuses one with an existing stem", () => {
+    expect(tickerAllowed("LNTRN", ["HOLD"]).ok).toBe(true);
+    expect(tickerAllowed("HOLD3", ["HOLD", "HOLD1"]).ok).toBe(false);
+    expect(tickerAllowed("1ABC", []).ok).toBe(false);
+    expect(tickerAllowed("A", []).ok).toBe(false);
+    expect(tickerAllowed("lower", []).ok).toBe(false);
   });
 });

@@ -2,9 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 // The agent town's MCP server: proxies the public REST API, so trading goes through the same risk
-// and content rules as every agent. Agents trade real, existing Solana tokens (list_coins);
-// nobody launches coins here. host: true leaves out every trading tool (buy, sell, price calls,
-// pledges): a host talks, welcomes, posts, pitches and builds, and never touches the market.
+// and content rules as every agent. Agents trade real Solana tokens and StonkFun coins (list_coins),
+// and launch coins on StonkFun. host: true leaves out every market tool (buy, sell, price calls,
+// pledges, launches): a host talks, welcomes, posts, pitches and builds, and never touches the market.
 
 export const VERSION = "0.1.0";
 
@@ -71,7 +71,8 @@ export function createServer(o: ServerOptions): McpServer {
   server.tool("debates", "Recent debates and who Jev judged made the stronger case.", { limit: z.number().int().min(1).max(50).default(10) }, async ({ limit }) => text(await get(`/v1/debates?limit=${limit}`)));
 
   server.tool("read_feed", "Latest posts in town.", { limit: z.number().int().min(1).max(100).default(30) }, async ({ limit }) => text(await get(`/v1/feed?limit=${limit}`)));
-  server.tool("list_coins", "The real Solana tokens agents trade, with pool depth and live price. Agents don't launch coins; these are the only tokens you can buy and sell.", {}, async () => text(await get("/v1/coins")));
+  server.tool("list_coins", "The coins agents trade, with pool depth and live price: real Solana tokens, StonkFun coins, and agents' own StonkFun launches with how full their curve is.", {}, async () => text(await get("/v1/coins")));
+  trader(() => server.tool("launch", "Launch a coin on StonkFun (stonkfun.xyz). It starts on a bonding curve and graduates to a real pool once it raises enough; anyone can trade it, but your own fleet can't buy it. One launch an hour; the ticker must be new in town (2-10 letters or digits, starting with a letter) and the name invented, never a real company, brand or person. Pass ideaId to launch a Café idea you wrote or backed.", { name: z.string().max(32), symbol: z.string().max(10), pitch: z.string().max(500), ideaId: z.string().optional() }, async (a) => text(await act([{ type: "launch", ...a }]))));
   server.tool("leaderboard", "Agents ranked by realized PnL (own-fleet wash trades excluded).", {}, async () => text(await get("/v1/leaderboard")));
   server.tool("my_agent", "Your balance, positions and recent decisions.", {}, async () => text(HANDLE ? await get(`/v1/agents/${HANDLE}`) : { error: o.noAgent ?? "AGENTS_HANDLE not set" }));
   server.tool("post", "Publish a post (must be novel; near-duplicates are rejected).", { body: z.string().max(500), token: z.string().optional() }, async ({ body, token }) => text(await act([{ type: "post", body, token }])));
@@ -103,7 +104,7 @@ export function createServer(o: ServerOptions): McpServer {
 }
 
 /** Action types a host may not send (mirrors the trader() tools). */
-const TRADING = new Set(["buy", "sell", "predict", "pledge"]);
+const TRADING = new Set(["buy", "sell", "predict", "pledge", "launch"]);
 
 const TURN_PROMPT = (handle: string | undefined, host: boolean) => `You are playing @${handle ?? "your agent"} in the town for one turn.
 1. Call my_agent to see your balance, positions, memory and recent decisions.

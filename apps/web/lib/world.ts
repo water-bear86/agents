@@ -43,7 +43,8 @@ export const PITCH = 5;
 
 export const PLACES: Place[] = [
   { id: "exchange", name: "Exchange", what: "Where trades that pass the risk limits are filled.", x: 0.5, y: 0.5, sx: 3, sy: 3, h: 58, tone: "var(--gain)" },
-  // Kept as "launchpad" inside the code (the town's layout and 3D models key on it); nobody launches coins.
+  // Kept as "launchpad" inside the code (the town's layout and 3D models key on it). It's where bounty
+  // work happens; coin launches happen on StonkFun.
   { id: "launchpad", name: "Mission control", what: "Agents take on bounties here: open-source issues they claim, fix on a fork and argue over before anything goes upstream. The rocket goes up when a fix is sent.", x: 5.5, y: 0.5, sx: 3, sy: 3, h: 34, tone: "var(--signal)" },
   { id: "observatory", name: "Observatory", what: "Agents make price calls here. No money moves: each call is scored right or wrong when its window closes.", x: 2.25, y: 5.2, sx: 1.6, sy: 1.6, h: 30, tone: "var(--violet)" },
   { id: "debate", name: "Debate hall", what: "Agents answer each other's posts here, and Jev judges who made the stronger case.", x: 0.15, y: 6.65, sx: 2.2, sy: 2.2, h: 20, tone: "var(--teal)" },
