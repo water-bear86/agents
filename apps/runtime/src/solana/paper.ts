@@ -10,7 +10,13 @@ import type { World } from "../world.js";
 import { StonkFunClient, curveApply, curveBuy, curveSell, newCurve, DEFAULT_SHAPE, type CurveShape, type CurveState, type StonkFunToken } from "./stonkfun.js";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
-const JUP = "https://lite-api.jup.ag";
+/** Jupiter's keyless API, rate limited per IP (shared with everyone else on a host like Render). */
+const JUP_LITE = "https://lite-api.jup.ag";
+/** Jupiter's keyed API: its own rate limit per key. */
+const JUP_KEYED = "https://api.jup.ag";
+/** How long Jupiter is left alone after a 429: doubles on each one in a row, up to the max. */
+const BACKOFF_MIN_MS = 15_000;
+const BACKOFF_MAX_MS = 5 * 60_000;
 /** The most ids Jupiter's price API will answer in one request. */
 const PRICE_BATCH = 50;
 /** Price history kept per token for short-term change: one sample per HISTORY_STEP_MS, HISTORY_MS deep. */
@@ -41,6 +47,13 @@ export interface PaperOptions {
   /** How many StonkFun coins join the market, and the least liquidity (USD) one needs. */
   stonkfunTokens?: number;
   stonkfunMinLiquidityUsd?: number;
+  /** A Jupiter API key (portal.jup.ag). Without one, the keyless lite API is used. */
+  jupiterApiKey?: string;
+}
+
+/** An HTTP error, with its status. */
+class HttpError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
 }
 
 export class PaperChain implements Chain, Quoter {
@@ -78,9 +91,36 @@ export class PaperChain implements Chain, Quoter {
     const r = await this.#fetch(url, init);
     if (!r.ok) {
       const why = await r.text().then((t) => { try { return (JSON.parse(t) as { error?: string }).error ?? t; } catch { return t; } }).catch(() => "");
-      throw new Error(`${new URL(url).pathname}: HTTP ${r.status}${why ? ` (${String(why).slice(0, 120)})` : ""}`);
+      throw new HttpError(`${new URL(url).pathname}: HTTP ${r.status}${why ? ` (${String(why).slice(0, 120)})` : ""}`, r.status);
     }
     return (await r.json()) as T;
+  }
+
+  #limitedUntil = 0;
+  #backoffMs = 0;
+
+  /** True while Jupiter is being left alone after a 429. */
+  get rateLimited() { return Date.now() < this.#limitedUntil; }
+
+  /**
+   * A Jupiter request, keyed when there's a key. After a 429 every request is skipped for a while
+   * (longer on each 429 in a row) instead of hammering an API that's already refusing.
+   */
+  async #jup<T>(path: string): Promise<T> {
+    const now = Date.now();
+    if (now < this.#limitedUntil) throw new HttpError(`Jupiter rate limit, next try in ${Math.ceil((this.#limitedUntil - now) / 1000)}s`, 429);
+    const key = this.opts.jupiterApiKey;
+    try {
+      const out = await this.#json<T>(`${key ? JUP_KEYED : JUP_LITE}${path}`, key ? { headers: { "x-api-key": key } } : undefined);
+      this.#backoffMs = 0;
+      return out;
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 429) {
+        this.#backoffMs = Math.min(BACKOFF_MAX_MS, Math.max(BACKOFF_MIN_MS, this.#backoffMs * 2));
+        this.#limitedUntil = Date.now() + this.#backoffMs;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -88,7 +128,7 @@ export class PaperChain implements Chain, Quoter {
    * are gone (so nobody can print more or freeze holders), confirmed on the mainnet RPC.
    */
   async discover(): Promise<MarketToken[]> {
-    const list = await this.#json<Array<Record<string, any>>>(`${JUP}/tokens/v2/toptrending/1h?limit=60`);
+    const list = await this.#jup<Array<Record<string, any>>>("/tokens/v2/toptrending/1h?limit=60");
     const candidates: MarketToken[] = list
       .filter((t) => t.decimals === this.units.tokenDecimals && (t.liquidity ?? 0) >= (this.opts.minLiquidityUsd ?? 50_000))
       .filter((t) => t.audit?.mintAuthorityDisabled && t.audit?.freezeAuthorityDisabled)
@@ -139,7 +179,7 @@ export class PaperChain implements Chain, Quoter {
    */
   async track(mints: string[]): Promise<MarketToken[]> {
     if (!mints.length) { this.market.clear(); return []; }
-    const list = await this.#json<Array<Record<string, any>>>(`${JUP}/tokens/v2/search?query=${mints.join(",")}`);
+    const list = await this.#jup<Array<Record<string, any>>>(`/tokens/v2/search?query=${mints.join(",")}`);
     const picked: MarketToken[] = list
       .filter((t) => mints.includes(t.id) && t.decimals === this.units.tokenDecimals)
       .map((t) => ({
@@ -178,9 +218,24 @@ export class PaperChain implements Chain, Quoter {
     if (mints && !wanted.length) return;
     const ids = [SOL_MINT, ...wanted];
     const prices: Record<string, { usdPrice: number; liquidity?: number } | null> = {};
+    // Each batch that comes back counts, even if a later one fails; a rate limit stops the rest.
+    let failed: unknown;
     for (let i = 0; i < ids.length; i += PRICE_BATCH) {
-      Object.assign(prices, await this.#json<typeof prices>(`${JUP}/price/v3?ids=${ids.slice(i, i + PRICE_BATCH).join(",")}`));
+      try {
+        Object.assign(prices, await this.#jup<typeof prices>(`/price/v3?ids=${ids.slice(i, i + PRICE_BATCH).join(",")}`));
+      } catch (e) {
+        failed ??= e;
+        if (e instanceof HttpError && e.status === 429) break;
+      }
     }
+    try {
+      await this.#apply(wanted, prices, now);
+    } finally {
+      if (failed) throw failed;
+    }
+  }
+
+  async #apply(wanted: string[], prices: Record<string, { usdPrice: number; liquidity?: number } | null>, now: () => number) {
     this.#solUsd = prices[SOL_MINT]?.usdPrice ?? this.#solUsd;
     if (!this.#solUsd) return;
     // StonkFun coins Jupiter hasn't priced yet: StonkFun's own list is read instead (one request).
@@ -283,7 +338,7 @@ export class PaperChain implements Chain, Quoter {
     }
     if (!this.market.has(o.token)) throw new Error("not a market token");
     const [input, output, amount] = o.kind === "buy" ? [SOL_MINT, o.token, o.ethIn] : [o.token, SOL_MINT, o.tokensIn];
-    const q = await this.#json<{ outAmount?: string; error?: string }>(`${JUP}/swap/v1/quote?inputMint=${input}&outputMint=${output}&amount=${amount}&slippageBps=${this.opts.slippageBps ?? 100}`);
+    const q = await this.#jup<{ outAmount?: string; error?: string }>(`/swap/v1/quote?inputMint=${input}&outputMint=${output}&amount=${amount}&slippageBps=${this.opts.slippageBps ?? 100}`);
     if (!q.outAmount) throw new Error(`no route on mainnet${q.error ? `: ${q.error}` : ""}`);
     const out = BigInt(q.outAmount);
     if (out < o.minOut) throw new Error("Slippage");

@@ -147,4 +147,44 @@ describe("paper trading the live market", () => {
     await p.ensureFresh([GOOD], 5_000, Date.now() + 6_000);
     expect(reads).toBe(2);
   });
+
+  it("keeps the prices that came back when Jupiter rate limits a later batch, then leaves it alone for a while", async () => {
+    // Like Jupiter from a shared host's IP: the first request goes through, the rest get a 429.
+    let n = 0;
+    const urls: string[] = [];
+    const f = (async (url: string) => {
+      urls.push(url);
+      if (n++ > 0) return new Response(JSON.stringify({ code: 429, message: "[API Gateway] Too many requests" }), { status: 429 });
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: id === SOL ? 100 : 0.5 }]))));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    const mints = Array.from({ length: 120 }, (_, i) => `Tok${String(i).padStart(3, "0")}${"1".repeat(40)}`);
+    for (const m of mints) p.market.set(m, { mint: m, symbol: "T", name: "T", decimals: 6, liquidityUsd: 100_000 });
+    await expect(p.refresh()).rejects.toThrow("HTTP 429");
+    // The first batch (SOL and 49 tokens) counts; the rate limit stopped the third batch from going out.
+    expect(p.solUsd).toBe(100);
+    expect(mints.filter((m) => p.quoteBuy(m, 10_000_000n) > 0n)).toHaveLength(49);
+    expect(urls).toHaveLength(2);
+    expect(p.rateLimited).toBe(true);
+    // While backing off, nothing is sent.
+    await expect(p.refresh(mints.slice(60))).rejects.toThrow(/rate limit, next try in \d+s/);
+    expect(urls).toHaveLength(2);
+  });
+
+  it("uses Jupiter's keyed API when there's a key", async () => {
+    const seen: Array<[string, string | null]> = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      seen.push([url, new Headers(init?.headers).get("x-api-key")]);
+      return new Response(JSON.stringify({ [SOL]: { usdPrice: 100 }, [GOOD]: { usdPrice: 0.5 } }));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f, jupiterApiKey: "test-key" });
+    p.market.set(GOOD, { mint: GOOD, symbol: "GOOD", name: "Good", decimals: 6, liquidityUsd: 100_000 });
+    await p.refresh();
+    expect(seen).toEqual([[expect.stringMatching(/^https:\/\/api\.jup\.ag\/price\/v3\?/), "test-key"]]);
+    const keyless = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    keyless.market.set(GOOD, { mint: GOOD, symbol: "GOOD", name: "Good", decimals: 6, liquidityUsd: 100_000 });
+    await keyless.refresh();
+    expect(seen[1]).toEqual([expect.stringMatching(/^https:\/\/lite-api\.jup\.ag\//), null]);
+  });
 });

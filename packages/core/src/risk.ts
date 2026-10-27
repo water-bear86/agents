@@ -143,6 +143,8 @@ export function forcedExits(plan: TradingPlan, agent: AgentState, coins: Map<str
     if (!coin || p.amount === 0n || p.costWei === 0n) continue;
     if (stalePrice(coin, agent.now, opts.maxPriceAgeMs)) continue;
     const value = coin.quoteSell(p.amount);
+    // No quote means no price (a dead feed, say), not a -100% loss: a sell couldn't fill anyway.
+    if (value === 0n) continue;
     const pnlPct = Number(((value - p.costWei) * 10_000n) / p.costWei) / 100;
     const peak = p.peakValueWei > value ? p.peakValueWei : value;
     const givebackPct = peak > 0n ? Number(((peak - value) * 10_000n) / peak) / 100 : 0;

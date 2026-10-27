@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { MAINNET_GENESIS, SolanaVaultChain, isMainnet } from "./solana/chain.js";
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
-import { tick } from "./tick.js";
+import { pricedCoins, tick } from "./tick.js";
 import { TurnScheduler } from "./turns.js";
 import { ExitWatcher } from "./watcher.js";
 import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "agents-mcp";
@@ -89,7 +89,7 @@ if (solanaOnchain) {
   const client = new AgentsClient(agentsProgram(conn));
   const sc = new SolanaVaultChain(conn, client, session, { api: env.JUPITER_API, apiKey: env.JUPITER_API_KEY });
   // Live prices and quotes as in paper mode, but the market is the program's whitelist and fills are real.
-  const p = new PaperChain(world.units, { rpcUrl: env.SOLANA_RPC_URL!, slippageBps: Number(env.SLIPPAGE_BPS ?? 100) });
+  const p = new PaperChain(world.units, { rpcUrl: env.SOLANA_RPC_URL!, slippageBps: Number(env.SLIPPAGE_BPS ?? 100), jupiterApiKey: env.JUPITER_API_KEY || undefined });
   paper = p;
   chain = sc;
   quoter = p;
@@ -125,6 +125,7 @@ if (solanaOnchain) {
     maxTokens: Number(env.PAPER_TOKENS ?? 12), minLiquidityUsd: Number(env.PAPER_MIN_LIQUIDITY_USD ?? 50_000),
     stonkfun: env.STONKFUN === "0" ? null : new StonkFunClient(),
     stonkfunTokens: Number(env.STONKFUN_TOKENS ?? 8), stonkfunMinLiquidityUsd: Number(env.STONKFUN_MIN_LIQUIDITY_USD ?? 5_000),
+    jupiterApiKey: env.JUPITER_API_KEY || undefined,
   });
   paper = p;
   chain = p;
@@ -140,7 +141,10 @@ if (solanaOnchain) {
     },
     syncBalances: async () => {},
   };
-  poolQuoter = { refresh: async () => { await p.refresh().catch((e) => console.warn(`[paper] prices failed: ${e instanceof Error ? e.message : e}`)); syncMarket(world, p); } };
+  // Every minute, only the coins agents see or hold are priced: the market keeps every token agents
+  // ever saw (hundreds after a while), and pricing all of them gets the runtime rate limited.
+  // Any other token is priced when an agent trades it.
+  poolQuoter = { refresh: async () => { await p.refresh(pricedCoins(world)).catch((e) => console.warn(`[paper] prices failed: ${e instanceof Error ? e.message : e}`)); syncMarket(world, p); } };
   refreshHeld = (tokens) => p.refresh(tokens);
 } else {
   const sim = new SimChain(world.units);

@@ -18,6 +18,17 @@ const fmtNative = (w: bigint, u: ChainUnits) => Number(formatUnits(w, u.nativeDe
 export const fmtMinutes = (m: number) => (m < 120 ? `${Math.round(m)} min` : m < 2 * 24 * 60 ? `${Math.round(m / 60)} h` : `${Math.round(m / (24 * 60))} days`);
 
 /** How old a coin's price is, and its 5m/1h change where known, for the coin list. */
+/** How many of the newest coins an agent's turn shows. */
+export const PROMPT_COINS = 25;
+
+/** The coins worth pricing every minute: the ones turns show, and every coin an agent holds. */
+export function pricedCoins(world: World): string[] {
+  return [...new Set([...[...world.coins.keys()].slice(-PROMPT_COINS), ...[...world.positions.values()].flat().map((p) => p.token)])];
+}
+
+/** A coin's price for the prompt, or that there isn't one. */
+const shownPrice = (px: number, sym: string) => (Number.isFinite(px) && px > 0 ? `price=${px.toExponential(2)}${sym}/token` : "price=none right now");
+
 function priceNotes(quoter: Quoter, token: string, now: number): string {
   const at = quoter.priceAt?.(token);
   const age = at === undefined ? "live" : at === 0 ? "no price yet" : `${Math.round(priceAgeMs({ priceAt: at }, now) / 1000)}s old`;
@@ -45,17 +56,19 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   const u = world.units;
   const N = u.nativeSymbol;
   const fmtEth = (w: bigint) => fmtNative(w, u);
-  const coins = [...world.coins.values()].slice(-25).map((c) => {
+  // No quote is a missing price, not a worthless position.
+  const worth = (w: bigint) => (w > 0n ? `${fmtEth(w)} ${N}` : "unknown (no price right now)");
+  const coins = [...world.coins.values()].slice(-PROMPT_COINS).map((c) => {
     const where = c.curve ? ` on StonkFun, launched by @${world.agents.get(c.launcher)?.handle ?? "?"}, curve ${Math.round(curveProgress(c.curve) * 100)}% filled${c.curve.graduated ? " (graduated)" : ""}` : c.venue === "stonkfun" ? " on StonkFun" : "";
     const own = !c.market && c.launcherOwner === agent.owner ? " (your fleet's launch: you can't buy it)" : "";
-    return `${c.symbol} ${c.token} "${c.name}"${where} liquidity=${fmtEth(c.ethReserveWei)}${N} price=${priceOf(quoter, c.token, u).toExponential(2)}${N}/token${priceNotes(quoter, c.token, now)}${own}`;
+    return `${c.symbol} ${c.token} "${c.name}"${where} liquidity=${fmtEth(c.ethReserveWei)}${N} ${shownPrice(priceOf(quoter, c.token, u), N)}${priceNotes(quoter, c.token, now)}${own}`;
   });
   const feed = world.feed(15).map((p) => `[${p.id.slice(0, 8)}] @${world.agents.get(p.agent)?.handle}: ${p.agent === agent.account ? p.body : quoted(p.body)}`);
   const calls = world.predictions.filter((p) => p.agent === agent.account && !p.outcome).map((p) => `$${world.coins.get(p.token)?.symbol} ${p.direction}, ${Math.max(0, Math.round((p.resolveAt - Date.now()) / 60_000))} min left: ${p.reason}`);
   const pos = s.positions.map((p) => {
     const held = (now - p.openedAt) / 60_000;
     const lock = held < tf.minHoldMinutes ? `, sellable in ${fmtMinutes(Math.ceil(tf.minHoldMinutes - held))}` : "";
-    return `${world.coins.get(p.token)?.symbol}: ${p.amount} tokens, cost ${fmtEth(p.costWei)} ${N}, now worth ${fmtEth(quoter.quoteSell(p.token, p.amount))} ${N}, peak ${fmtEth(p.peakValueWei)} ${N}, held ${fmtMinutes(held)} of a ${fmtMinutes(tf.targetHoldMinutes)} target${lock}${p.tookProfit ? ", profit already taken" : ""}`;
+    return `${world.coins.get(p.token)?.symbol}: ${p.amount} tokens, cost ${fmtEth(p.costWei)} ${N}, now worth ${worth(quoter.quoteSell(p.token, p.amount))}, peak ${fmtEth(p.peakValueWei)} ${N}, held ${fmtMinutes(held)} of a ${fmtMinutes(tf.targetHoldMinutes)} target${lock}${p.tookProfit ? ", profit already taken" : ""}`;
   });
   const cooling = Object.entries(s.lastExits ?? {}).filter(([t, at]) => now - at < tf.reentryCooldownMinutes * 60_000 && !s.positions.some((p) => p.token === t))
     .map(([t, at]) => `$${world.coins.get(t)?.symbol ?? "?"} (${fmtMinutes(Math.ceil(tf.reentryCooldownMinutes - (now - at) / 60_000))} left)`);
@@ -157,7 +170,7 @@ export async function tick(world: World, agent: Agent, deps: TickDeps): Promise<
     let thought = "";
     if (agent.plan.mode === "llm_within_bounds") {
       // The prompt shows prices: read any older than the limit first, in one shared batch.
-      const shown = [...new Set([...[...world.coins.keys()].slice(-25), ...(world.positions.get(agent.account) ?? []).map((p) => p.token)])];
+      const shown = [...new Set([...[...world.coins.keys()].slice(-PROMPT_COINS), ...(world.positions.get(agent.account) ?? []).map((p) => p.token)])];
       await deps.quoter.ensureFresh?.(shown, trading.maxPriceAgeMs).catch(() => {});
       const r = await deps.llm.chat({
         model: agent.modelId,

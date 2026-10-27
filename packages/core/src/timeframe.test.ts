@@ -108,6 +108,14 @@ describe("peak tracking and the trailing stop", () => {
 });
 
 describe("stop loss and take profit shares", () => {
+  it("doesn't read a missing quote as a -100% loss", () => {
+    // A dead price feed: the coin quotes nothing. That's no price, not a stop loss that can't fill.
+    const noQuote = new Map([["T", { ...coin(() => E), quoteSell: () => 0n }]]);
+    expect(forcedExits(PRESETS.momentum, agent([pos()]), noQuote)).toEqual([]);
+    // Not even a timed exit, which couldn't fill either.
+    expect(forcedExits(PRESETS.scalper, agent([pos({ openedAt: NOW - 600 * MIN })]), noQuote)).toEqual([]);
+  });
+
   const down = new Map([["T", coin(() => (E * 80n) / 100n)]]);
   const up = new Map([["T", coin(() => (E * 120n) / 100n)]]);
 
