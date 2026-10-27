@@ -5,7 +5,7 @@ import { progress } from "./progress.js";
 import { emptyCounters } from "./progress.js";
 import {
   EVM_UNITS, SOLANA_UNITS, addressFamily, formatAmount, formatTokens, formatUnits, isSolanaAddress, milliNative, oneNative,
-  parseUnits, sameAddress, shortAddress, spotPrice, toNumber,
+  parseUnits, sameAddress, shortAddress, spotPrice, toNumber, withTokenDecimals,
 } from "./units.js";
 
 describe("amounts", () => {
@@ -41,6 +41,17 @@ describe("amounts", () => {
     expect(spotPrice(milliNative(EVM_UNITS), 1000n * 10n ** 18n, EVM_UNITS)).toBeCloseTo(1e-6);
     expect(spotPrice(milliNative(SOLANA_UNITS), 1000n * 10n ** 6n, SOLANA_UNITS)).toBeCloseTo(1e-6);
     expect(spotPrice(1n, 0n, SOLANA_UNITS)).toBeNaN();
+  });
+
+  it("gives a 5-decimal token its own units, with the same one-billion-token supply", () => {
+    expect(withTokenDecimals(SOLANA_UNITS, undefined)).toBe(SOLANA_UNITS);
+    expect(withTokenDecimals(SOLANA_UNITS, 6)).toBe(SOLANA_UNITS);
+    const five = withTokenDecimals(SOLANA_UNITS, 5);
+    expect(five).toMatchObject({ tokenDecimals: 5, nativeDecimals: 9, nativeSymbol: "SOL", tokenSupply: 1_000_000_000n * 10n ** 5n });
+    // 0.001 SOL buys 1000 whole BONK (1000 * 1e5 smallest units): 1e-6 SOL per BONK, not 1e-7.
+    expect(spotPrice(milliNative(five), 1000n * 10n ** 5n, five)).toBeCloseTo(1e-6);
+    expect(() => withTokenDecimals(SOLANA_UNITS, 19)).toThrow("unsupported token decimals");
+    expect(() => withTokenDecimals(SOLANA_UNITS, 5.5)).toThrow("unsupported token decimals");
   });
 });
 

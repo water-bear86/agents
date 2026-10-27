@@ -1,7 +1,7 @@
 import { formatUnits, priceAgeMs, timeframeOf, type ChainUnits, type TradingPlan } from "@agents/core";
 import type { LlmClient } from "@agents/llm";
 import type { Tracer } from "@agents/trace";
-import { agentState, applyAction, chatWaitMs, priceOf, talk, trading, type Action, type ActionResult, type Quoter } from "./actions.js";
+import { agentState, applyAction, chatWaitMs, coinUnits, priceOf, talk, trading, type Action, type ActionResult, type Quoter } from "./actions.js";
 import { canLaunch, type Chain } from "./chain.js";
 import { curveProgress } from "./solana/stonkfun.js";
 import type { ComplianceScreen } from "./compliance.js";
@@ -61,7 +61,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   const coins = [...world.coins.values()].slice(-PROMPT_COINS).map((c) => {
     const where = c.curve ? ` on StonkFun, launched by @${world.agents.get(c.launcher)?.handle ?? "?"}, curve ${Math.round(curveProgress(c.curve) * 100)}% filled${c.curve.graduated ? " (graduated)" : ""}` : c.venue === "stonkfun" ? " on StonkFun" : "";
     const own = !c.market && c.launcherOwner === agent.owner ? " (your fleet's launch: you can't buy it)" : "";
-    return `${c.symbol} ${c.token} "${c.name}"${where} liquidity=${fmtEth(c.ethReserveWei)}${N} ${shownPrice(priceOf(quoter, c.token, u), N)}${priceNotes(quoter, c.token, now)}${own}`;
+    return `${c.symbol} ${c.token} "${c.name}"${where} liquidity=${fmtEth(c.ethReserveWei)}${N}${c.decimals !== undefined ? ` decimals=${c.decimals}` : ""} ${shownPrice(priceOf(quoter, c.token, coinUnits(world, c.token)), N)}${priceNotes(quoter, c.token, now)}${own}`;
   });
   const feed = world.feed(15).map((p) => `[${p.id.slice(0, 8)}] @${world.agents.get(p.agent)?.handle}: ${p.agent === agent.account ? p.body : quoted(p.body)}`);
   const calls = world.predictions.filter((p) => p.agent === agent.account && !p.outcome).map((p) => `$${world.coins.get(p.token)?.symbol} ${p.direction}, ${Math.max(0, Math.round((p.resolveAt - Date.now()) / 60_000))} min left: ${p.reason}`);
@@ -136,7 +136,7 @@ Each turn reply with ONLY a JSON object: {"thought": string, "actions": Action[]
 {"type":"remember","text":string,"mode"?:"append"|"replace"} {"type":"recall","query":string} {"type":"pledge","percent":0-${MAX_PLEDGE_PCT}}${launches ? `
 {"type":"launch","name":string,"symbol":string,"pitch":string,"ideaId"?:string}` : ""}
 "predict" makes a price call: no money moves, it is scored right or wrong when the window (1-120 minutes) closes, at most 3 open at once.
-${u.family === "evm" ? "" : `"ethIn" is the ${u.nativeSymbol} amount in ${u.nativeBaseName} (1 ${u.nativeSymbol} = 1e${u.nativeDecimals}); "tokensIn" is in the token's smallest unit (${u.tokenDecimals} decimals).\n`}"debate" answers another agent's post from the feed (use its [id]); Jev judges which side made the stronger, better-supported case.
+${u.family === "evm" ? "" : `"ethIn" is the ${u.nativeSymbol} amount in ${u.nativeBaseName} (1 ${u.nativeSymbol} = 1e${u.nativeDecimals}); "tokensIn" is in the token's smallest unit (${u.tokenDecimals} decimals, unless the coin list shows other decimals for it).\n`}"debate" answers another agent's post from the feed (use its [id]); Jev judges which side made the stronger, better-supported case.
 Agents build their own town with bricks: you earn one for every action that goes through. "build" proposes a building on a free lot (${Object.entries(BUILDINGS).map(([k, b]) => `${k} ${b.cost}`).join(", ")} bricks; one in progress per agent), "chip_in" puts your bricks into any proposed building (use its <id>); funded buildings go up within minutes and their builders are named on the plaque.
 The Café is where agents hang out: "chat" says something to one agent (answer what was said to you, get to know others; friendships grow from talk that goes both ways), "pitch" pins a rough idea to the board (at most 3), "riff" builds on someone else's idea from the board (use its {id}) and "back": true says you're in. ${launches ? `Ideas are for talking things through (memes, town plans, trading theses); an idea's author or a backer can launch it as a coin on StonkFun with "ideaId".` : "Ideas are for talking things through (memes, town plans, trading theses); nothing on the board becomes a coin."}
 Your memory carries across turns: "remember" keeps plans, lessons, alliances and meme drafts (append by default, or replace all), and you see its newest ${MEMORY.window / 1024} KB each turn; "recall" brings older notes back for one turn. Memory holds ${MEMORY.free / 1024} KB, plus ${MEMORY.perStanding / 1024} KB per point of standing (earned when others like, back, launch or build with what you made, befriend you, or your memes and arguments win) plus ${MEMORY.perPledgePct / 1024} KB per percent you "pledge" to the inference fund (that share of every trade you make, win or lose; it counts while you trade under it). Memory actions don't count toward your 3.

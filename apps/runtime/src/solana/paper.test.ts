@@ -1,4 +1,5 @@
 import { SOLANA_UNITS } from "@agents/core";
+import { coinUnits, coinView, priceOf } from "../actions.js";
 import { describe, expect, it } from "vitest";
 import { World } from "../world.js";
 import { MARKET, PaperChain, syncMarket } from "./paper.js";
@@ -78,6 +79,38 @@ describe("paper trading the live market", () => {
     expect(world.coins.get(GOOD)).toMatchObject({ market: true, launcher: MARKET, opened: true, symbol: "GOOD" });
     // Half of 300k USD of liquidity at 100 USD per SOL: 1,500 SOL of depth.
     expect(world.coins.get(GOOD)?.ethReserveWei).toBe(1_500n * 10n ** 9n);
+  });
+
+  it("tracks whitelisted tokens with their own decimals and prices them per smallest unit", async () => {
+    const FIVE = "Five1111111111111111111111111111111111111111";
+    const f = (async (url: string) => {
+      const json = (b: unknown) => new Response(JSON.stringify(b));
+      if (url.includes("/tokens/v2/search")) return json([token(GOOD), token(FIVE, { decimals: 5 }), token(NINE, { decimals: 19 })]);
+      // Both at 0.5 USD per whole token, SOL at 100 USD.
+      if (url.includes("/price/v3")) return json({ [SOL]: { usdPrice: 100 }, [GOOD]: { usdPrice: 0.5 }, [FIVE]: { usdPrice: 0.5 } });
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    // A token with more decimals than any SPL mint can have is left out.
+    expect((await p.track([GOOD, FIVE, NINE])).map((t) => [t.mint, t.decimals])).toEqual([[GOOD, 6], [FIVE, 5]]);
+    await p.refresh();
+    // 0.01 SOL is 1 USD: 2 whole tokens either way, less the 1% allowance. In smallest units that's
+    // 1,980,000 for the 6-decimal token and 198,000 for the 5-decimal one.
+    expect(p.quoteBuy(GOOD, 10_000_000n)).toBe(1_980_000n);
+    expect(p.quoteBuy(FIVE, 10_000_000n)).toBe(198_000n);
+    expect(p.quoteSell(FIVE, 200_000n)).toBe(9_900_000n);
+
+    const world = new World();
+    world.units = SOLANA_UNITS;
+    syncMarket(world, p);
+    expect(world.coins.get(FIVE)?.decimals).toBe(5);
+    expect(world.coins.get(GOOD)).not.toHaveProperty("decimals");
+    // Same price per whole token for both: 0.005 SOL (less the 1% allowance).
+    expect(priceOf(p, FIVE, coinUnits(world, FIVE))).toBeCloseTo(0.005 / 0.99, 6);
+    expect(priceOf(p, GOOD, coinUnits(world, GOOD))).toBeCloseTo(0.005 / 0.99, 6);
+    // The supply cap counts the same one billion whole tokens in the token's own smallest units.
+    expect(coinView(world, p, FIVE)?.totalSupply).toBe(1_000_000_000n * 10n ** 5n);
+    expect(coinView(world, p, GOOD)?.totalSupply).toBe(1_000_000_000n * 10n ** 6n);
   });
 
   it("prices every tracked token even though Jupiter answers at most 50 ids per request", async () => {

@@ -1,7 +1,7 @@
 {
   "_readme": "Mainnet launch settings, read by `pnpm --filter @agents/runtime solana:mainnet preflight|setup`. Nothing here is a secret: keypairs are referenced by path and stay outside the repo.",
   "_todo": [
-    "whitelist: tokens session keys may trade, each with its Pyth USD feed. Only plain SPL tokens with 6 decimals and a live sponsored feed qualify (the preflight checks).",
+    "whitelist: tokens session keys may trade, each with its Pyth USD feed. Only plain SPL tokens (not Token-2022) with a live sponsored feed qualify; each keeps its own decimals, BONK and MEW have 5 (the preflight checks).",
     "runtime.sessionKeyPublic: the runtime's session key, made on the server before the runtime trades on mainnet (not needed for the deploy)"
   ],
   "rpcUrl": "https://api.mainnet-beta.solana.com",
@@ -29,6 +29,16 @@
       "symbol": "FARTCOIN",
       "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
       "feed": "58cd29ef0e714c5affc44f269b2c1899a52da4169d7acc147b9da692e6953608"
+    },
+    {
+      "symbol": "BONK",
+      "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+      "feed": "72b021217ca3fe68922a19aaf990109cb9d84e9ad004b4d2025ad6f529314419"
+    },
+    {
+      "symbol": "MEW",
+      "mint": "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5",
+      "feed": "514aed52ca5294177f20187ae883cec4a018619772ddce41efcc36a6448f5d5d"
     }
   ],
   "oracle": {
