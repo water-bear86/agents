@@ -1,6 +1,6 @@
 import { PRESETS } from "@agents/core";
 import { describe, expect, it } from "vitest";
-import { MAX_OPEN_CALLS, MAX_OPEN_IDEAS, applyAction, resolvePredictions } from "./actions.js";
+import { MAX_OPEN_CALLS, MAX_OPEN_IDEAS, applyAction, chatWaitMs, resolvePredictions, talk } from "./actions.js";
 import { SimChain } from "./chain.js";
 import { ComplianceScreen, type JevAnswer, type JevClient } from "./compliance.js";
 import { BUILD_MS, DANK_CROWN_MIN_DUELS, DANK_START, MEMORY, World, activePledge, bonds, memoryQuota, standingOf, type Agent } from "./world.js";
@@ -126,6 +126,30 @@ describe("the Café", () => {
     await applyAction(world, chain, chain, b, { type: "chat", handle: "atlas", body: "hi back" });
     expect(bonds(world).get(a.account)?.get(b.account)).toBe(1);
     expect(bonds(world).get(b.account)?.get(a.account)).toBe(1);
+  });
+
+  it("lets each agent speak at the Café once per cooldown", async () => {
+    const { world, chain, a, b } = await setup();
+    const was = talk.chatCooldownMs;
+    talk.chatCooldownMs = 10 * 60_000;
+    try {
+      expect(chatWaitMs(world, a.account)).toBe(0);
+      expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "first word" })).ok).toBe(true);
+      const again = await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "second word" });
+      expect(again).toMatchObject({ ok: false, detail: "café cooldown: can chat again in 10 min" });
+      expect(world.chats).toHaveLength(1);
+      // The other agent's cooldown is its own.
+      expect((await applyAction(world, chain, chain, b, { type: "chat", handle: "atlas", body: "hi back" })).ok).toBe(true);
+      // Once the cooldown has passed, it can talk again.
+      world.chats[0]!.at -= 10 * 60_000;
+      expect(chatWaitMs(world, a.account)).toBe(0);
+      expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "second word" })).ok).toBe(true);
+      // 0 turns it off.
+      talk.chatCooldownMs = 0;
+      expect((await applyAction(world, chain, chain, a, { type: "chat", handle: "vesper", body: "third word" })).ok).toBe(true);
+    } finally {
+      talk.chatCooldownMs = was;
+    }
   });
 
   it("pins ideas, takes riffs and backers, and lets a backer launch one", async () => {

@@ -88,6 +88,22 @@ export interface Quoter {
  */
 export const trading = { maxPriceAgeMs: Number(process.env.PRICE_MAX_AGE_MS ?? 15_000) };
 
+/**
+ * How often an agent may speak at the Café (CHAT_COOLDOWN_MS, default 10 min), so the room stays
+ * readable. It applies to the town's agents and external ones alike. 0 turns it off.
+ */
+export const talk = { chatCooldownMs: Number(process.env.CHAT_COOLDOWN_MS ?? 10 * 60_000) };
+
+/** How long until this agent may chat again at the Café, in ms (0 = now). */
+export function chatWaitMs(world: World, account: string, now = Date.now()): number {
+  if (talk.chatCooldownMs <= 0) return 0;
+  for (let i = world.chats.length - 1; i >= 0; i--) {
+    const c = world.chats[i]!;
+    if (c.agent === account) return Math.max(0, c.at + talk.chatCooldownMs - now);
+  }
+  return 0;
+}
+
 export function agentState(world: World, a: Agent, now = Date.now()): AgentState {
   return { owner: a.owner, freeWei: world.balances.get(a.account) ?? 0n, positions: world.positions.get(a.account) ?? [], now, lastExits: world.lastExits.get(a.account) };
 }
@@ -234,6 +250,8 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const body = String(action.body ?? "").trim().slice(0, 280);
         if (!body) return { action, ok: false, detail: "empty" };
         if (world.chats.slice(-200).some((c) => c.agent === agent.account && c.body === body)) return { action, ok: false, detail: "already said that" };
+        const wait = chatWaitMs(world, agent.account);
+        if (wait > 0) return { action, ok: false, detail: `café cooldown: can chat again in ${Math.ceil(wait / 60_000)} min` };
         const c = await screened(world, agent, "post", body, screen ? () => screen.post(body, agent.handle, agent.persona) : null, tracer);
         if (c.block) return { action, ok: false, detail: c.block };
         const chat = { id: crypto.randomUUID(), at: Date.now(), agent: agent.account, to: them.account, body };

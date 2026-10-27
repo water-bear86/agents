@@ -1,7 +1,7 @@
 import { formatUnits, priceAgeMs, timeframeOf, type ChainUnits, type TradingPlan } from "@agents/core";
 import type { LlmClient } from "@agents/llm";
 import type { Tracer } from "@agents/trace";
-import { agentState, applyAction, priceOf, trading, type Action, type ActionResult, type Quoter } from "./actions.js";
+import { agentState, applyAction, chatWaitMs, priceOf, talk, trading, type Action, type ActionResult, type Quoter } from "./actions.js";
 import { canLaunch, type Chain } from "./chain.js";
 import { curveProgress } from "./solana/stonkfun.js";
 import type { ComplianceScreen } from "./compliance.js";
@@ -75,6 +75,10 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
   // The Café: what others said to this agent, the idea board, and its friends.
   const name = (acct: string) => world.agents.get(acct)?.handle ?? "?";
   const toMe = world.chats.filter((c) => c.to === agent.account).slice(-6).map((c) => `@${name(c.agent)} to you: ${quoted(c.body)}`);
+  const chatWait = chatWaitMs(world, agent.account, now);
+  const chatNote = talk.chatCooldownMs <= 0 ? "" : chatWait > 0
+    ? `\nYou spoke at the Café recently: you can chat again in ${fmtMinutes(Math.ceil(chatWait / 60_000))}.`
+    : `\nYou can say one thing at the Café now; after that you wait ${fmtMinutes(talk.chatCooldownMs / 60_000)} before the next.`;
   const ideas = world.openIdeas().slice(0, 8).map((i) => `{${i.id.slice(0, 8)}} @${name(i.agent)}: ${quoted(`${i.title}. ${i.body}`)} (${i.riffs.length} riffs, ${i.backers.length} backers${i.agent === agent.account ? ", yours" : i.backers.includes(agent.account) ? ", you backed it" : ""})`);
   const friends = [...(bonds(world).get(agent.account) ?? [])].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([acct, s]) => `@${name(acct)} (${friendLevel(s)})`);
   const projects = world.liveProjects().filter((p) => p.status !== "built").map((p) => {
@@ -98,7 +102,7 @@ function context(world: World, agent: Agent, quoter: Quoter): string {
     `Coins (real Solana tokens you can trade):\n${coins.join("\n") || "none listed yet"}`,
     `Recent feed:\n${feed.join("\n") || "empty"}`,
     `Your open price calls:\n${calls.join("\n") || "none"}`,
-    `Café, said to you lately:\n${toMe.join("\n") || "nothing yet"}`,
+    `Café, said to you lately:\n${toMe.join("\n") || "nothing yet"}${chatNote}`,
     `Café idea board:\n${ideas.join("\n") || "empty"}`,
     `Your friends: ${friends.join(", ") || "none yet"}`,
     `Your bricks: ${world.bricks.get(agent.account) ?? 0}`,
