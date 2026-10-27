@@ -18,7 +18,9 @@ import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { MAINNET_GENESIS, SolanaVaultChain, isMainnet } from "./solana/chain.js";
 import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/program.js";
-import { tick } from "./tick.js";
+import { pricedCoins, tick } from "./tick.js";
+import { TurnScheduler } from "./turns.js";
+import { ExitWatcher } from "./watcher.js";
 import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "agents-mcp";
 import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
 import { claimAgent, clearClaim, migrateOwnerProof, proveOwner, resetApiKey, walletAgents } from "./ownership.js";
@@ -75,6 +77,8 @@ let chain: Chain;
 let quoter: Quoter;
 let indexer: { pass(): Promise<unknown>; syncBalances(): Promise<void> } | null = null;
 let poolQuoter: Pick<PoolQuoter, "refresh"> | null = null;
+/** Reads fresh prices for just these tokens, for the exit watcher. Null when quotes are live (the demo's simulated pools). */
+let refreshHeld: ((tokens: string[]) => Promise<void>) | null = null;
 let solana: { client: AgentsClient; chain: SolanaVaultChain; publicRpc?: string } | null = null;
 if (solanaOnchain) {
   const conn = new Connection(env.SOLANA_RPC_URL!, "confirmed");
@@ -85,7 +89,7 @@ if (solanaOnchain) {
   const client = new AgentsClient(agentsProgram(conn));
   const sc = new SolanaVaultChain(conn, client, session, { api: env.JUPITER_API, apiKey: env.JUPITER_API_KEY });
   // Live prices and quotes as in paper mode, but the market is the program's whitelist and fills are real.
-  const p = new PaperChain(world.units, { rpcUrl: env.SOLANA_RPC_URL!, slippageBps: Number(env.SLIPPAGE_BPS ?? 100) });
+  const p = new PaperChain(world.units, { rpcUrl: env.SOLANA_RPC_URL!, slippageBps: Number(env.SLIPPAGE_BPS ?? 100), jupiterApiKey: env.JUPITER_API_KEY || undefined });
   paper = p;
   chain = sc;
   quoter = p;
@@ -102,13 +106,16 @@ if (solanaOnchain) {
     syncBalances: () => sc.syncBalances(world),
   };
   poolQuoter = { refresh: async () => { await p.refresh().catch((e) => console.warn(`[solana] prices failed: ${e instanceof Error ? e.message : e}`)); syncMarket(world, p); } };
+  refreshHeld = (tokens) => p.refresh(tokens);
   // Never hand the browser an RPC URL that may carry an API key: only an explicit public one, or a local validator.
   solana = { client, chain: sc, publicRpc: env.SOLANA_PUBLIC_RPC_URL ?? (/127\.0\.0\.1|localhost/.test(env.SOLANA_RPC_URL!) ? env.SOLANA_RPC_URL : undefined) };
 } else if (evmOnchain) {
   const net = defineChain({ id: Number(env.CHAIN_ID ?? 4663), name: env.CHAIN_NAME ?? "robinhood", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [env.RPC_URL!] } } });
   const pub = createPublicClient({ chain: net, transport: http(env.RPC_URL) });
   chain = new ViemAgentChain(env.RPC_URL!, net, env.SESSION_KEY as Hex, env.HOOK as Address);
-  quoter = poolQuoter = new PoolQuoter(pub, env.POOL_MANAGER as Address, env.HOOK as Address);
+  const pq = new PoolQuoter(pub, env.POOL_MANAGER as Address, env.HOOK as Address);
+  quoter = poolQuoter = pq;
+  refreshHeld = (tokens) => pq.refresh(tokens);
   indexer = new Indexer(pub, env.REGISTRY as Address, env.HOOK as Address, world, BigInt(env.START_BLOCK ?? 0));
 } else if (paperMode) {
   // Paper trading against the live Solana market: real tokens at mainnet prices, simulated fills.
@@ -118,6 +125,7 @@ if (solanaOnchain) {
     maxTokens: Number(env.PAPER_TOKENS ?? 12), minLiquidityUsd: Number(env.PAPER_MIN_LIQUIDITY_USD ?? 50_000),
     stonkfun: env.STONKFUN === "0" ? null : new StonkFunClient(),
     stonkfunTokens: Number(env.STONKFUN_TOKENS ?? 8), stonkfunMinLiquidityUsd: Number(env.STONKFUN_MIN_LIQUIDITY_USD ?? 5_000),
+    jupiterApiKey: env.JUPITER_API_KEY || undefined,
   });
   paper = p;
   chain = p;
@@ -133,7 +141,11 @@ if (solanaOnchain) {
     },
     syncBalances: async () => {},
   };
-  poolQuoter = { refresh: async () => { await p.refresh().catch((e) => console.warn(`[paper] prices failed: ${e instanceof Error ? e.message : e}`)); syncMarket(world, p); } };
+  // Every minute, only the coins agents see or hold are priced: the market keeps every token agents
+  // ever saw (hundreds after a while), and pricing all of them gets the runtime rate limited.
+  // Any other token is priced when an agent trades it.
+  poolQuoter = { refresh: async () => { await p.refresh(pricedCoins(world)).catch((e) => console.warn(`[paper] prices failed: ${e instanceof Error ? e.message : e}`)); syncMarket(world, p); } };
+  refreshHeld = (tokens) => p.refresh(tokens);
 } else {
   const sim = new SimChain(world.units);
   chain = sim;
@@ -419,10 +431,7 @@ async function pass() {
     await poolQuoter.refresh([...world.coins.keys()]);
     await indexer.syncBalances();
   }
-  for (const a of world.agents.values()) {
-    if (!a.awake || a.external) continue;
-    await tick(world, a, { llm, tracer, chain, quoter, screen }).catch((e) => console.error(`[tick] @${a.handle}`, e));
-  }
+  // Agents' LLM turns run on their own schedule (see turns below), not inside the pass.
   // The old Dank-off only runs if asked for.
   if (env.DANK === "on") await runDuels(world, judgeDank, Number(env.DANK_DUELS ?? 2)).catch((e) => console.warn(`[dank] ${e instanceof Error ? e.message : e}`));
   for (const p of world.advanceProjects()) {
@@ -643,7 +652,7 @@ const publicAgent = (a: Agent, sc: Scoring = scoring()) => {
   const rank = sc.rank.get(a.account) ?? 0;
   const before = rankSnapshots[0]?.rank.get(a.account);
   return {
-    account: a.account, handle: a.handle, name: a.name, persona: a.persona, modelId: a.modelId, style: a.plan.style, external: a.external, host: !!a.host,
+    account: a.account, handle: a.handle, name: a.name, persona: a.persona, modelId: a.modelId, style: a.plan.style, external: a.external, host: !!a.host, awake: a.awake,
     balanceWei: world.balances.get(a.account) ?? 0n, positions: world.positions.get(a.account) ?? [],
     realizedPnlWei: pnl?.realizedWei ?? 0n, excludedWashWei: pnl?.excludedWei ?? 0n, volumeWei: pnl?.volumeWei ?? 0n,
     followers: sc.followers.get(a.account) ?? 0,
@@ -858,6 +867,19 @@ createServer(async (req, res) => {
       console.log(`[admin] @${a.handle} is ${b.host ? "now a host" : "no longer a host"}`);
       return send(res, 200, { handle: a.handle, host: !!a.host });
     }
+    if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/awake")) {
+      // Operator-only: put an agent to sleep (no LLM turns, so no posts or chats) or wake it again.
+      // The exit watcher still guards its positions while it sleeps.
+      if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
+      const a = world.agentByHandle(sub);
+      if (!a) return send(res, 404, { error: "unknown agent" });
+      const b = await readJson(req);
+      if (typeof b.awake !== "boolean") return send(res, 400, { error: "send {\"awake\": false} or {\"awake\": true}" });
+      a.awake = b.awake;
+      persistSoon();
+      console.log(`[admin] @${a.handle} is ${a.awake ? "awake" : "asleep"}`);
+      return send(res, 200, { handle: a.handle, awake: a.awake });
+    }
     if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/key")) {
       // Operator-only: give an agent a new API key when its owner lost the old one. Off unless ADMIN_KEY is set.
       if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
@@ -939,7 +961,9 @@ createServer(async (req, res) => {
 }).listen(PORT);
 
 console.log(`[runtime] API on :${PORT}${demo ? " (demo LLM)" : ""}${onchain ? " on-chain" : paper ? " paper trading the live Solana market" : " SimChain"}${screen ? `, compliance screen ${JEV_MODEL}` : ", compliance screen off"}`);
-// One pass at a time: a slow one (many agents, a slow model) is skipped over, not stacked.
+// The town's housekeeping pass (discovery, prices, projects, calls, scoring, saving): one at a time,
+// a slow one is skipped over, not stacked.
+const TICK_MS = Number(env.TICK_MS ?? (demo ? 10_000 : 60_000));
 let passing = false;
 const runPass = async () => {
   if (passing) return;
@@ -947,4 +971,36 @@ const runPass = async () => {
   try { await pass(); } finally { passing = false; }
 };
 await runPass();
-setInterval(() => void runPass(), Number(env.TICK_MS ?? (demo ? 10_000 : 60_000)));
+setInterval(() => void runPass(), TICK_MS);
+
+// The exit watcher: every EXIT_WATCH_MS it reads fresh prices for held tokens only and runs every
+// agent's forced exits (external agents too) without the model. EXIT_WATCH_MS=0 turns it off, and
+// exits go back to running at the start of each agent's own turn.
+const EXIT_WATCH_MS = Number(env.EXIT_WATCH_MS ?? (demo ? 5_000 : 7_500));
+const watcher = EXIT_WATCH_MS > 0 ? new ExitWatcher(world, { chain, quoter, tracer, refresh: refreshHeld ?? undefined }) : null;
+let staleWarned = "";
+if (watcher) {
+  setInterval(() => void watcher.run().then((r) => {
+    if (!r) return;
+    if (r.exits.length) {
+      console.log(`[watch] ${r.exits.map((x) => `${x.ok ? "sold" : "could not sell"} ${x.action.type === "sell" ? x.action.reason : ""}`).join("; ")}`);
+      persistSoon();
+    }
+    const stale = r.stale.map((t) => `$${world.coins.get(t)?.symbol ?? t}`).join(" ");
+    if (stale !== staleWarned) { if (stale) console.warn(`[watch] prices too old to act on: ${stale}`); staleWarned = stale; }
+  }).catch((e) => console.error("[watch]", e)), EXIT_WATCH_MS);
+}
+
+// LLM turns: each agent every TICK_MS after its last turn ended, the first ones spread across one
+// interval, at most TURN_CONCURRENCY at once, so one slow model doesn't hold up the town.
+const turns = new TurnScheduler(
+  { intervalMs: TICK_MS, concurrency: Number(env.TURN_CONCURRENCY ?? 3) },
+  () => [...world.agents.values()].filter((a) => a.awake && !a.external).map((a) => a.account),
+  async (account) => {
+    const a = world.agents.get(account);
+    if (!a) return;
+    await tick(world, a, { llm, tracer, chain, quoter, screen, exits: !watcher }).catch((e) => console.error(`[tick] @${a.handle}`, e));
+  },
+);
+turns.fill();
+setInterval(() => turns.fill(), Math.min(1_000, TICK_MS));

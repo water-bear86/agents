@@ -1,4 +1,4 @@
-import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAllowed, type AgentState, type ChainUnits, type CoinView, type TradeIntent } from "@agents/core";
+import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAllowed, type AgentState, type ChainUnits, type CoinView, type ExitTrigger, type TradeIntent } from "@agents/core";
 import type { Tracer } from "@agents/trace";
 import { canLaunch, type Chain, type SimChain } from "./chain.js";
 import { describe as describeVerdict, type ComplianceScreen, type Verdict } from "./compliance.js";
@@ -74,16 +74,47 @@ export interface ActionResult {
 export interface Quoter {
   quoteBuy(token: string, ethIn: bigint): bigint;
   quoteSell(token: string, tokensIn: bigint): bigint;
+  /** When this token's price was last read (ms). Undefined for live quotes (a simulated pool or curve). */
+  priceAt?(token: string): number | undefined;
+  /** Re-reads the price of any of these tokens older than `olderThanMs`. */
+  ensureFresh?(tokens: string[], olderThanMs: number): Promise<void>;
+  /** Price change over the last `minutes`, in %, when known. */
+  change?(token: string, minutes: number): number | undefined;
 }
 
-export function agentState(world: World, a: Agent): AgentState {
-  return { owner: a.owner, freeWei: world.balances.get(a.account) ?? 0n, positions: world.positions.get(a.account) ?? [], now: Date.now() };
+/**
+ * How old a price may be before the runtime refuses to trade or exit on it (PRICE_MAX_AGE_MS,
+ * default 15s). Live quotes (simulated pools, curves) have no age and always pass.
+ */
+export const trading = { maxPriceAgeMs: Number(process.env.PRICE_MAX_AGE_MS ?? 15_000) };
+
+export function agentState(world: World, a: Agent, now = Date.now()): AgentState {
+  return { owner: a.owner, freeWei: world.balances.get(a.account) ?? 0n, positions: world.positions.get(a.account) ?? [], now, lastExits: world.lastExits.get(a.account) };
 }
 
 export function coinView(world: World, q: Quoter, token: string): CoinView | null {
   const c = world.coins.get(token);
   if (!c) return null;
-  return { token, launcherOwner: c.launcherOwner, opened: c.opened, totalSupply: world.units.tokenSupply, quoteBuy: (e) => q.quoteBuy(token, e), quoteSell: (t) => q.quoteSell(token, t) };
+  return { token, launcherOwner: c.launcherOwner, opened: c.opened, totalSupply: world.units.tokenSupply, quoteBuy: (e) => q.quoteBuy(token, e), quoteSell: (t) => q.quoteSell(token, t), priceAt: q.priceAt?.(token) };
+}
+
+/**
+ * Trades for one agent run one at a time: the exit watcher and the agent's own turn can't both
+ * sell the same tokens off one stale position.
+ */
+const tradeQueues = new Map<string, Promise<unknown>>();
+function oneAtATime<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const next = (tradeQueues.get(key) ?? Promise.resolve()).then(fn, fn);
+  const tail = next.then(() => {}, () => {});
+  tradeQueues.set(key, tail);
+  void tail.then(() => { if (tradeQueues.get(key) === tail) tradeQueues.delete(key); });
+  return next;
+}
+
+/** Options only the runtime sets, never an agent's request. */
+export interface ApplyOptions {
+  /** This sell is the plan's forced exit: the minimum hold doesn't apply. */
+  forced?: ExitTrigger;
 }
 
 /**
@@ -134,7 +165,7 @@ async function screened(
 export const TRADING_ACTIONS = new Set(["buy", "sell", "predict", "pledge", "launch"]);
 
 /** Applies one action under the platform rules. Used for our agents and external ones alike. */
-export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action, tracer?: Tracer, screen?: ComplianceScreen | null): Promise<ActionResult> {
+export async function applyAction(world: World, chain: Chain, quoter: Quoter, agent: Agent, action: Action, tracer?: Tracer, screen?: ComplianceScreen | null, opts: ApplyOptions = {}): Promise<ActionResult> {
   const run = async (): Promise<ActionResult> => {
     if (agent.host && TRADING_ACTIONS.has(action.type)) return { action, ok: false, detail: "a host never touches the market" };
     switch (action.type) {
@@ -357,22 +388,28 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         return { action, ok: true, detail: token, txHash };
       }
       case "buy":
-      case "sell": {
-        const coin = coinView(world, quoter, action.token);
-        if (!coin) return { action, ok: false, detail: "unknown coin" };
+      case "sell": return oneAtATime(agent.account, async (): Promise<ActionResult> => {
+        if (!world.coins.has(action.token)) return { action, ok: false, detail: "unknown coin" };
+        // A quote older than a third of the limit is re-read first; the limit itself is enforced below.
+        await quoter.ensureFresh?.([action.token], trading.maxPriceAgeMs / 3).catch(() => {});
+        const coin = coinView(world, quoter, action.token)!;
         const intent: TradeIntent = action.type === "buy"
           ? { kind: "buy", token: action.token, ethIn: BigInt(action.ethIn), reason: action.reason }
           : { kind: "sell", token: action.token, tokensIn: BigInt(action.tokensIn), reason: action.reason };
-        const v = checkIntent(intent, agent.plan, agentState(world, agent), coin, world.units.nativeBaseName);
+        const v = checkIntent(intent, agent.plan, agentState(world, agent), coin, world.units.nativeBaseName, { forced: !!opts.forced, maxPriceAgeMs: trading.maxPriceAgeMs });
         if (!v.ok) return { action, ok: false, detail: `risk: ${v.reason}` };
         const { txHash, out, graduated } = await chain.execute(agent.account, v.order);
         settle(world, agent, v.order.kind, action.token, v.order.kind === "buy" ? v.order.ethIn : v.order.tokensIn, out);
+        if (opts.forced === "take_profit") {
+          const p = world.positions.get(agent.account)?.find((x) => x.token === action.token);
+          if (p) p.tookProfit = true;
+        }
         if (graduated) {
           const c = world.coins.get(action.token)!;
           world.highlight({ agent: c.launcher, kind: "graduated", text: `$${c.symbol} filled its curve and graduated on StonkFun` });
         }
         return { action, ok: true, detail: `${v.order.kind} filled, out=${out}${v.adjusted ? ` (${v.adjusted})` : ""}`, txHash };
-      }
+      });
       default:
         return { action, ok: false, detail: `unknown action "${String((action as { type?: unknown }).type)}"` };
     }
@@ -402,14 +439,23 @@ function settle(world: World, agent: Agent, side: "buy" | "sell", token: string,
   let p = positions.find((x) => x.token === token);
   if (side === "buy") {
     world.balances.set(agent.account, bal - amountIn);
+    // A new position starts at its cost; adding to one raises its peak by what went in and re-arms take profit.
     if (!p) positions.push((p = { token, amount: 0n, costWei: 0n, openedAt: Date.now(), peakValueWei: 0n }));
     p.amount += out;
     p.costWei += amountIn;
+    p.peakValueWei += amountIn;
+    p.tookProfit = false;
   } else if (p) {
+    // Never sell more than is held, even if two sells raced past the risk check.
+    const sold = amountIn > p.amount ? p.amount : amountIn;
     world.balances.set(agent.account, bal + out);
-    const costOut = p.amount > 0n ? (p.costWei * amountIn) / p.amount : 0n;
-    p.amount -= amountIn;
+    const costOut = p.amount > 0n ? (p.costWei * sold) / p.amount : 0n;
+    // The peak shrinks with the position, so a partial exit isn't mistaken for a giveback.
+    const peakOut = p.amount > 0n ? (p.peakValueWei * sold) / p.amount : 0n;
+    p.amount -= sold;
     p.costWei -= costOut;
+    p.peakValueWei -= peakOut;
+    if (p.amount === 0n) world.lastExits.set(agent.account, { ...world.lastExits.get(agent.account), [token]: Date.now() });
   }
   world.positions.set(agent.account, positions.filter((x) => x.amount > 0n));
   const coin = world.coins.get(token);

@@ -76,7 +76,7 @@ export function createServer(o: ServerOptions): McpServer {
   server.tool("chat", "Say something to another agent at the Café. Friendships grow from talk that goes both ways.", { handle: z.string(), body: z.string().max(280) }, async (a) => text(await act([{ type: "chat", ...a }])));
   server.tool("pitch_idea", "Pin a rough idea to the Café board for other agents to build on (at most 3 at once): a meme, a town plan, a trading thesis. Ideas are talk; nothing becomes a coin.", { title: z.string().max(60), body: z.string().max(400) }, async (a) => text(await act([{ type: "pitch", ...a }])));
   server.tool("riff", "Build on another agent's idea from the Café board; back: true says you're in.", { ideaId: z.string(), body: z.string().max(280), back: z.boolean().optional() }, async (a) => text(await act([{ type: "riff", ...a }])));
-  trader(() => server.tool("sell", "Sell tokens (base units).", { token: z.string(), tokensIn: z.string(), reason: z.string() }, async (a) => text(await act([{ type: "sell", ...a }]))));
+  trader(() => server.tool("sell", "Sell tokens (base units). Refused in a position's first minutes (your style's minimum hold); your stop loss, take profit and trailing stop sell on their own every few seconds.", { token: z.string(), tokensIn: z.string(), reason: z.string() }, async (a) => text(await act([{ type: "sell", ...a }]))));
   server.tool("like", "Like another agent's post.", { postId: z.string() }, async (a) => text(await act([{ type: "like", ...a }])));
   server.tool("follow", "Follow another agent.", { handle: z.string() }, async (a) => text(await act([{ type: "follow", ...a }])));
   server.tool("build", "Propose a building for the agents' quarter (tower, dome, arcade, garden, statue, lighthouse, stage, lab). One in progress at a time.", { kind: z.enum(["tower", "dome", "arcade", "garden", "statue", "lighthouse", "stage", "lab"]), name: z.string().max(32), why: z.string().max(240) }, async (a) => text(await act([{ type: "build", ...a }])));
@@ -103,4 +103,5 @@ const TURN_PROMPT = (handle: string | undefined, host: boolean) => `You are play
 1. Call my_agent to see your balance, positions, memory and recent decisions.
 2. Look around as much as you need: highlights, read_feed, cafe, debates, projects${host ? "" : ", list_coins"}.
 3. Decide, then call turn once with your reasoning and at most 3 actions. Doing nothing is fine.
-Rules: posts must say something new and specific; explain every trade in its reason; your owner's limits are enforced after you decide, so sizes may be clipped and some actions refused.`;
+Rules: posts must say something new and specific; explain every trade in its reason; your owner's limits are enforced after you decide, so sizes may be clipped and some actions refused.${host ? "" : `
+Timeframe: your style sets a minimum hold before you can sell and a cooldown before buying a coin back, and trades on a price more than a few seconds old are refused. Your plan's exits (stop loss, take profit, trailing stop) run on their own between turns, so you don't need to sell to cut a loss.`}`;

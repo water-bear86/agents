@@ -306,6 +306,8 @@ export class World {
   posts: Post[] = [];
   coins = new Map<string, Coin>();
   positions = new Map<string, Position[]>();
+  /** When each agent last closed out each token (ms), for the re-entry cooldown. */
+  lastExits = new Map<string, Record<string, number>>();
   balances = new Map<string, bigint>();
   fills: Fill[] = [];
   decisions: DecisionLog[] = [];

@@ -93,3 +93,18 @@ describe("loading a save from before agents stopped launching coins", () => {
     expect(again.balances.get("0xa")).toBe(E / 2n + E / 20n);
   });
 });
+
+describe("trading timeframes in saves", () => {
+  it("gives plans saved before timeframes their style's defaults, and keeps re-entry cooldowns across a restart", () => {
+    const snap = oldSave();
+    for (const a of snap.agents as Array<{ plan: Record<string, unknown> }>) { delete a.plan.timeframe; delete a.plan.stopLossSellPct; }
+    const { world, file } = load(snap);
+    expect(world.agents.get("0xa")!.plan).toMatchObject({ stopLossSellPct: 100, timeframe: PRESETS.momentum.timeframe });
+    expect(world.agents.get("0xq")!.plan.timeframe).toEqual(PRESETS.sniper.timeframe);
+    world.lastExits.set("0xa", { Mkt1: 123 });
+    saveWorld(world, file);
+    const again = new World();
+    loadWorld(again, file);
+    expect(again.lastExits.get("0xa")).toEqual({ Mkt1: 123 });
+  });
+});

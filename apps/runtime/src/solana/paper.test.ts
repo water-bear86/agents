@@ -96,4 +96,95 @@ describe("paper trading the live market", () => {
     expect(mints.filter((m) => p.quoteBuy(m, 10_000_000n) === 0n)).toEqual([]);
     expect(p.solUsd).toBe(100);
   });
+
+  it("reads prices for just the held tokens, and knows how old each one is", async () => {
+    const asked: string[][] = [];
+    let usd = 0.5;
+    const f = (async (url: string) => {
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      asked.push(ids);
+      return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: id === SOL ? 100 : usd }]))));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    for (const m of [GOOD, THIN]) p.market.set(m, { mint: m, symbol: "T", name: "T", decimals: 6, liquidityUsd: 100_000, change1h: 7 });
+    expect(p.priceAt(GOOD)).toBe(0); // never read
+    expect(p.priceAt("paper-launch")).toBeUndefined();
+    const t0 = 1_000_000_000_000;
+    await p.refresh([GOOD], () => t0);
+    expect(asked.at(-1)).toEqual([SOL, GOOD]);
+    expect(p.priceAt(GOOD)).toBe(t0);
+    expect(p.priceAt(THIN)).toBe(0);
+    // Not a market token: nothing to ask for.
+    await p.refresh(["Mine111111111111111111111111111111111111111"]);
+    expect(asked).toHaveLength(1);
+
+    // Short-term change comes from the runtime's own reads; Jupiter's 1h figure stands in until there's an hour of them.
+    expect(p.change(GOOD, 60, t0)).toBe(7);
+    expect(p.change(GOOD, 5, t0)).toBeUndefined();
+    usd = 0.55;
+    await p.refresh([GOOD], () => t0 + 5 * 60_000);
+    expect(p.change(GOOD, 5, t0 + 5 * 60_000)).toBeCloseTo(10, 5);
+  });
+
+  it("shares a price read between callers asking at once, and skips prices that are fresh enough", async () => {
+    let reads = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const f = (async (url: string) => {
+      reads++;
+      await gate;
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: id === SOL ? 100 : 0.5 }]))));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    p.market.set(GOOD, { mint: GOOD, symbol: "G", name: "G", decimals: 6, liquidityUsd: 100_000 });
+    const both = Promise.all([p.ensureFresh([GOOD], 5_000), p.ensureFresh([GOOD], 5_000)]);
+    release();
+    await both;
+    expect(reads).toBe(1);
+    await p.ensureFresh([GOOD], 5_000);
+    expect(reads).toBe(1);
+    await p.ensureFresh([GOOD], 5_000, Date.now() + 6_000);
+    expect(reads).toBe(2);
+  });
+
+  it("keeps the prices that came back when Jupiter rate limits a later batch, then leaves it alone for a while", async () => {
+    // Like Jupiter from a shared host's IP: the first request goes through, the rest get a 429.
+    let n = 0;
+    const urls: string[] = [];
+    const f = (async (url: string) => {
+      urls.push(url);
+      if (n++ > 0) return new Response(JSON.stringify({ code: 429, message: "[API Gateway] Too many requests" }), { status: 429 });
+      const ids = new URL(url).searchParams.get("ids")!.split(",");
+      return new Response(JSON.stringify(Object.fromEntries(ids.map((id) => [id, { usdPrice: id === SOL ? 100 : 0.5 }]))));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    const mints = Array.from({ length: 120 }, (_, i) => `Tok${String(i).padStart(3, "0")}${"1".repeat(40)}`);
+    for (const m of mints) p.market.set(m, { mint: m, symbol: "T", name: "T", decimals: 6, liquidityUsd: 100_000 });
+    await expect(p.refresh()).rejects.toThrow("HTTP 429");
+    // The first batch (SOL and 49 tokens) counts; the rate limit stopped the third batch from going out.
+    expect(p.solUsd).toBe(100);
+    expect(mints.filter((m) => p.quoteBuy(m, 10_000_000n) > 0n)).toHaveLength(49);
+    expect(urls).toHaveLength(2);
+    expect(p.rateLimited).toBe(true);
+    // While backing off, nothing is sent.
+    await expect(p.refresh(mints.slice(60))).rejects.toThrow(/rate limit, next try in \d+s/);
+    expect(urls).toHaveLength(2);
+  });
+
+  it("uses Jupiter's keyed API when there's a key", async () => {
+    const seen: Array<[string, string | null]> = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      seen.push([url, new Headers(init?.headers).get("x-api-key")]);
+      return new Response(JSON.stringify({ [SOL]: { usdPrice: 100 }, [GOOD]: { usdPrice: 0.5 } }));
+    }) as unknown as typeof fetch;
+    const p = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f, jupiterApiKey: "test-key" });
+    p.market.set(GOOD, { mint: GOOD, symbol: "GOOD", name: "Good", decimals: 6, liquidityUsd: 100_000 });
+    await p.refresh();
+    expect(seen).toEqual([[expect.stringMatching(/^https:\/\/api\.jup\.ag\/price\/v3\?/), "test-key"]]);
+    const keyless = new PaperChain(SOLANA_UNITS, { rpcUrl: "https://rpc.example", fetch: f });
+    keyless.market.set(GOOD, { mint: GOOD, symbol: "GOOD", name: "Good", decimals: 6, liquidityUsd: 100_000 });
+    await keyless.refresh();
+    expect(seen[1]).toEqual([expect.stringMatching(/^https:\/\/lite-api\.jup\.ag\//), null]);
+  });
 });
