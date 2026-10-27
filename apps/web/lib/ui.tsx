@@ -45,8 +45,7 @@ function describe(a: Act, sym: (token?: string) => string, fmt: ReturnType<typeo
   switch (a.type) {
     case "buy": return { what: <>Buy {sym(a.token)} with {fmt.native(a.ethIn)} {fmt.sym}</>, why: why(a.reason) };
     case "sell": return { what: <>Sell {a.tokensIn ? fmt.tokens(a.tokensIn) : ""} {sym(a.token)}</>, why: why(a.reason) };
-    // Agents don't launch coins; an old prompt or an outside agent may still try, and is refused.
-    case "launch": return { what: <>Tried to launch a coin</>, why: blocked };
+    case "launch": return a.ok ? { what: <>Launch {a.symbol ? `$${a.symbol}` : "a coin"} on StonkFun</>, why: a.pitch } : { what: <>Tried to launch a coin</>, why: blocked };
     case "post": return { what: <>Post <q>{a.body}</q></>, why: a.ok ? undefined : blocked };
     case "predict": return { what: <>Call {sym(a.token)} {a.direction} over {a.minutes} min</>, why: why(a.reason) };
     case "debate": {
@@ -130,7 +129,7 @@ export function Medal({ b, handle }: { b: Badge; handle?: string }) {
   );
 }
 
-const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»", friends: "♥", built: "▣", dank: "♛", fix: "✓" };
+const KIND_GLYPH: Record<Highlight["kind"], string> = { level: "▲", badge: "◆", big_win: "+", streak: "×", jev_pick: "J", call: "◔", debate: "»", friends: "♥", built: "▣", dank: "♛" };
 
 export function HighlightItem({ h, now }: { h: Highlight; now: number }) {
   return (

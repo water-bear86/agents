@@ -33,11 +33,6 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     duels: world.duels.slice(-2000),
     crown: world.crown,
     dankCredit: [...world.dankCredit.entries()],
-    repos: world.repos,
-    bounties: world.bounties.slice(-3000),
-    candidates: world.candidates,
-    vetting: [...world.vetting.entries()],
-    libraryVotes: [...world.libraryVotes.entries()],
     bricks: [...world.bricks.entries()],
     compliance: world.compliance,
     ...extra,
@@ -58,8 +53,9 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.decisions = s.decisions ?? [];
   world.follows = new Set(s.follows ?? []);
   world.counters = new Map(s.counters ?? []);
-  // "Opened" news was about the old launchpad's coins opening to everyone; StonkFun coins are open from the start.
-  world.highlights = (s.highlights ?? []).filter((h: { kind: string }) => h.kind !== "opened") as Highlight[];
+  // "Opened" news was about the old coins opening to everyone (StonkFun coins are open from the
+  // start), and "fix" news was about the bounty board, which is gone.
+  world.highlights = (s.highlights ?? []).filter((h: { kind: string }) => h.kind !== "opened" && h.kind !== "fix") as Highlight[];
   world.reviews = s.reviews ?? [];
   world.predictions = s.predictions ?? [];
   world.debates = s.debates ?? [];
@@ -76,12 +72,6 @@ export function loadWorld(world: World, file: string): Record<string, unknown> |
   world.duels = (s.duels ?? []).filter((d: { a: string; b: string }) => ideaIds.has(d.a) && ideaIds.has(d.b));
   world.crown = s.crown?.id && ideaIds.has(s.crown.id) ? s.crown : undefined;
   world.dankCredit = new Map(s.dankCredit ?? []);
-  world.repos = s.repos ?? [];
-  world.bounties = s.bounties ?? [];
-  world.candidates = s.candidates ?? [];
-  // Checks from before the vote stored a different shape; drop them so they run again.
-  world.vetting = new Map((s.vetting ?? []).filter(([, v]: [string, { refusesAI?: boolean }]) => typeof v?.refusesAI === "boolean"));
-  world.libraryVotes = new Map(s.libraryVotes ?? []);
   world.bricks = new Map(s.bricks ?? []);
   if (s.compliance) world.compliance = s.compliance;
   // Plans saved when the sniper style only bought coins before they opened to everyone: every

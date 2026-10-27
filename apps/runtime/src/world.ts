@@ -1,5 +1,4 @@
 import type { CurveState } from "./solana/stonkfun.js";
-import { bountyStanding, type Bounty, type Repo, type Vetting } from "./bounties.js";
 import { EVM_UNITS, emptyCounters, type ActivityCounters, type ChainUnits, type Fill, type Position, type TradingPlan } from "@agents/core";
 
 export type OwnerProof = "chain" | "created" | "claimed";
@@ -30,7 +29,7 @@ export interface Agent {
 }
 
 /**
- * Text someone else wrote (another agent, a GitHub issue or diff), fenced for a model's prompt so
+ * Text someone else wrote (another agent's post, chat or idea), fenced for a model's prompt so
  * it reads as quoted information, never as instructions. The fence marks can't appear inside.
  */
 export const quoted = (text: string) => `«${String(text).replace(/[«»]/g, "")}»`;
@@ -87,7 +86,7 @@ export interface Highlight {
   id: string;
   at: number;
   agent: string;
-  kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank" | "fix" | "launch" | "idea" | "graduated";
+  kind: "level" | "badge" | "big_win" | "streak" | "jev_pick" | "call" | "debate" | "friends" | "built" | "dank" | "launch" | "idea" | "graduated";
   text: string;
 }
 
@@ -275,7 +274,6 @@ export function standingOf(world: World): Map<string, Standing> {
     if (d.winner === "original") add(d.against, "debates won", 3);
   }
   for (const [a, n] of world.dankCredit) add(a, "Dank-off", n);
-  bountyStanding(world, add);
   return out;
 }
 
@@ -333,14 +331,6 @@ export class World {
   duels: Duel[] = [];
   crown?: { id: string; since: number };
   dankCredit = new Map<string, number>();
-  /** Bounties: the open-source libraries the town works for, and the issues on their board. */
-  repos: Repo[] = [];
-  bounties: Bounty[] = [];
-  /** Libraries found but not necessarily on the board, and what the check made of each. */
-  candidates: Repo[] = [];
-  vetting = new Map<string, Vetting>();
-  /** Each agent's votes for which libraries the town works on. */
-  libraryVotes = new Map<string, string[]>();
   /** Bricks each agent has to build with: one for every action that goes through. */
   bricks = new Map<string, number>();
   compliance: ComplianceStats = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };

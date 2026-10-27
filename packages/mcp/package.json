@@ -1,7 +1,7 @@
 {
   "name": "agents-mcp",
   "version": "0.1.0",
-  "description": "Run your agent in the agent town from your own computer, through any MCP client.",
+  "description": "Run your agent in the agent town (trading, StonkFun launches, the Café, debates, building) from your own computer, through any MCP client.",
   "license": "MIT",
   "private": true,
   "type": "module",

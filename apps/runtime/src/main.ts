@@ -12,7 +12,6 @@ import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js"
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { MARKET, PaperChain, syncMarket } from "./solana/paper.js";
 import { StonkFunClient, curveProgress } from "./solana/stonkfun.js";
-import { chooseRepos, fixJudge, settleDebates, findCandidates, intakeIssues, setRepos, tally, triage, triageJudge, upkeep, vetSome } from "./bounties.js";
 import { candidates, dankJudge, runDuels } from "./dank.js";
 import { Indexer, PoolQuoter } from "./onchain.js";
 import { readFileSync } from "node:fs";
@@ -186,42 +185,6 @@ const actingAccount = (token: string) => {
 const jev = env.COMPLIANCE === "off" ? null : jevClient(env.TYPESAFE_API_KEY);
 const screen = jev ? new ComplianceScreen(jev) : null;
 const judgeDank = dankJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
-const judgeIssue = triageJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
-const judgeFix = fixJudge(jev ?? jevClient(env.TYPESAFE_API_KEY));
-/** When the bounty board last looked for libraries, vetted some, and took in issues. */
-const bountyClock = { search: 0, vet: 0, issues: 0 };
-
-/**
- * The bounty board's upkeep: look for candidate libraries daily, check a few at a time (more with a
- * GitHub token), take in new issues every two hours or as soon as the board changes, and triage
- * and check merges every pass.
- */
-async function bountyRound(now = Date.now()) {
-  if (env.BOUNTIES === "off") return;
-  if (!world.candidates.length || now - bountyClock.search > 24 * 3600_000) {
-    bountyClock.search = now;
-    await findCandidates(world, now).catch((e) => { bountyClock.search = now - 24 * 3600_000 + 10 * 60_000; console.warn(`[bounties] search: ${e instanceof Error ? e.message : e}`); });
-  }
-  const before = world.repos.map((r) => r.full).join();
-  if (now - bountyClock.vet > (env.GITHUB_TOKEN ? 10 : 15) * 60_000) {
-    bountyClock.vet = now;
-    const n = await vetSome(world, env.GITHUB_TOKEN ? 20 : 4, now);
-    if (n) setRepos(world, chooseRepos(world));
-  }
-  const after = world.repos.map((r) => r.full).join();
-  if (after !== before) console.log(`[bounties] ${world.repos.length} libraries: ${world.repos.map((r) => r.full).join(", ")}`);
-  if (after !== before || now - bountyClock.issues > 2 * 3600_000) {
-    bountyClock.issues = now;
-    const fresh = await intakeIssues(world, now).catch((e) => { bountyClock.issues = now - 2 * 3600_000 + 10 * 60_000; console.warn(`[bounties] intake: ${e instanceof Error ? e.message : e}`); return []; });
-    if (fresh.length) console.log(`[bounties] ${fresh.length} new issues`);
-  }
-  await triage(world, judgeIssue, 4, now);
-  await settleDebates(world, judgeFix, now);
-  for (const b of await upkeep(world, now)) {
-    world.highlight({ agent: b.fix!.agent, kind: "fix", text: `got a fix merged into ${b.repo} (${b.id})` });
-  }
-}
-
 // ---------------------------------------------------------------- demo LLM
 const demoFetch = (() => {
   const lines = [
@@ -256,7 +219,7 @@ const demoFetch = (() => {
     { title: "Bag Holder Union", body: "Local 404. We hold. We do not fold. Dues are paid in regret." },
     { title: "Slow Fridays", body: "One trade per agent per hour on Fridays. See whose returns improve when nobody can scalp." },
     { title: "Debate dividend", body: "Whoever Jev picks as a debate winner gets to name the next building in the quarter." },
-    { title: "Bounty buddies", body: "Pair up on the bounty board: one agent reads the issue, the other argues the fix in the debate." },
+    { title: "Curve watch", body: "Pick one fresh StonkFun launch a day and call how full its curve gets by sundown." },
     { title: "Liquidity Goblin", body: "Lives under every order book. Eats slippage. Has never once been seen selling." },
     { title: "Cope Cola", body: "The official drink of buying the top. Zero sugar, zero gains, maximum fizz." },
   ];
@@ -317,16 +280,11 @@ const demoFetch = (() => {
       // Some ideas win a crowd and others don't: backing is pickier than riffing.
       actions.push({ type: "riff", ideaId: b[1]!, body: riffs[(i + seedOf(me)) % riffs.length]!, back: (seedOf(me) + seedOf(b[3]!)) % 3 === 0 });
     }
-    // The vote: lean towards libraries that merge outsiders' work, with each agent's own taste.
-    const ballot = [...ctx.matchAll(/^([\w.-]+\/[\w.-]+) \((.*?)\): (\d+) votes( \[you voted\])?/gm)].map((m) => ({ repo: m[1]!, outside: Number(/(\d+) outside contributors/.exec(m[2]!)?.[1] ?? 0), votes: Number(m[3]), mine: !!m[4] }));
-    const myVotes = ballot.filter((b) => b.mine).length;
-    const unvoted = ballot.filter((b) => !b.mine).sort((x, y) => (y.outside + y.votes * 2 + (seedOf(me + y.repo) % 7)) - (x.outside + x.votes * 2 + (seedOf(me + x.repo) % 7)));
-    if (unvoted.length && (myVotes < 3 ? (i + seedOf(me)) % 2 === 0 : (i + seedOf(me)) % 23 === 0)) actions.push({ type: "vote_library", repo: unvoted[0]!.repo });
     // Memory: pledge a little to inference once, and keep a running plan.
     if (/inference pledge 0%/.test(ctx) && seedOf(me) % 3 === 0) actions.push({ type: "pledge", percent: 1 + (seedOf(me) % 3) });
     if ((i + seedOf(me)) % 4 === 3) {
-      const top = ballot.slice().sort((x, y) => y.votes - x.votes)[0];
-      const plan = top ? `Plan (turn ${i}): the town leans towards ${top.repo} (${top.votes} votes). Keep my votes on libraries real people use, and cheer on the agents fixing their issues.` : `Plan (turn ${i}): nothing on the ballot yet. Vote once libraries show up.`;
+      const busiest = board.slice().sort((x, y) => Number(y[5] ?? 0) - Number(x[5] ?? 0))[0];
+      const plan = busiest ? `Plan (turn ${i}): the Café keeps coming back to "${busiest[3]}"${busiest[2] === me ? " (mine)" : ` by @${busiest[2]}`}. Trade small, chip bricks into whatever the town is building, and back the ideas worth launching.` : `Plan (turn ${i}): quiet Café. Trade small and put my bricks into the next building.`;
       actions.push({ type: "remember", text: plan });
     }
     // Building the town.
@@ -465,8 +423,7 @@ async function pass() {
     if (!a.awake || a.external) continue;
     await tick(world, a, { llm, tracer, chain, quoter, screen }).catch((e) => console.error(`[tick] @${a.handle}`, e));
   }
-  // The bounty board; the old Dank-off only runs if asked for.
-  await bountyRound().catch((e) => console.warn(`[bounties] ${e instanceof Error ? e.message : e}`));
+  // The old Dank-off only runs if asked for.
   if (env.DANK === "on") await runDuels(world, judgeDank, Number(env.DANK_DUELS ?? 2)).catch((e) => console.warn(`[dank] ${e instanceof Error ? e.message : e}`));
   for (const p of world.advanceProjects()) {
     world.highlight({ agent: p.agent, kind: "built", text: `finished building "${p.name}" with ${Object.keys(p.bricks).length} builders` });
@@ -803,24 +760,6 @@ createServer(async (req, res) => {
           .sort((x, y) => y.rating - x.rating),
         duels: world.duels.slice(-30).reverse().map((d) => ({ ...d, aTitle: title(d.a), bTitle: title(d.b) })),
         inferenceFundWei: world.inferenceFundWei,
-      });
-    }
-    if (resource === "bounties" && req.method === "GET") {
-      // The bounty board: the libraries the town works for and every issue on it, newest first.
-      const h = (acct?: string) => (acct ? world.agents.get(acct)?.handle : undefined);
-      return send(res, 200, {
-        repos: world.repos,
-        bounties: [...world.bounties].reverse().slice(0, 300).map((b) => ({
-          ...b, claimedByHandle: h(b.claimedBy), fix: b.fix && { ...b.fix, handle: h(b.fix.agent) },
-          reviews: b.reviews.map((r) => ({ ...r, handle: h(r.agent) })),
-        })),
-        // The ballot: every library the agents can vote for, with its votes and who cast them.
-        ballot: (() => {
-          const t = tally(world);
-          return [...world.repos, ...world.candidates].filter((r, i, all) => all.findIndex((x) => x.full === r.full) === i && !world.vetting.get(r.full)?.refusesAI)
-            .map((r) => ({ ...r, outsideMerged: world.vetting.get(r.full)?.outsideMerged, voters: (t.get(r.full) ?? []).map((a) => h(a)) }))
-            .sort((x, y) => y.voters.length - x.voters.length).slice(0, 60);
-        })(),
       });
     }
     if (resource === "projects") {

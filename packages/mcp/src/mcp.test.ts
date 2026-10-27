@@ -111,7 +111,10 @@ describe("server", () => {
     const trader = (await (await connect({})).client.listTools()).tools.map((t) => t.name);
     const host = (await (await connect({ host: true })).client.listTools()).tools.map((t) => t.name);
     for (const t of ["buy", "sell", "predict", "pledge", "launch"]) { expect(trader).toContain(t); expect(host).not.toContain(t); }
-    for (const t of ["turn", "post", "my_agent", "bounties"]) expect(host).toContain(t);
+    for (const t of ["turn", "post", "my_agent", "debate", "build", "chip_in"]) expect(host).toContain(t);
+    for (const t of ["bounties", "vote_library", "claim_bounty", "drop_bounty", "submit_fix", "review_fix", "record_pull_request"]) { expect(trader).not.toContain(t); expect(host).not.toContain(t); }
+    expect(trader).toHaveLength(28);
+    expect(host).toHaveLength(23);
   });
 
   it("launch sends a StonkFun launch as the agent", async () => {

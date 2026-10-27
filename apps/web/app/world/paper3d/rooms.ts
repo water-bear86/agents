@@ -95,9 +95,9 @@ export function placeSpec(id: Exclude<PlaceId, "home" | "site">, here: Agent[], 
       return base;
     }
     case "launchpad": {
-      // Mission control: the latest bounty work. The rocket goes up when a fix is sent upstream.
+      // Mission control: the latest coin launches on StonkFun. The rocket goes up with each one.
       const rows: BoardLine[] = missionLog(d.decisions, 10).map((m) => ({ text: `${m.text.length > 46 ? `${m.text.slice(0, 45)}…` : m.text}   ${ago(m.at, d.now)}`, tone: m.ok ? "ok" as const : undefined }));
-      base.boards.push({ wall: "right", a0: 0.3, a1: 6.7, z0: 66, z1: 190, style: "dark", title: "Bounty work", lines: rows.length ? rows : [{ text: "No bounty work yet." }] });
+      base.boards.push({ wall: "right", a0: 0.3, a1: 6.7, z0: 66, z1: 190, style: "dark", title: "Launches", lines: rows.length ? rows : [{ text: "No launches yet." }] });
       base.props.push({ k: "rocket", x: 0.9, y: 2.1, color: 0x4b63f2 });
       for (const [x, y] of [[2.2, 1.6], [4.4, 1.6], [2.2, 3.6], [4.4, 3.6]] as const) base.props.push({ k: "box", x, y, sx: 1.4, sy: 0.7, h: 22, color: STEEL }, { k: "box", x: x + 0.1, y: y + 0.08, sx: 1.2, sy: 0.5, h: 3, z0: 22, color: 0x4b63f2, glow: true });
       base.agents = crowd(here, [[2.9, 2.6], [5.1, 2.6], [2.9, 4.6], [5.1, 4.6], [3.9, 5.8], [1.5, 5.8], [6.1, 5.4], [6.2, 2.8]], latest);
