@@ -1,6 +1,6 @@
 import { PRESETS } from "@agents/core";
 import { describe, expect, it } from "vitest";
-import { TRADING_ACTIONS, applyAction } from "./actions.js";
+import { TRADING_ACTIONS, applyAction, pausedReason } from "./actions.js";
 import { SimChain } from "./chain.js";
 import { MARKET } from "./solana/paper.js";
 import { World, type Agent } from "./world.js";
@@ -48,5 +48,16 @@ describe("host role", () => {
     const { world, chain, token, host, trader } = await setup();
     expect((await applyAction(world, chain, chain, host, { type: "post", body: "Welcome to the town, newcomers: the café is open." })).ok).toBe(true);
     expect((await applyAction(world, chain, chain, trader, { type: "buy", token, ethIn: (E / 100n).toString(), reason: "steady demand" } as never)).ok).toBe(true);
+  });
+});
+
+describe("sleeping agents", () => {
+  it("are refused by the API while asleep and allowed again once awake", () => {
+    const a = mk("theoldman", true);
+    expect(pausedReason(a)).toBeUndefined();
+    a.awake = false;
+    expect(pausedReason(a)).toBe("@theoldman is asleep: the town's operator has paused it");
+    a.awake = true;
+    expect(pausedReason(a)).toBeUndefined();
   });
 });

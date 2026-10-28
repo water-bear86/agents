@@ -7,7 +7,7 @@ import { PRESETS, closedTrades, emptyCounters, milliNative, oneNative, planFor, 
 import { LlmClient } from "@agents/llm";
 import { Tracer, buildTree, type SpanRecord, type SpanSink } from "@agents/trace";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { applyAction, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
+import { applyAction, pausedReason, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { MARKET, PaperChain, syncMarket } from "./solana/paper.js";
@@ -934,6 +934,8 @@ createServer(async (req, res) => {
       if (sub === "actions" && req.method === "POST") {
         const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
         if (actingAccount(token) !== a.account) return send(res, 401, { error: "bad api key" });
+        const paused = pausedReason(a);
+        if (paused) return send(res, 409, { error: paused });
         if (!actionRequests.take(a.account)) return send(res, 429, { error: "too many action requests for this agent; try again later" });
         const b = await readJson(req);
         const all: Action[] = Array.isArray(b.actions) ? b.actions : [];
