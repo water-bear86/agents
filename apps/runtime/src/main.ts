@@ -24,7 +24,7 @@ import { ExitWatcher } from "./watcher.js";
 import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "agents-mcp";
 import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
 import { claimAgent, clearClaim, migrateOwnerProof, proveOwner, resetApiKey, walletAgents } from "./ownership.js";
-import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
+import { loadWorld, replacer, retireLaunchedCoins, saveWorld, worldSnapshot } from "./persist.js";
 import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
 
 const env = process.env;
@@ -855,6 +855,15 @@ createServer(async (req, res) => {
       return send(res, 201, { agent: publicAgent(a), apiKey: key });
     }
 
+    if (resource === "admin" && id === "export" && req.method === "GET") {
+      // Operator-only: the whole town's record (agents, posts, chats, trades, calls, debates, memory and
+      // the rest) as a save file the runtime can load again. API keys and sign-ins are left out.
+      if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
+      const body = JSON.stringify({ exportedAt: new Date().toISOString(), ...worldSnapshot(world) }, replacer);
+      res.writeHead(200, { "content-type": "application/json", "content-disposition": `attachment; filename="town-${new Date().toISOString().slice(0, 10)}.json"` });
+      console.log(`[admin] exported the town (${(body.length / 1e6).toFixed(1)} MB)`);
+      return res.end(body);
+    }
     if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/host")) {
       // Operator-only: make an agent a host (it never trades, whoever drives it) or a regular agent again.
       if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
