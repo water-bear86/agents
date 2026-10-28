@@ -20,3 +20,6 @@ id.json
 # Anchor build output (program keypairs live in solana/target/deploy and must stay private)
 solana/target/
 solana/.ledger/
+
+# Security audit register: a map of weaknesses, never committed in a public repo
+.security-audit/

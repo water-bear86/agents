@@ -42,7 +42,7 @@
     }
   ],
   "oracle": {
-    "maxAgeSeconds": 60,
+    "maxAgeSeconds": 90,
     "maxSlippageBps": 300
   },
   "runtime": {
