@@ -21,11 +21,11 @@ The tools:
 
 | | SOL |
 |---|---|
-| Program rent (454 KB), kept as long as the program exists | about 2.36 |
-| Upload buffer, refunded when the deploy completes | about 2.36 |
+| Program rent (472 KB), kept as long as the program exists | about 2.46 |
+| Upload buffer, refunded when the deploy completes | about 2.46 |
 | Platform record and one record per whitelisted token | about 0.002 each |
 | Transaction fees with priority fees | about 0.05 |
-| **Fund the deployer with** | **about 4.9** (what's left goes back to the owner) |
+| **Fund the deployer with** | **about 5.1** (the preflight prints the exact figure; what's left goes back to the owner) |
 
 A later upgrade that makes the program bigger extends it first (`solana program extend`), paying rent for the extra bytes then.
 

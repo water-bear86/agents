@@ -80,7 +80,13 @@ Ways to tighten this later, each a program change: a session-key sell cap measur
 
 ## Testing done
 
-**`apps/runtime/src/solana/e2e.ts`: 37 checks**
+**Reproducible build (27 October 2026).** `solana-verify build --library-name agents` (solana-verify 0.5.2, image `solanafoundation/solana-verifiable-build` for Solana 2.3.0, digest `sha256:695f890e…6cb4`) from the reviewed source gives:
+- executable hash (`solana-verify get-executable-hash`): `f06293433f21069472d6052daa268a58dec329c8dc83dc29fe98efe113a80eb7`
+- file sha256 (what the preflight prints): `72370885201564f46873551b8e200013c9c332a0bbada73be1c985cdc7798111`, 483,304 bytes
+
+A clean build from a fresh copy of the commit gave the same bytes. Any change under `programs/` or to `Cargo.lock` changes the hash; rebuild and record it again.
+
+**`apps/runtime/src/solana/e2e.ts`: 37 checks** (37 of 37 passed on 27 October 2026 on a fresh Surfpool fork running exactly the build above)
 - Runs on a local mainnet fork (Surfpool), so it uses mainnet's real Jupiter, pools and Pyth accounts. Our program is deployed locally.
 - Setup: only the upgrade authority can set up the platform, and only the admin can whitelist.
 - Admin handover: a proposed admin has no power until it accepts, and only it can accept. The website reads the platform record and the whitelist the same way Anchor does.
