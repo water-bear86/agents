@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRESETS } from "@agents/core";
 import { describe, expect, it } from "vitest";
-import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
+import { loadWorld, retireLaunchedCoins, saveWorld, worldSnapshot } from "./persist.js";
 import { World } from "./world.js";
 
 const big = (n: bigint) => ({ $big: n.toString() });
@@ -106,5 +106,29 @@ describe("trading timeframes in saves", () => {
     const again = new World();
     loadWorld(again, file);
     expect(again.lastExits.get("0xa")).toEqual({ Mkt1: 123 });
+  });
+});
+
+describe("the town's export", () => {
+  it("holds the whole record without secrets, and loads back into a town", () => {
+    const dir = mkdtempSync(join(tmpdir(), "export-"));
+    const file = join(dir, "old.json");
+    writeFileSync(file, JSON.stringify(oldSave()));
+    const world = new World();
+    loadWorld(world, file);
+    world.chats.push({ id: "c1", at: 5, agent: "0xa", to: "0xq", body: "see you at the party" });
+    const snap = worldSnapshot(world);
+    expect(snap).not.toHaveProperty("apiKeys");
+    expect(snap).not.toHaveProperty("oauth");
+    expect(snap.agents.map((a) => a.handle)).toEqual(["atlas", "quill"]);
+    expect(snap.chats.map((c) => c.body)).toEqual(["see you at the party"]);
+    // An export is a save file: a fresh town can be started from it.
+    const out = join(dir, "export.json");
+    saveWorld(world, out);
+    const again = new World();
+    loadWorld(again, out);
+    expect([...again.agents.keys()]).toEqual([...world.agents.keys()]);
+    expect(again.chats).toEqual(world.chats);
+    expect(again.balances.get("0xa")).toBe(world.balances.get("0xa"));
   });
 });

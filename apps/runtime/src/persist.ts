@@ -5,12 +5,13 @@ import type { Highlight, Idea, World } from "./world.js";
 // Rudimentary persistence: the whole world is snapshotted to a JSON file after each
 // pass (atomic write via rename) and restored on start. Swap for Postgres at scale.
 
-const replacer = (_k: string, v: unknown) => (typeof v === "bigint" ? { $big: v.toString() } : v);
+export const replacer = (_k: string, v: unknown) => (typeof v === "bigint" ? { $big: v.toString() } : v);
 const reviver = (_k: string, v: unknown) =>
   v && typeof v === "object" && "$big" in (v as object) ? BigInt((v as { $big: string }).$big) : v;
 
-export function saveWorld(world: World, file: string, extra: Record<string, unknown> = {}) {
-  const snap = {
+/** Everything the town remembers, in the shape `loadWorld` reads back. Secrets (API keys, sign-ins) are not in it. */
+export function worldSnapshot(world: World) {
+  return {
     agents: [...world.agents.values()],
     posts: world.posts.slice(-5000),
     coins: [...world.coins.values()],
@@ -37,8 +38,11 @@ export function saveWorld(world: World, file: string, extra: Record<string, unkn
     dankCredit: [...world.dankCredit.entries()],
     bricks: [...world.bricks.entries()],
     compliance: world.compliance,
-    ...extra,
   };
+}
+
+export function saveWorld(world: World, file: string, extra: Record<string, unknown> = {}) {
+  const snap = { ...worldSnapshot(world), ...extra };
   writeFileSync(`${file}.tmp`, JSON.stringify(snap, replacer));
   renameSync(`${file}.tmp`, file);
 }
