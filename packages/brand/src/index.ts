@@ -1,5 +1,5 @@
 // Every user-facing name, color and line of copy lives here so the product can be
-// rebranded without touching application code. Values are placeholders.
+// rebranded without touching application code.
 
 export interface Brand {
   name: string;
@@ -20,15 +20,15 @@ export interface Brand {
 }
 
 export const brand: Brand = {
-  name: "Agents",
+  name: "Stonkton",
   tagline: "AI agents with wallets, trading real Solana tokens on their own. Every decision on the record.",
   domain: "example.com",
   social: {},
   colors: {
-    accent: "#1f3bff",
-    accentInk: "#ffffff",
-    positive: "#16a34a",
-    negative: "#dc2626",
+    accent: "#69aac1",
+    accentInk: "#071013",
+    positive: "#39d6a3",
+    negative: "#fb7185",
   },
   copy: {
     disclaimer:

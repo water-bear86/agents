@@ -1,0 +1,81 @@
+/* StonkFun finish. Loads after town.css and turns the paper craft into StonkFun's flat UI:
+   no grain, no scissor cuts, no tilt, no tape. Sheets become rounded cards with a hairline
+   border, labels sit inside the card, and agent colors are muted so steel blue leads.
+   Remove the import in layout.tsx to get the paper town back. */
+
+:root {
+  --grain: linear-gradient(transparent, transparent);
+  --cut-a: none;
+  --cut-b: none;
+  --cut-c: none;
+  --radius: 14px;
+  --agent-c: 0.07;
+  --glow-o: 0;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --agent-c: 0.07; --glow-o: 0.12; }
+}
+
+/* Plain page, no starfield. */
+body { font-family: var(--font-sora), ui-sans-serif, system-ui, sans-serif; background: var(--sky); }
+h1, h2, h3,
+.town-hero h1, .section-title, .pod-place, .dank-crown .dank-ticker { font-family: var(--font-sora), sans-serif; font-weight: 700; }
+.town-hero h1 { letter-spacing: -0.04em; line-height: 0.98; }
+
+/* Numbers read like a terminal, the way StonkFun prints prices. */
+.town-stats b, .readout b, .num, .price, .pnl, .gain, .loss, .tag, .lvl {
+  font-family: var(--font-geist-mono), ui-monospace, monospace; font-variant-numeric: tabular-nums;
+}
+.town-stats b { font-weight: 600; letter-spacing: -0.03em; }
+
+/* Header: plain wordmark, pill nav. */
+.wordmark { background: transparent; color: var(--sky-ink); transform: none; filter: none; padding: 6px 4px; font-weight: 700; }
+.nav a { border-radius: 8px; }
+.nav a[aria-current="page"] { background: var(--paper); color: var(--ink); }
+.nav a:focus-visible, .wordmark:focus-visible { border-radius: 8px; }
+
+/* The paper-trading note is a quiet bar, not tape. */
+.paper-banner {
+  transform: none; clip-path: none; margin: 0 24px; border-radius: 10px; background: var(--surface);
+  border: 1px solid var(--rule); color: var(--muted);
+}
+.paper-banner b { color: var(--ink); font-weight: 600; }
+
+/* Buttons: flat, rounded, no cardboard edge. */
+.btn, .btn.quiet { border-radius: 10px; box-shadow: none; font-weight: 600; }
+.btn.quiet { border: 1px solid var(--rule); }
+.btn:active { transform: none; box-shadow: none; }
+.btn:focus-visible { box-shadow: 0 0 0 2px var(--sky), 0 0 0 4px var(--signal); }
+
+/* Sheets become cards. */
+.panel, #create-form, .step, .notice {
+  border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: none;
+}
+.step.first { box-shadow: 0 0 0 1px var(--lamp); border-color: var(--lamp); }
+.panel { overflow: hidden; }
+.panel-head, .spot li { border-bottom-style: solid; }
+.explainer { border-top-style: solid; }
+.panel-head h2, .pin-label {
+  background: transparent; color: var(--ink); transform: none; margin-top: 0; padding: 0;
+  font-family: var(--font-sora), sans-serif; font-weight: 600; font-size: 15px;
+}
+.panel-head h2 .who .handle { color: inherit; }
+.pin-label { position: static; display: block; padding: 16px 18px 0; }
+.panel.dank-crown.pinned, #create-form.pinned { padding-top: 0; }
+
+/* Tags and levels are pills. */
+.tag, .lvl { border-radius: 999px; border: 1px solid var(--rule); padding: 1px 9px; font-size: 11.5px; }
+.tag.jev { border-color: var(--ink); }
+
+/* The street stays, flatter: no card thickness, glue tabs or cast shadows. */
+.street .thick, .street .tab, .street .bldg-shadow, .street .edge { display: none; }
+.street .nametag rect, .street .speech rect { rx: 8px; stroke: var(--rule); }
+.street .sign rect { rx: 8px; }
+.street .moon { display: none; }
+
+/* The hero sits in one big card, like StonkFun's launch banner. */
+.town-hero {
+  background: linear-gradient(180deg, var(--surface), var(--sky-2)); border: 1px solid var(--rule);
+  border-radius: 20px; margin: 8px 0 0; overflow: hidden;
+}
+.street .nametag text, .street .sign text, .street .speech text { font-family: var(--font-sora), sans-serif; }
