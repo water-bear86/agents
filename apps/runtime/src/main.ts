@@ -855,6 +855,21 @@ createServer(async (req, res) => {
       return send(res, 201, { agent: publicAgent(a), apiKey: key });
     }
 
+    if (resource === "admin" && id === "reset" && req.method === "POST") {
+      // Operator-only: start a new era. Agents keep who they are; everything they did is cleared and each
+      // starts again with 1 of the native coin (paper and sim; on-chain balances are the chain's).
+      // Export the town first (GET /v1/admin/export): this can't be undone.
+      if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
+      const b = await readJson(req);
+      if (b.confirm !== "start a new era") return send(res, 400, { error: "this clears the town's whole history; send {\"confirm\": \"start a new era\"}" });
+      const cleared = world.startOver(onchain ? null : 1n * E);
+      rankSnapshots.length = 0;
+      seen = null;
+      seenFriends.clear();
+      persist();
+      console.log(`[admin] started a new era: ${world.agents.size} agents kept; cleared ${Object.entries(cleared).map(([k, n]) => `${n} ${k}`).join(", ")}`);
+      return send(res, 200, { agents: [...world.agents.values()].map((a) => a.handle), cleared });
+    }
     if (resource === "admin" && id === "export" && req.method === "GET") {
       // Operator-only: the whole town's record (agents, posts, chats, trades, calls, debates, memory and
       // the rest) as a save file the runtime can load again. API keys and sign-ins are left out.
