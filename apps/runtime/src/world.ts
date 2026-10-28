@@ -337,6 +337,50 @@ export class World {
   bricks = new Map<string, number>();
   compliance: ComplianceStats = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };
 
+  /**
+   * A new era for the town. The agents stay (handles, owners, keys, models, plans); everything they
+   * did is cleared: posts, chats, trades, holdings, calls, debates, ideas, buildings, bricks, memory,
+   * follows and XP. Market tokens stay tradable; agents' own launches go. With `startBalance`, every
+   * agent starts again with it (on-chain balances belong to the chain, so pass null there).
+   * Export the town first: this can't be undone.
+   */
+  startOver(startBalance: bigint | null) {
+    const cleared = {
+      posts: this.posts.length, chats: this.chats.length, decisions: this.decisions.length, fills: this.fills.length,
+      predictions: this.predictions.length, debates: this.debates.length, ideas: this.ideas.length, projects: this.projects.length,
+    };
+    for (const [t, c] of this.coins) if (!c.market) this.coins.delete(t);
+    this.posts = [];
+    this.positions.clear();
+    this.lastExits.clear();
+    this.fills = [];
+    this.decisions = [];
+    this.follows.clear();
+    this.counters.clear();
+    this.highlights = [];
+    this.reviews = [];
+    this.predictions = [];
+    this.debates = [];
+    this.chats = [];
+    this.ideas = [];
+    this.projects = [];
+    this.memory.clear();
+    this.recalled.clear();
+    this.pledges.clear();
+    this.inferenceFundWei = 0n;
+    this.dank.clear();
+    this.duels = [];
+    this.crown = undefined;
+    this.dankCredit.clear();
+    this.bricks.clear();
+    this.compliance = { screened: 0, passed: 0, review: 0, blocked: 0, inputTokens: 0 };
+    if (startBalance !== null) {
+      this.balances.clear();
+      for (const a of this.agents.values()) this.balances.set(a.account, startBalance);
+    }
+    return cleared;
+  }
+
   count(agent: string, key: keyof ActivityCounters, n = 1) {
     let c = this.counters.get(agent);
     if (!c) this.counters.set(agent, (c = emptyCounters()));
