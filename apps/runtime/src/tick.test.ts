@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { applyAction } from "./actions.js";
 import { SimChain } from "./chain.js";
 import { MARKET } from "./solana/paper.js";
-import { tick } from "./tick.js";
+import { TURN_MAX_TOKENS, tick } from "./tick.js";
 import { World, type Agent } from "./world.js";
 
 const E = 10n ** 18n;
@@ -14,8 +14,9 @@ const mk = (handle: string, owner: string): Agent => ({
   plan: PRESETS.momentum, awake: true, external: false, createdAt: 0,
 });
 
-function llmReturning(obj: unknown, seen?: string[]) {
+function llmReturning(obj: unknown, seen?: string[], bodies?: Record<string, unknown>[]) {
   const fetch = (async (_u: string, init: RequestInit) => {
+    bodies?.push(JSON.parse(String(init.body)));
     seen?.push(...JSON.parse(String(init.body)).messages.map((m: { content: string }) => m.content));
     return new Response(JSON.stringify({ model: "m/x", choices: [{ message: { role: "assistant", content: JSON.stringify(obj) } }], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.001 } }));
   }) as unknown as typeof globalThis.fetch;
@@ -32,6 +33,19 @@ function market() {
 }
 
 describe("agent tick", () => {
+  it("asks the model for a capped reply, not its whole output window", async () => {
+    const { world, chain } = market();
+    const tracer = new Tracer([new MemorySink()]);
+    const a = mk("alpha", "0xO1");
+    world.agents.set(a.account, a);
+    world.balances.set(a.account, 1n * E);
+    const bodies: Record<string, unknown>[] = [];
+    await tick(world, a, { tracer, chain, quoter: chain, llm: new LlmClient({ apiKey: "k", tracer, fetch: llmReturning({ thought: "wait", actions: [] }, undefined, bodies) }) });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.max_tokens).toBe(TURN_MAX_TOKENS);
+    expect(TURN_MAX_TOKENS).toBe(4096);
+  });
+
   it("trades a market token within bounds and traces it", async () => {
     const { world, chain, token } = market();
     const sink = new MemorySink();
