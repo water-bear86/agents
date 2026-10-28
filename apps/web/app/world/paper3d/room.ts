@@ -57,7 +57,7 @@ export interface RoomSpec {
   away?: { x: number; y: number; text: string };
 }
 
-const INK = { dark: "#e6edf7", ok: "#42d39c", no: "#ff8a7b", who: "#ffffff", dim: "#9fb0c8" };
+const INK = { dark: "#e6edf7", ok: "#39d6a3", no: "#fb7185", who: "#ffffff", dim: "#9fb0c8" };
 
 /** Prints a board onto a canvas the size of the panel. */
 function paintBoard(b: Board, wUnits: number, hUnits: number): HTMLCanvasElement {

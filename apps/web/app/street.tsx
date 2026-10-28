@@ -91,7 +91,7 @@ function Speech({ x: at, y, text, width }: { x: number; y: number; text: string;
   return (
     <g className="speech" aria-hidden>
       <rect x={x - w / 2} y={y - 26} width={w} height={26} rx={6} />
-      <path d={`M${at - 6},${y - 1} L${at},${y + 8} L${at + 6},${y - 1} Z`} fill="#fffaf0" />
+      <path d={`M${at - 6},${y - 1} L${at},${y + 8} L${at + 6},${y - 1} Z`} style={{ fill: "var(--surface)" }} />
       <text x={x} y={y - 8.5} textAnchor="middle">{t}</text>
     </g>
   );

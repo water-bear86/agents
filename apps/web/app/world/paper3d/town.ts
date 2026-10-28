@@ -265,7 +265,7 @@ export class PaperTown {
     const sel = s.pawns.find((p) => p.selected && !p.hidden);
     if (sel) {
       if (!this.#ring) {
-        this.#ring = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.4, 40), new THREE.MeshBasicMaterial({ color: 0x1f3bff, transparent: true, opacity: 0.8 }));
+        this.#ring = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.4, 40), new THREE.MeshBasicMaterial({ color: 0x69aac1, transparent: true, opacity: 0.8 }));
         this.#ring.rotation.x = -Math.PI / 2;
         this.scene.add(this.#ring);
       }

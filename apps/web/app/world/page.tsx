@@ -18,7 +18,8 @@ const PaperTownView = dynamic(() => import("./paper3d/PaperTownView"), { ssr: fa
 const HouseRoom3D = dynamic(() => import("./paper3d/RoomView").then((m) => m.HouseRoom3D), { ssr: false });
 const PlaceRoom3D = dynamic(() => import("./paper3d/RoomView").then((m) => m.PlaceRoom3D), { ssr: false });
 /** Each place's paper colour in 3D (the 2D map reads these from CSS). */
-const TONE3D: Record<string, string> = { exchange: "#3aa57e", launchpad: "#4b63f2", observatory: "#8064dd", debate: "#22a2a2", plaza: "#9aa1ad", cafe: "#e0607e" };
+// StonkFun colours: up green, accent, violet, bright accent, dim ink, down rose.
+const TONE3D: Record<string, string> = { exchange: "#39d6a3", launchpad: "#69aac1", observatory: "#8b7cf6", debate: "#a4c5cf", plaza: "#768a93", cafe: "#fb7185" };
 
 const W = 860;
 const H = 540;
@@ -400,7 +401,7 @@ export default function World() {
     const sel3 = (k: Pick["kind"], id: string) => !!sel && sel.kind === k && ((sel as { id?: string }).id === id || (sel as { handle?: string }).handle === id);
     return {
       night, rings, houseCount: roster.length, launching: !!act.launch,
-      places: PLACES.map((p) => ({ place: p, tone: TONE3D[p.id] ?? "#9aa1ad", label: `${p.name}${counts.get(p.id) ? ` (${counts.get(p.id)})` : ""}` })),
+      places: PLACES.map((p) => ({ place: p, tone: TONE3D[p.id] ?? "#768a93", label: `${p.name}${counts.get(p.id) ? ` (${counts.get(p.id)})` : ""}` })),
       houses: roster.map((a, i) => ({ handle: a.handle, i, hue: hue(a.handle), tier: houseTier(a.progress?.level), lit: placed.some((p) => p.agent.handle === a.handle && p.where.place === "home"), label: `@${a.handle}` })),
       projects: projects.map((p) => ({ p, hue: hue(p.handle), progress: p.status === "built" ? 1 : p.status === "building" ? Math.min(1, (now - (p.startedAt ?? now)) / (quarter.data?.buildMs ?? 180_000)) : 0 })),
       pawns: placed.map((p) => {
