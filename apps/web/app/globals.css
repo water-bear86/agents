@@ -1,18 +1,20 @@
-/* Daylight instrument panel: cool paper, navy ink, one cobalt signal colour.
+/* StonkFun colours (stonkfun.xyz), where the town's agents launch their coins: near-black teal,
+   slate-teal surfaces and one steel-blue signal colour. StonkFun is dark only; the light theme uses
+   its hues lightened. town.css (loaded after this file) carries the same values.
    Every agent carries its own hue (set as --h on the element), so the same agent
    reads the same everywhere: wire, coins, rankings, traces. */
 :root {
-  --paper: #e9edf1;
-  --surface: #f8fafc;
-  --ink: #0f1b2d;
-  --muted: #5b6676;
-  --rule: #cbd3dc;
-  --rule-soft: #dde3ea;
-  --signal: #1f3bff;
-  --signal-ink: #ffffff;
-  --gain: #00875a;
-  --loss: #c8372a;
-  --hold: #9a5c00;
+  --paper: #e0ebed;
+  --surface: #f3f8f8;
+  --ink: #071013;
+  --muted: #4f646b;
+  --rule: #c2d5da;
+  --rule-soft: #d9e6e9;
+  --signal: #2b6578;
+  --signal-ink: #f3f8f8;
+  --gain: #03664a;
+  --loss: #b51f41;
+  --hold: #8a5700;
   --agent-l: 0.6;
   --agent-c: 0.17;
   --focus: 0 0 0 3px color-mix(in oklab, var(--signal) 40%, transparent);
@@ -20,19 +22,19 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #0d1521;
-    --surface: #142033;
-    --ink: #e4eaf2;
-    --muted: #8c99ac;
-    --rule: #2a3a52;
-    --rule-soft: #1d2a3e;
-    --signal: #8a98ff;
-    --signal-ink: #0d1521;
-    --gain: #3ccb98;
-    --loss: #ff7a6b;
-    --hold: #e8a64a;
-    --agent-l: 0.74;
-    --agent-c: 0.14;
+    --paper: #192f37;
+    --surface: #102127;
+    --ink: #f3f8f8;
+    --muted: #869ba3;
+    --rule: #2f4f58;
+    --rule-soft: #20363d;
+    --signal: #69aac1;
+    --signal-ink: #071013;
+    --gain: #39d6a3;
+    --loss: #fb7185;
+    --hold: #f7a76c;
+    --agent-l: 0.78;
+    --agent-c: 0.13;
     color-scheme: dark;
   }
 }
@@ -325,7 +327,7 @@ legend + * { clear: both; }
   background: var(--rule-soft); color: var(--muted);
 }
 .medal.earned .medal-face { background: oklch(var(--agent-l) var(--agent-c) var(--h)); color: #fff; }
-@media (prefers-color-scheme: dark) { .medal.earned .medal-face { color: #0d1521; } }
+@media (prefers-color-scheme: dark) { .medal.earned .medal-face { color: #071013; } }
 .medal-text { display: grid; gap: 1px; min-width: 0; }
 .medal-text b { font-weight: 700; }
 .medal-text > span { font-size: 12.5px; color: var(--muted); }
@@ -438,8 +440,8 @@ legend + * { clear: both; }
 .hl-jev_pick .hl-glyph { background: color-mix(in oklab, var(--signal) 18%, transparent); color: var(--signal); }
 
 /* ---------------------------------------------------------------- extra place tones */
-:root { --violet: #6b4fd8; --teal: #0f8a8a; }
-@media (prefers-color-scheme: dark) { :root { --violet: #a08cff; --teal: #3cc4c4; } }
+:root { --violet: #5b48d6; --teal: #136a70; }
+@media (prefers-color-scheme: dark) { :root { --violet: #8b7cf6; --teal: #a4c5cf; } }
 .hl-call .hl-glyph { background: color-mix(in oklab, var(--violet) 16%, transparent); color: var(--violet); }
 .hl-debate .hl-glyph { background: color-mix(in oklab, var(--teal) 16%, transparent); color: var(--teal); }
 .calls { list-style: none; margin: 0; padding: 0 18px 6px; }
@@ -674,8 +676,8 @@ legend + * { clear: both; }
 
 /* Places reacting to what agents do. */
 .world-svg .ticker-text { font-size: 4.2px; font-weight: 750; fill: #cfd8e6; letter-spacing: 0.1px; white-space: pre; }
-.world-svg .ticker-text .up { fill: #42d39c; }
-.world-svg .ticker-text .down { fill: #ff7a6b; }
+.world-svg .ticker-text .up { fill: #39d6a3; }
+.world-svg .ticker-text .down { fill: #fb7185; }
 .world-svg .flame { fill: #ffb14a; }
 .world-svg .smoke circle { fill: color-mix(in oklab, var(--w-wall) 85%, var(--w-steel)); opacity: 0; }
 .world-svg .glint { fill: #fff6c9; }
@@ -739,8 +741,8 @@ legend + * { clear: both; }
 .interior-svg .i-monitor { fill: #1b2230; }
 .interior-svg .i-screen { fill: #0d1726; }
 .interior-svg .i-screen-text { font-size: 6.4px; font-weight: 600; fill: #b8c7de; white-space: pre; }
-.interior-svg .i-screen-text.ok { fill: #42d39c; }
-.interior-svg .i-screen-text.no { fill: #ff8a7b; }
+.interior-svg .i-screen-text.ok { fill: #39d6a3; }
+.interior-svg .i-screen-text.no { fill: #fb7185; }
 .interior-svg .i-rug { fill: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 35%, var(--w-wall)); stroke: color-mix(in oklab, oklch(var(--agent-l) var(--agent-c) var(--h)) 60%, #000); stroke-width: 1; stroke-dasharray: 3 3; }
 .interior-svg .i-pole { stroke: var(--w-steel); stroke-width: 2; }
 .interior-svg .i-shade { fill: color-mix(in oklab, var(--w-glow) 60%, var(--w-wall)); }
@@ -930,11 +932,11 @@ legend + * { clear: both; }
 .interior-svg .pi-board { fill: #0d1726; }
 .interior-svg .pi-board-title { font-size: 8.5px; font-weight: 850; fill: #e6edf7; }
 .interior-svg .pi-board-line { font-size: 7px; font-weight: 600; fill: #b8c7de; white-space: pre; }
-.interior-svg .pi-board-line.ok { fill: #42d39c; }
-.interior-svg .pi-board-line.no { fill: #ff8a7b; }
+.interior-svg .pi-board-line.ok { fill: #39d6a3; }
+.interior-svg .pi-board-line.no { fill: #fb7185; }
 .interior-svg .pi-board-line.who { fill: #e6edf7; font-weight: 800; }
 .interior-svg .pi-screen-block.l, .interior-svg .pi-screen-block.r { fill: #1b2230; }
-.interior-svg .pi-screen-block.t { fill: #42d39c; opacity: 0.7; }
+.interior-svg .pi-screen-block.t { fill: #39d6a3; opacity: 0.7; }
 .interior-svg .pi-console.t { fill: color-mix(in oklab, var(--signal) 60%, #0d1726); }
 .interior-svg .pi-console.l, .interior-svg .pi-console.r { fill: #1b2230; }
 @media (prefers-color-scheme: dark) { .interior-svg .pi-console.t, .interior-svg .pi-screen-block.t { filter: drop-shadow(0 0 3px var(--signal)); } }
@@ -976,21 +978,21 @@ legend + * { clear: both; }
    on panels, buildings that cast the crisp offset shadow of layered paper, and agents cut out
    like stickers with a white edge. */
 :root {
-  --paper: #ece6d9;
-  --surface: #fbf8f2;
-  --rule: #d6cdbb;
-  --rule-soft: #e6dfd1;
-  --cut-edge: #fffdf7;
-  --cut-shadow: rgba(60, 42, 20, 0.2);
+  --paper: #e0ebed;
+  --surface: #f3f8f8;
+  --rule: #c2d5da;
+  --rule-soft: #d9e6e9;
+  --cut-edge: #ffffff;
+  --cut-shadow: rgba(7, 16, 19, 0.2);
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.27 0 0 0 0 0.16 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #111a28;
-    --surface: #18243a;
-    --rule: #2c3b54;
-    --rule-soft: #1f2c42;
-    --cut-edge: #e6e0d2;
+    --paper: #192f37;
+    --surface: #102127;
+    --rule: #2f4f58;
+    --rule-soft: #20363d;
+    --cut-edge: #f3f8f8;
     --cut-shadow: rgba(0, 0, 0, 0.45);
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
   }
@@ -1073,7 +1075,7 @@ body { background-image: var(--grain); }
   max-width: 240px; padding: 5px 9px; border-radius: 6px; background: var(--cut-edge); color: var(--ink); font-size: 12px; line-height: 1.3;
   box-shadow: 2px 3px 0 var(--cut-shadow); transform: translateY(-10px); white-space: normal; text-align: center;
 }
-@media (prefers-color-scheme: dark) { .p3-label, .p3-bubble { background: #e6e0d2; color: #141c2a; } }
+@media (prefers-color-scheme: dark) { .p3-label, .p3-bubble { background: #f3f8f8; color: #071013; } }
 .world-stage:has(.p3-host)::after { display: none; }
 .p3-room { aspect-ratio: 560 / 480; max-height: 640px; }
 /* Place labels are buttons: Tab reaches them, Enter opens the place. */

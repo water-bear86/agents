@@ -1,75 +1,100 @@
 /* The town at night, made of paper.
-   The site is the same diorama as the 3D town: a deep indigo sky, card-stock sheets lit by
-   lamplight, kraft cardboard for structure, and one warm accent, the amber of a lit window.
-   Card stock is card stock in daylight too, so sheets stay cream in both themes; only the sky
-   changes. Small things (labels, tags, buttons) are cut out with scissors; big sheets keep
-   straight edges so long live lists stay cheap to draw. Loaded after globals.css and overrides it. */
+   The site is the same diorama as the 3D town, coloured like StonkFun (stonkfun.xyz), where the
+   town's agents launch their coins: a near-black teal sky, slate-teal sheets with a darker edge
+   for structure, and one accent, StonkFun's steel blue. StonkFun only has a dark theme, so by day
+   the town uses the same hues lightened: a pale teal sky and near-white sheets. Small things
+   (labels, tags, buttons) are cut out with scissors; big sheets keep straight edges so long live
+   lists stay cheap to draw. Loaded after globals.css and overrides it. */
 
 :root {
   /* Sky: the page itself. Day by default, night when the system is dark. */
-  --sky: #cfe0ee;
-  --sky-2: #a9c3dc;
-  --sky-ink: #16203d;
-  --sky-muted: #3f4c6c;
+  --sky: #e1ecef;
+  --sky-2: #c6dbe1;
+  --sky-ink: #071013;
+  --sky-muted: #3a535b;
   --stars: transparent;
 
-  /* Card stock: every sheet of content. */
-  --surface: #f6eedc;
-  --paper: #ebe0c7;
-  --ink: #24253a;
-  --muted: #6c6455;
-  --rule: #d9cbad;
-  --rule-soft: #e7dcc4;
-  --kraft: #c69c66;
-  --kraft-dark: #8e6a3e;
-  --lamp: #ffc35a;
-  --lamp-ink: #2a1d05;
-  --signal: #8a4b00;
-  --signal-ink: #2a1d05;
-  --gain: #23805a;
-  --loss: #b2392e;
-  --hold: #8f5c00;
-  --violet: #5d45c4;
-  --teal: #0d7d7d;
+  /* Sheets: every panel of content. */
+  --surface: #f3f8f8;
+  --paper: #e0ebed;
+  --well: #ffffff;
+  --ink: #071013;
+  --muted: #4f646b;
+  --rule: #c2d5da;
+  --rule-soft: #d9e6e9;
+  /* The sheet edge and the blocks things stand on (the old kraft cardboard), and text on them. */
+  --kraft: #a4c5cf;
+  --kraft-dark: #3f7a8e;
+  --kraft-ink: #071013;
+  /* StonkFun's accent: buttons, highlights, focus. */
+  --lamp: #69aac1;
+  --lamp-ink: #071013;
+  --signal: #2b6578;
+  --signal-ink: #f3f8f8;
+  --gain: #03664a;
+  --loss: #b51f41;
+  --hold: #8a5700;
+  --violet: #5b48d6;
+  --teal: #136a70;
   --agent-l: 0.6;
   --agent-c: 0.16;
-  --focus: 0 0 0 3px color-mix(in oklab, var(--lamp) 70%, transparent);
+  --focus: 0 0 0 3px color-mix(in oklab, var(--signal) 70%, transparent);
 
   /* Buildings on the street, far to near. */
-  --bldg-far: #8eaacb;
-  --bldg-mid: #c9a678;
-  --bldg-mid-2: #b88f5e;
-  --bldg-roof: #6f5236;
-  --window: #e9eef5;
-  --window-lit: #ffd27a;
-  --road: #59647f;
-  --curb: #d8c7a3;
+  --bldg-far: #a4c5cf;
+  --bldg-mid: #f3f8f8;
+  --bldg-mid-2: #d9e6e9;
+  --bldg-roof: #2f4f58;
+  --window: #c6dbe1;
+  --window-lit: #69aac1;
+  --road: #20363d;
+  --curb: #a4c5cf;
   --glow-o: 0;
 
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .36 0 0 0 0 .27 0 0 0 0 .15 0 0 0 .11 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .03 0 0 0 0 .06 0 0 0 0 .07 0 0 0 .11 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   /* A scissor cut: corners a hair off square, never the same twice in a row. */
   --cut-a: polygon(0.6% 3%, 99% 0%, 100% 92%, 1.4% 100%);
   --cut-b: polygon(0% 0%, 98.6% 4%, 99.6% 100%, 0.8% 95%);
   --cut-c: polygon(1% 6%, 100% 1%, 98.8% 100%, 0% 96%);
   color-scheme: light;
 }
+/* StonkFun's own palette, value for value (its --color-* variables). */
 @media (prefers-color-scheme: dark) {
   :root {
-    --sky: #121833;
-    --sky-2: #1d2654;
-    --sky-ink: #eeeaf8;
-    --sky-muted: #a9aed3;
-    --stars: #fff7e3;
-    --surface: #f1e6cf;
-    --paper: #e4d7ba;
-    --bldg-far: #232c5c;
-    --bldg-mid: #3b3a5f;
-    --bldg-mid-2: #312f52;
-    --bldg-roof: #1d1c36;
-    --window: #2b2f52;
-    --window-lit: #ffc35a;
-    --road: #0d1128;
-    --curb: #3c3a5a;
+    --sky: #071013;
+    --sky-2: #0b171b;
+    --sky-ink: #f3f8f8;
+    --sky-muted: #a4c5cf;
+    --stars: #a4c5cf;
+    --surface: #102127;
+    --paper: #192f37;
+    --well: #0b171b;
+    --ink: #f3f8f8;
+    --muted: #869ba3;
+    --rule: #2f4f58;
+    --rule-soft: #20363d;
+    --kraft: #2f4f58;
+    --kraft-dark: #2a5866;
+    --kraft-ink: #f3f8f8;
+    --lamp: #69aac1;
+    --lamp-ink: #071013;
+    --signal: #69aac1;
+    --signal-ink: #071013;
+    --gain: #39d6a3;
+    --loss: #fb7185;
+    --hold: #f7a76c;
+    --violet: #8b7cf6;
+    --teal: #a4c5cf;
+    --agent-l: 0.78;
+    --agent-c: 0.13;
+    --bldg-far: #102127;
+    --bldg-mid: #192f37;
+    --bldg-mid-2: #18262a;
+    --bldg-roof: #0b171b;
+    --window: #20363d;
+    --window-lit: #69aac1;
+    --road: #0b171b;
+    --curb: #2f4f58;
     --glow-o: 0.5;
     color-scheme: dark;
   }
@@ -110,7 +135,7 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-archivo), sans-serif; 
 .paper-banner {
   background: color-mix(in oklab, var(--kraft) 82%, transparent) var(--grain); border: 0; color: var(--lamp-ink);
   clip-path: polygon(0 12%, 1.5% 0, 3% 14%, 5% 2%, 100% 8%, 99% 88%, 97.5% 100%, 96% 86%, 0 94%);
-  transform: rotate(-0.4deg); margin: 0 12px; font-size: 13.5px;
+  transform: rotate(-0.4deg); margin: 0 12px; font-size: 13.5px; color: var(--kraft-ink);
 }
 .paper-banner b { font-weight: 800; }
 
@@ -145,13 +170,13 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-archivo), sans-serif; 
 /* Tags are little paper slips. */
 .tag { border: 0; background: var(--paper); color: var(--ink); border-radius: 2px; clip-path: var(--cut-b); padding: 2px 9px; }
 .tag.open { background: color-mix(in oklab, var(--gain) 18%, var(--surface)); color: var(--gain); }
-.tag.gated { background: color-mix(in oklab, var(--lamp) 45%, var(--surface)); color: var(--lamp-ink); }
+.tag.gated { background: color-mix(in oklab, var(--lamp) 45%, var(--surface)); color: var(--ink); }
 .tag.warn { background: color-mix(in oklab, var(--loss) 16%, var(--surface)); color: var(--loss); }
 .tag.jev { background: var(--ink); color: var(--surface); }
 .lvl { border: 0; background: var(--paper); color: var(--ink); clip-path: var(--cut-a); }
 
 .handle { color: oklch(calc(var(--agent-l) - 0.16) var(--agent-c) var(--h)); }
-@media (prefers-color-scheme: dark) { .handle { color: oklch(calc(var(--agent-l) - 0.16) var(--agent-c) var(--h)); } }
+@media (prefers-color-scheme: dark) { .handle { color: oklch(var(--agent-l) var(--agent-c) var(--h)); } }
 
 /* ---------------------------------------------------------------- headings and text that sit on the sky */
 .page-head h1, .profile-head h1, .create h1, .trace-head h1 { font-weight: 800; letter-spacing: -0.025em; color: var(--sky-ink); }
@@ -171,8 +196,8 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-archivo), sans-serif; 
 /* Forms are filled in on a sheet, not on the sky. */
 #create-form { background: var(--surface) var(--grain); color: var(--ink); padding: 6px 22px 10px; border-radius: 3px; box-shadow: 0 2px 0 var(--kraft), 0 22px 34px -22px rgba(4, 6, 20, 0.6); }
 #create-form .hint, #create-form .field small { color: var(--muted); }
-.input { background: #fffaf0; border-color: var(--rule); color: var(--ink); }
-.choice { background: #fffaf0; border-color: var(--rule); }
+.input { background: var(--well); border-color: var(--rule); color: var(--ink); }
+.choice { background: var(--well); border-color: var(--rule); }
 .choice:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink), 0 3px 0 var(--kraft); }
 
 /* ---------------------------------------------------------------- home: the street */
@@ -206,10 +231,11 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-archivo), sans-serif; 
 .street .nametag text { font: 750 13px var(--font-archivo), sans-serif; fill: var(--ink); }
 .street .nametag .sub { font-weight: 600; font-size: 11px; fill: var(--muted); }
 .street .sign rect { fill: var(--kraft); stroke: var(--kraft-dark); stroke-width: 1.5; }
-.street .sign text { font: 750 13px var(--font-archivo), sans-serif; fill: var(--lamp-ink); }
+.street .sign text { font: 750 13px var(--font-archivo), sans-serif; fill: var(--kraft-ink); }
 .street .sign .stake { fill: var(--kraft-dark); }
 .street .sign:hover rect, .street .sign:focus-visible rect { fill: var(--lamp); }
-.street .speech rect { fill: #fffaf0; stroke: var(--kraft-dark); stroke-width: 1; }
+.street .sign:hover text, .street .sign:focus-visible text { fill: var(--lamp-ink); }
+.street .speech rect { fill: var(--surface); stroke: var(--kraft-dark); stroke-width: 1; }
 .street .speech text { font: 600 12px var(--font-archivo), sans-serif; fill: var(--ink); }
 
 .town-stats { display: flex; gap: 10px 28px; flex-wrap: wrap; margin-top: 18px; color: var(--sky-muted); }
@@ -287,6 +313,9 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-archivo), sans-serif; 
 .pod-place { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 46px; line-height: 1; color: color-mix(in oklab, var(--lamp-ink) 82%, transparent); }
 .pod-name { font-weight: 800; font-size: 16px; color: var(--lamp-ink); }
 .pod-pnl { font-weight: 750; }
+/* The lower steps are edge-coloured, not accent; P&L carries its sign, so it takes the block's ink. */
+.pod-2, .pod-3 { --lamp-ink: var(--kraft-ink); }
+.pod-pnl :is(.gain, .loss) { color: inherit; }
 .pod-pnl .muted { color: color-mix(in oklab, var(--lamp-ink) 70%, transparent); }
 .pod-sub { font-size: 12.5px; color: color-mix(in oklab, var(--lamp-ink) 72%, transparent); }
 .pod:hover .pod-bot, .pod:focus-visible .pod-bot { transform: translateY(-4px); }
@@ -320,10 +349,10 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-archivo), sans-serif; 
 @media (max-width: 640px) { .panel.dank-crown, .panel.dank-crown.empty-crown { grid-template-columns: 90px minmax(0, 1fr); padding: 16px; } .paper-crown { width: 90px; } }
 
 /* ---------------------------------------------------------------- footer: the page ends on the street */
-.foot { margin-top: 72px; background: var(--road); border-top: 14px solid var(--curb); position: relative; color: #dcdcef; }
+.foot { margin-top: 72px; background: var(--road); border-top: 14px solid var(--curb); position: relative; color: #a4c5cf; }
 .foot::before { content: ""; position: absolute; left: 0; right: 0; top: 30px; border-top: 3px dashed color-mix(in oklab, var(--curb) 70%, transparent); }
-.foot .shell { color: #c9cbe3; padding-top: 52px; padding-bottom: 36px; }
-.foot a { color: #f2eedf; }
+.foot .shell { color: #a4c5cf; padding-top: 52px; padding-bottom: 36px; }
+.foot a { color: #f3f8f8; }
 .foot nav { gap: 22px; }
 
 /* Messages that stand alone (loading, offline, not found) get a sheet of their own. */
@@ -357,14 +386,14 @@ body > main { flex: 1 0 auto; width: 100%; }
 .panel :is(p, q, blockquote, li, .post, .thought, .why, a), .post, .thought { overflow-wrap: anywhere; }
 
 /* Cut-out shapes clip a focus ring away, so focused ones light up in lamplight instead. */
-.nav a:focus-visible, .wordmark:focus-visible { background: var(--lamp); color: var(--lamp-ink); box-shadow: none; clip-path: var(--cut-b); }
-.btn:focus-visible { box-shadow: 0 3px 0 var(--kraft-dark), 0 0 0 3px var(--sky), 0 0 0 6px var(--lamp); }
-.panel a:focus-visible, .pod:focus-visible { outline: 3px solid var(--lamp); outline-offset: 2px; box-shadow: none; }
+.nav a:focus-visible, .wordmark:focus-visible { background: var(--signal); color: var(--signal-ink); box-shadow: none; clip-path: var(--cut-b); }
+.btn:focus-visible { box-shadow: 0 3px 0 var(--kraft-dark), 0 0 0 3px var(--sky), 0 0 0 6px var(--signal); }
+.panel a:focus-visible, .pod:focus-visible { outline: 3px solid var(--signal); outline-offset: 2px; box-shadow: none; }
 .street a:focus-visible .nametag rect, .street a:focus-visible.sign rect { fill: var(--lamp); }
 
 /* ---------------------------------------------------------------- the sky: a hand-placed star field at night */
 :root { --starfield: none; }
-@media (prefers-color-scheme: dark) { :root { --starfield: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='480'%3E%3Ccircle cx='155' cy='72' r='1.4' fill='%23fff7e3' fill-opacity='0.28'/%3E%3Ccircle cx='394' cy='45' r='1.1' fill='%23fff7e3' fill-opacity='0.29'/%3E%3Ccircle cx='244' cy='18' r='0.9' fill='%23fff7e3' fill-opacity='0.52'/%3E%3Ccircle cx='116' cy='265' r='0.6' fill='%23fff7e3' fill-opacity='0.79'/%3E%3Ccircle cx='59' cy='107' r='1.4' fill='%23fff7e3' fill-opacity='0.63'/%3E%3Ccircle cx='30' cy='281' r='0.6' fill='%23fff7e3' fill-opacity='0.88'/%3E%3Ccircle cx='22' cy='412' r='0.8' fill='%23fff7e3' fill-opacity='0.52'/%3E%3Ccircle cx='260' cy='274' r='1.1' fill='%23fff7e3' fill-opacity='0.78'/%3E%3Ccircle cx='87' cy='279' r='1.4' fill='%23fff7e3' fill-opacity='0.37'/%3E%3Ccircle cx='47' cy='342' r='1.1' fill='%23fff7e3' fill-opacity='0.29'/%3E%3Ccircle cx='99' cy='327' r='0.9' fill='%23fff7e3' fill-opacity='0.76'/%3E%3Ccircle cx='223' cy='443' r='0.8' fill='%23fff7e3' fill-opacity='0.44'/%3E%3Ccircle cx='381' cy='336' r='0.7' fill='%23fff7e3' fill-opacity='0.3'/%3E%3Ccircle cx='144' cy='238' r='0.8' fill='%23fff7e3' fill-opacity='0.72'/%3E%3Ccircle cx='138' cy='470' r='0.6' fill='%23fff7e3' fill-opacity='0.58'/%3E%3Ccircle cx='79' cy='164' r='0.9' fill='%23fff7e3' fill-opacity='0.52'/%3E%3Ccircle cx='462' cy='37' r='1.1' fill='%23fff7e3' fill-opacity='0.62'/%3E%3Ccircle cx='420' cy='151' r='1.4' fill='%23fff7e3' fill-opacity='0.48'/%3E%3Ccircle cx='238' cy='383' r='0.6' fill='%23fff7e3' fill-opacity='0.8'/%3E%3Ccircle cx='453' cy='228' r='1.4' fill='%23fff7e3' fill-opacity='0.29'/%3E%3Ccircle cx='351' cy='149' r='1.1' fill='%23fff7e3' fill-opacity='0.9'/%3E%3Ccircle cx='395' cy='137' r='0.9' fill='%23fff7e3' fill-opacity='0.83'/%3E%3Ccircle cx='167' cy='452' r='0.8' fill='%23fff7e3' fill-opacity='0.36'/%3E%3Ccircle cx='56' cy='28' r='0.8' fill='%23fff7e3' fill-opacity='0.33'/%3E%3Ccircle cx='119' cy='188' r='0.9' fill='%23fff7e3' fill-opacity='0.3'/%3E%3Ccircle cx='216' cy='264' r='0.7' fill='%23fff7e3' fill-opacity='0.78'/%3E%3Ccircle cx='415' cy='134' r='0.9' fill='%23fff7e3' fill-opacity='0.89'/%3E%3Ccircle cx='328' cy='183' r='0.7' fill='%23fff7e3' fill-opacity='0.35'/%3E%3Ccircle cx='85' cy='111' r='0.7' fill='%23fff7e3' fill-opacity='0.26'/%3E%3Ccircle cx='399' cy='88' r='0.8' fill='%23fff7e3' fill-opacity='0.25'/%3E%3Ccircle cx='201' cy='177' r='1.1' fill='%23fff7e3' fill-opacity='0.46'/%3E%3Ccircle cx='60' cy='412' r='1.1' fill='%23fff7e3' fill-opacity='0.68'/%3E%3Ccircle cx='355' cy='219' r='1.4' fill='%23fff7e3' fill-opacity='0.77'/%3E%3Ccircle cx='188' cy='192' r='0.6' fill='%23fff7e3' fill-opacity='0.56'/%3E%3Ccircle cx='192' cy='91' r='0.7' fill='%23fff7e3' fill-opacity='0.54'/%3E%3Ccircle cx='53' cy='288' r='0.6' fill='%23fff7e3' fill-opacity='0.25'/%3E%3Ccircle cx='73' cy='49' r='0.8' fill='%23fff7e3' fill-opacity='0.65'/%3E%3Ccircle cx='34' cy='100' r='0.9' fill='%23fff7e3' fill-opacity='0.35'/%3E%3Ccircle cx='121' cy='167' r='0.8' fill='%23fff7e3' fill-opacity='0.56'/%3E%3Ccircle cx='55' cy='234' r='0.9' fill='%23fff7e3' fill-opacity='0.56'/%3E%3Ccircle cx='150' cy='69' r='1.4' fill='%23fff7e3' fill-opacity='0.47'/%3E%3Ccircle cx='127' cy='398' r='0.7' fill='%23fff7e3' fill-opacity='0.59'/%3E%3Ccircle cx='99' cy='457' r='0.8' fill='%23fff7e3' fill-opacity='0.35'/%3E%3Ccircle cx='261' cy='13' r='1.1' fill='%23fff7e3' fill-opacity='0.44'/%3E%3Ccircle cx='309' cy='44' r='0.8' fill='%23fff7e3' fill-opacity='0.59'/%3E%3Ccircle cx='436' cy='171' r='0.7' fill='%23fff7e3' fill-opacity='0.6'/%3E%3Ccircle cx='374' cy='158' r='0.7' fill='%23fff7e3' fill-opacity='0.65'/%3E%3Ccircle cx='378' cy='364' r='0.7' fill='%23fff7e3' fill-opacity='0.77'/%3E%3Ccircle cx='393' cy='355' r='0.7' fill='%23fff7e3' fill-opacity='0.38'/%3E%3Ccircle cx='237' cy='351' r='0.6' fill='%23fff7e3' fill-opacity='0.76'/%3E%3Ccircle cx='227' cy='93' r='1.1' fill='%23fff7e3' fill-opacity='0.87'/%3E%3Ccircle cx='215' cy='450' r='0.8' fill='%23fff7e3' fill-opacity='0.87'/%3E%3Ccircle cx='175' cy='106' r='0.7' fill='%23fff7e3' fill-opacity='0.56'/%3E%3Ccircle cx='162' cy='232' r='1.1' fill='%23fff7e3' fill-opacity='0.8'/%3E%3Ccircle cx='230' cy='313' r='1.4' fill='%23fff7e3' fill-opacity='0.31'/%3E%3Ccircle cx='317' cy='437' r='1.4' fill='%23fff7e3' fill-opacity='0.74'/%3E%3Ccircle cx='229' cy='86' r='1.4' fill='%23fff7e3' fill-opacity='0.47'/%3E%3Ccircle cx='384' cy='466' r='0.9' fill='%23fff7e3' fill-opacity='0.55'/%3E%3Ccircle cx='357' cy='41' r='0.7' fill='%23fff7e3' fill-opacity='0.36'/%3E%3Ccircle cx='61' cy='73' r='0.9' fill='%23fff7e3' fill-opacity='0.77'/%3E%3Ccircle cx='70' cy='397' r='0.9' fill='%23fff7e3' fill-opacity='0.68'/%3E%3Ccircle cx='168' cy='263' r='0.7' fill='%23fff7e3' fill-opacity='0.26'/%3E%3Ccircle cx='384' cy='349' r='0.6' fill='%23fff7e3' fill-opacity='0.59'/%3E%3Ccircle cx='448' cy='208' r='0.7' fill='%23fff7e3' fill-opacity='0.79'/%3E%3Ccircle cx='101' cy='121' r='0.8' fill='%23fff7e3' fill-opacity='0.58'/%3E%3Ccircle cx='367' cy='156' r='1.1' fill='%23fff7e3' fill-opacity='0.52'/%3E%3Ccircle cx='63' cy='437' r='0.8' fill='%23fff7e3' fill-opacity='0.83'/%3E%3Ccircle cx='318' cy='391' r='1.1' fill='%23fff7e3' fill-opacity='0.52'/%3E%3Ccircle cx='441' cy='241' r='1.1' fill='%23fff7e3' fill-opacity='0.35'/%3E%3Ccircle cx='245' cy='419' r='0.7' fill='%23fff7e3' fill-opacity='0.65'/%3E%3Cpath d='M361 82 L362.3 85.1 L365 86 L362.3 86.7 L361 90 L360.7 86.7 L357 86 L360.7 85.1 Z' fill='%23fff7e3' fill-opacity='.85'/%3E%3Cpath d='M82 288 L83.1 291.6 L86 292 L83.1 293.2 L82 296 L81.5 293.2 L78 292 L81.5 291.6 Z' fill='%23fff7e3' fill-opacity='.85'/%3E%3Cpath d='M73 43 L73.7 46.4 L77 47 L73.7 48.0 L73 51 L72.1 48.0 L69 47 L72.1 46.4 Z' fill='%23fff7e3' fill-opacity='.85'/%3E%3C/svg%3E"); } }
+@media (prefers-color-scheme: dark) { :root { --starfield: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='480'%3E%3Ccircle cx='155' cy='72' r='1.4' fill='%23a4c5cf' fill-opacity='0.28'/%3E%3Ccircle cx='394' cy='45' r='1.1' fill='%23a4c5cf' fill-opacity='0.29'/%3E%3Ccircle cx='244' cy='18' r='0.9' fill='%23a4c5cf' fill-opacity='0.52'/%3E%3Ccircle cx='116' cy='265' r='0.6' fill='%23a4c5cf' fill-opacity='0.79'/%3E%3Ccircle cx='59' cy='107' r='1.4' fill='%23a4c5cf' fill-opacity='0.63'/%3E%3Ccircle cx='30' cy='281' r='0.6' fill='%23a4c5cf' fill-opacity='0.88'/%3E%3Ccircle cx='22' cy='412' r='0.8' fill='%23a4c5cf' fill-opacity='0.52'/%3E%3Ccircle cx='260' cy='274' r='1.1' fill='%23a4c5cf' fill-opacity='0.78'/%3E%3Ccircle cx='87' cy='279' r='1.4' fill='%23a4c5cf' fill-opacity='0.37'/%3E%3Ccircle cx='47' cy='342' r='1.1' fill='%23a4c5cf' fill-opacity='0.29'/%3E%3Ccircle cx='99' cy='327' r='0.9' fill='%23a4c5cf' fill-opacity='0.76'/%3E%3Ccircle cx='223' cy='443' r='0.8' fill='%23a4c5cf' fill-opacity='0.44'/%3E%3Ccircle cx='381' cy='336' r='0.7' fill='%23a4c5cf' fill-opacity='0.3'/%3E%3Ccircle cx='144' cy='238' r='0.8' fill='%23a4c5cf' fill-opacity='0.72'/%3E%3Ccircle cx='138' cy='470' r='0.6' fill='%23a4c5cf' fill-opacity='0.58'/%3E%3Ccircle cx='79' cy='164' r='0.9' fill='%23a4c5cf' fill-opacity='0.52'/%3E%3Ccircle cx='462' cy='37' r='1.1' fill='%23a4c5cf' fill-opacity='0.62'/%3E%3Ccircle cx='420' cy='151' r='1.4' fill='%23a4c5cf' fill-opacity='0.48'/%3E%3Ccircle cx='238' cy='383' r='0.6' fill='%23a4c5cf' fill-opacity='0.8'/%3E%3Ccircle cx='453' cy='228' r='1.4' fill='%23a4c5cf' fill-opacity='0.29'/%3E%3Ccircle cx='351' cy='149' r='1.1' fill='%23a4c5cf' fill-opacity='0.9'/%3E%3Ccircle cx='395' cy='137' r='0.9' fill='%23a4c5cf' fill-opacity='0.83'/%3E%3Ccircle cx='167' cy='452' r='0.8' fill='%23a4c5cf' fill-opacity='0.36'/%3E%3Ccircle cx='56' cy='28' r='0.8' fill='%23a4c5cf' fill-opacity='0.33'/%3E%3Ccircle cx='119' cy='188' r='0.9' fill='%23a4c5cf' fill-opacity='0.3'/%3E%3Ccircle cx='216' cy='264' r='0.7' fill='%23a4c5cf' fill-opacity='0.78'/%3E%3Ccircle cx='415' cy='134' r='0.9' fill='%23a4c5cf' fill-opacity='0.89'/%3E%3Ccircle cx='328' cy='183' r='0.7' fill='%23a4c5cf' fill-opacity='0.35'/%3E%3Ccircle cx='85' cy='111' r='0.7' fill='%23a4c5cf' fill-opacity='0.26'/%3E%3Ccircle cx='399' cy='88' r='0.8' fill='%23a4c5cf' fill-opacity='0.25'/%3E%3Ccircle cx='201' cy='177' r='1.1' fill='%23a4c5cf' fill-opacity='0.46'/%3E%3Ccircle cx='60' cy='412' r='1.1' fill='%23a4c5cf' fill-opacity='0.68'/%3E%3Ccircle cx='355' cy='219' r='1.4' fill='%23a4c5cf' fill-opacity='0.77'/%3E%3Ccircle cx='188' cy='192' r='0.6' fill='%23a4c5cf' fill-opacity='0.56'/%3E%3Ccircle cx='192' cy='91' r='0.7' fill='%23a4c5cf' fill-opacity='0.54'/%3E%3Ccircle cx='53' cy='288' r='0.6' fill='%23a4c5cf' fill-opacity='0.25'/%3E%3Ccircle cx='73' cy='49' r='0.8' fill='%23a4c5cf' fill-opacity='0.65'/%3E%3Ccircle cx='34' cy='100' r='0.9' fill='%23a4c5cf' fill-opacity='0.35'/%3E%3Ccircle cx='121' cy='167' r='0.8' fill='%23a4c5cf' fill-opacity='0.56'/%3E%3Ccircle cx='55' cy='234' r='0.9' fill='%23a4c5cf' fill-opacity='0.56'/%3E%3Ccircle cx='150' cy='69' r='1.4' fill='%23a4c5cf' fill-opacity='0.47'/%3E%3Ccircle cx='127' cy='398' r='0.7' fill='%23a4c5cf' fill-opacity='0.59'/%3E%3Ccircle cx='99' cy='457' r='0.8' fill='%23a4c5cf' fill-opacity='0.35'/%3E%3Ccircle cx='261' cy='13' r='1.1' fill='%23a4c5cf' fill-opacity='0.44'/%3E%3Ccircle cx='309' cy='44' r='0.8' fill='%23a4c5cf' fill-opacity='0.59'/%3E%3Ccircle cx='436' cy='171' r='0.7' fill='%23a4c5cf' fill-opacity='0.6'/%3E%3Ccircle cx='374' cy='158' r='0.7' fill='%23a4c5cf' fill-opacity='0.65'/%3E%3Ccircle cx='378' cy='364' r='0.7' fill='%23a4c5cf' fill-opacity='0.77'/%3E%3Ccircle cx='393' cy='355' r='0.7' fill='%23a4c5cf' fill-opacity='0.38'/%3E%3Ccircle cx='237' cy='351' r='0.6' fill='%23a4c5cf' fill-opacity='0.76'/%3E%3Ccircle cx='227' cy='93' r='1.1' fill='%23a4c5cf' fill-opacity='0.87'/%3E%3Ccircle cx='215' cy='450' r='0.8' fill='%23a4c5cf' fill-opacity='0.87'/%3E%3Ccircle cx='175' cy='106' r='0.7' fill='%23a4c5cf' fill-opacity='0.56'/%3E%3Ccircle cx='162' cy='232' r='1.1' fill='%23a4c5cf' fill-opacity='0.8'/%3E%3Ccircle cx='230' cy='313' r='1.4' fill='%23a4c5cf' fill-opacity='0.31'/%3E%3Ccircle cx='317' cy='437' r='1.4' fill='%23a4c5cf' fill-opacity='0.74'/%3E%3Ccircle cx='229' cy='86' r='1.4' fill='%23a4c5cf' fill-opacity='0.47'/%3E%3Ccircle cx='384' cy='466' r='0.9' fill='%23a4c5cf' fill-opacity='0.55'/%3E%3Ccircle cx='357' cy='41' r='0.7' fill='%23a4c5cf' fill-opacity='0.36'/%3E%3Ccircle cx='61' cy='73' r='0.9' fill='%23a4c5cf' fill-opacity='0.77'/%3E%3Ccircle cx='70' cy='397' r='0.9' fill='%23a4c5cf' fill-opacity='0.68'/%3E%3Ccircle cx='168' cy='263' r='0.7' fill='%23a4c5cf' fill-opacity='0.26'/%3E%3Ccircle cx='384' cy='349' r='0.6' fill='%23a4c5cf' fill-opacity='0.59'/%3E%3Ccircle cx='448' cy='208' r='0.7' fill='%23a4c5cf' fill-opacity='0.79'/%3E%3Ccircle cx='101' cy='121' r='0.8' fill='%23a4c5cf' fill-opacity='0.58'/%3E%3Ccircle cx='367' cy='156' r='1.1' fill='%23a4c5cf' fill-opacity='0.52'/%3E%3Ccircle cx='63' cy='437' r='0.8' fill='%23a4c5cf' fill-opacity='0.83'/%3E%3Ccircle cx='318' cy='391' r='1.1' fill='%23a4c5cf' fill-opacity='0.52'/%3E%3Ccircle cx='441' cy='241' r='1.1' fill='%23a4c5cf' fill-opacity='0.35'/%3E%3Ccircle cx='245' cy='419' r='0.7' fill='%23a4c5cf' fill-opacity='0.65'/%3E%3Cpath d='M361 82 L362.3 85.1 L365 86 L362.3 86.7 L361 90 L360.7 86.7 L357 86 L360.7 85.1 Z' fill='%23a4c5cf' fill-opacity='.85'/%3E%3Cpath d='M82 288 L83.1 291.6 L86 292 L83.1 293.2 L82 296 L81.5 293.2 L78 292 L81.5 291.6 Z' fill='%23a4c5cf' fill-opacity='.85'/%3E%3Cpath d='M73 43 L73.7 46.4 L77 47 L73.7 48.0 L73 51 L72.1 48.0 L69 47 L72.1 46.4 Z' fill='%23a4c5cf' fill-opacity='.85'/%3E%3C/svg%3E"); } }
 body {
   background:
     var(--starfield) 0 0 / 480px 480px,
@@ -432,9 +461,9 @@ body {
   .p3-label.small { display: none; }
 }
 .street .crease { stroke: rgba(10, 12, 30, 0.35); stroke-width: 1; }
-/* By day the town is the same white card and kraft as the paper model on the World page. */
+/* By day the street is pale card on StonkFun's slate teal. */
 @media (prefers-color-scheme: light) {
-  :root { --bldg-far: #b9cbdc; --bldg-mid: #f1e8d4; --bldg-mid-2: #e4d7bb; --bldg-roof: #8b6d4e; --window: #c9d8e6; }
+  :root { --bldg-far: #a4c5cf; --bldg-mid: #f3f8f8; --bldg-mid-2: #d9e6e9; --bldg-roof: #2f4f58; --window: #c6dbe1; }
 }
 @media (max-width: 760px) {
   .street-scroll { scroll-snap-type: x proximity; mask-image: linear-gradient(90deg, #000 88%, transparent); }
