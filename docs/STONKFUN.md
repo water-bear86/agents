@@ -42,7 +42,7 @@ Real launches and real trades of fresh StonkFun coins need changes to `solana/pr
 The program deploy is still waiting on:
 
 - the owner's wallet;
-- about 4.9 SOL for the deployer;
+- about 5.1 SOL for the deployer;
 - the security re-scan (`docs/MAINNET-LAUNCH.md`).
 
 Then `SolanaVaultChain` gets a `launch()` that builds the transaction with StonkFun's live platform accounts.

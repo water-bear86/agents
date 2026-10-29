@@ -259,6 +259,13 @@ pub mod agents {
         let mut floor = 0u64;
         if !is_owner {
             require!(!x.platform.paused, AgentsError::Paused);
+            // Plain SPL Token accounts only. Whitelisted mints are already SPL Token, so this can't
+            // fail today; it keeps Token-2022 extension bytes, which the post-swap checks don't
+            // compare, out of session-key swaps even if the whitelist rule ever changes.
+            require!(
+                *x.vault_input.to_account_info().owner == anchor_spl::token::ID && *x.vault_output.to_account_info().owner == anchor_spl::token::ID,
+                AgentsError::NotWhitelisted
+            );
             let buy = input_mint == NATIVE_MINT;
             // Between SOL and one whitelisted token only, so a session key can never move value into anything else.
             require!(buy || output_mint == NATIVE_MINT, AgentsError::SellsToSolOnly);
@@ -407,14 +414,18 @@ fn oracle_price(update: Option<&Account<PriceUpdateV2>>, feed: &[u8; 32], clock:
 }
 
 /// What `amount_in` is worth on the other side at the oracle prices, less `slippage_bps`.
-/// Prices are USD per whole token as `price * 10^exponent`; SOL has 9 decimals.
+/// Prices are USD per whole token as `price * 10^exponent`; SOL has 9 decimals. Each side is taken
+/// at the edge of its confidence band that favours the vault (what's sold at `price - conf`, what's
+/// bought at `price + conf`), so a wide band tightens the floor instead of loosening it.
 pub fn oracle_floor(amount_in: u64, buy: bool, sol: &Price, token: &Price, decimals: u8, slippage_bps: u16) -> Result<u64> {
     require!(sol.price > 0 && token.price > 0, AgentsError::BadPrice);
+    let low = |p: &Price| (p.price as u128).checked_sub(p.conf as u128).filter(|v| *v > 0).ok_or(AgentsError::BadPrice);
+    let high = |p: &Price| (p.price as u128).checked_add(p.conf as u128).ok_or(AgentsError::BadPrice);
     // buy:  tokens = lamports * sol / token * 10^(decimals - 9);  sell: lamports = tokens * token / sol * 10^(9 - decimals)
     let (p_in, p_out, k) = if buy {
-        (sol.price as u128, token.price as u128, decimals as i32 + sol.exponent - token.exponent - 9)
+        (low(sol)?, high(token)?, decimals as i32 + sol.exponent - token.exponent - 9)
     } else {
-        (token.price as u128, sol.price as u128, token.exponent - sol.exponent + 9 - decimals as i32)
+        (low(token)?, high(sol)?, token.exponent - sol.exponent + 9 - decimals as i32)
     };
     let pow = |e: i32| 10u128.checked_pow(e.unsigned_abs()).ok_or(AgentsError::BadPrice);
     let mut num = (amount_in as u128).checked_mul(p_in).ok_or(AgentsError::BadPrice)?;
@@ -751,6 +762,25 @@ mod tests {
         let bonk = usd(200_000, -10);
         assert_eq!(oracle_floor(100_000_000, true, &sol, &bonk, 5, 0).unwrap(), 750_000 * 100_000);
         assert_eq!(oracle_floor(750_000 * 100_000, false, &sol, &bonk, 5, 0).unwrap(), 100_000_000);
+    }
+
+    #[test]
+    fn oracle_floor_takes_the_cautious_side_of_the_confidence_band() {
+        let conf = |price: i64, conf: u64, exponent: i32| Price { price, conf, exponent, publish_time: 0 };
+        // SOL $150 ± $1.50 (1%), USDC $1 ± $0.01 (1%).
+        let sol = conf(150_00000000, 1_50000000, -8);
+        let usdc = conf(1_00000000, 1_000000, -8);
+        // A buy values the SOL paid at $148.50 and the tokens bought at $1.01: 1 SOL must return at least 147.03 USDC.
+        assert_eq!(oracle_floor(1_000_000_000, true, &sol, &usdc, 6, 0).unwrap(), 147_029_702);
+        // A sell values the tokens sold at $0.99 and the SOL bought at $151.50: 150 USDC must return at least 0.980 SOL.
+        assert_eq!(oracle_floor(150_000_000, false, &sol, &usdc, 6, 0).unwrap(), 980_198_019);
+        // Never looser than the midpoint floor.
+        let mid = |p: &Price| usd(p.price, p.exponent);
+        assert!(oracle_floor(1_000_000_000, true, &sol, &usdc, 6, 300).unwrap() < oracle_floor(1_000_000_000, true, &mid(&sol), &mid(&usdc), 6, 300).unwrap());
+        assert!(oracle_floor(150_000_000, false, &sol, &usdc, 6, 300).unwrap() < oracle_floor(150_000_000, false, &mid(&sol), &mid(&usdc), 6, 300).unwrap());
+        // A band as wide as the price leaves nothing to value the input at: refused, not a zero floor.
+        assert!(oracle_floor(1_000_000_000, true, &conf(150, 150, 0), &usdc, 6, 0).is_err());
+        assert!(oracle_floor(150_000_000, false, &sol, &conf(1, 2, 0), 6, 0).is_err());
     }
 
     #[test]

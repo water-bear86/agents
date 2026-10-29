@@ -21,11 +21,11 @@ The tools:
 
 | | SOL |
 |---|---|
-| Program rent (454 KB), kept as long as the program exists | about 2.36 |
-| Upload buffer, refunded when the deploy completes | about 2.36 |
+| Program rent (472 KB), kept as long as the program exists | about 2.46 |
+| Upload buffer, refunded when the deploy completes | about 2.46 |
 | Platform record and one record per whitelisted token | about 0.002 each |
 | Transaction fees with priority fees | about 0.05 |
-| **Fund the deployer with** | **about 4.9** (what's left goes back to the owner) |
+| **Fund the deployer with** | **about 5.1** (the preflight prints the exact figure; what's left goes back to the owner) |
 
 A later upgrade that makes the program bigger extends it first (`solana program extend`), paying rent for the extra bytes then.
 
@@ -43,7 +43,7 @@ A later upgrade that makes the program bigger extends it first (`solana program 
 ### 1. Settings
 Put the owner's wallet in `owner` in `solana/mainnet.config.json`, and review the whitelist and oracle settings. Starting values:
 - **Whitelist:** JUP, WIF, TRUMP, FARTCOIN, BONK and MEW. Each is a plain SPL token with a live Pyth feed and over $1M of liquidity (checked October 2026). BONK and MEW have 5 decimals, the others 6.
-- **Oracle:** prices at most 60 s old, fills at most 3% below them. The program caps these at 120 s and 5%.
+- **Oracle:** prices at most 90 s old, fills at most 3% below them. The program caps these at 120 s and 5%. Token feeds update about every 53 s, so 60 s would refuse trades that land just before an update; 90 s is the owner's call (see `solana/AUDIT.md` for what a longer window costs).
 
 ### 2. Reproducible build
 Mainnet gets a build anyone can check against the public source. This needs Docker and `solana-verify`.
