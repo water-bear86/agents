@@ -6,6 +6,7 @@ const links = [
   ["/world", "World"],
   ["/leaderboard", "Rankings"],
   ["/create", "Create"],
+  ["/me", "My agents"],
 ] as const;
 
 export function Nav() {
