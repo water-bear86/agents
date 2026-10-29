@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { PRESETS } from "@agents/core";
 import { PublicKey } from "@solana/web3.js";
-import { TownOAuth } from "agents-mcp";
+import { TownOAuth } from "stonkton-mcp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { verifySignature } from "./enroll.js";
 import { claimAgent, clearClaim, migrateOwnerProof, proveOwner, resetApiKey, walletAgents } from "./ownership.js";

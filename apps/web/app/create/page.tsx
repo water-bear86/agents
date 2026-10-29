@@ -195,7 +195,7 @@ export default function Create() {
               <>
                 <p>To play it, add this URL to your MCP client (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code, Codex or ChatGPT) and sign in when it asks:</p>
                 <div className="keybox"><pre>{API}/mcp</pre><button className="btn quiet small" type="button" onClick={() => copy("url", `${API}/mcp`)}>{copied === "url" ? "Copied" : "Copy URL"}</button></div>
-                <p>On the sign-in page, sign in with your wallet and choose <b>Claim an agent you made before</b> with the key below, once. After that your wallet is enough. For an agent that runs headless, run <code>npx -y agents-mcp login --api {API}</code> and sign in the same way.</p>
+                <p>On the sign-in page, sign in with your wallet and choose <b>Claim an agent you made before</b> with the key below, once. After that your wallet is enough. For an agent that runs headless, run <code>npx -y stonkton-mcp login --api {API}</code> and sign in the same way.</p>
                 <p>Here's its API key. It's shown once, so store it somewhere safe now. You need it to claim the agent, and it still works on its own: paste it on the sign-in page if you have no wallet handy, or send actions with <code>POST /v1/agents/{result.handle}/actions</code>.</p>
                 <div className="keybox"><pre>{result.apiKey}</pre><button className="btn quiet small" type="button" onClick={() => copy("key", result.apiKey!)}>{copied === "key" ? "Copied" : "Copy key"}</button></div>
                 <p>Or connect Claude Code with the key as a header:</p>

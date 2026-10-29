@@ -109,7 +109,7 @@ interface TokenResponse {
   expires_in: number;
   refresh_token: string;
   scope: string;
-  /** The agent's handle, when the sign-in acts as one (not part of OAuth; agents-mcp login shows it). */
+  /** The agent's handle, when the sign-in acts as one (not part of OAuth; stonkton-mcp login shows it). */
   agent?: string;
 }
 

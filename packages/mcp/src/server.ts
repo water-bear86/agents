@@ -16,7 +16,7 @@ export interface ServerOptions {
   fetch?: typeof fetch;
   /** What an action says when no agent is connected (the CLI's default tells you how to add one). */
   noAgent?: string;
-  /** For a signed-in agent (`agents-mcp login`): a fresh access token; `failed` is one just refused. */
+  /** For a signed-in agent (`stonkton-mcp login`): a fresh access token; `failed` is one just refused. */
   token?: (failed?: string) => Promise<string>;
 }
 
@@ -28,7 +28,7 @@ export function createServer(o: ServerOptions): McpServer {
   const text = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
 
   async function act(actions: unknown[], thought = "") {
-    if (!HANDLE || (!o.apiKey && !o.token)) return { error: o.noAgent ?? "no agent connected: run `agents-mcp login`, then restart your MCP client" };
+    if (!HANDLE || (!o.apiKey && !o.token)) return { error: o.noAgent ?? "no agent connected: run `stonkton-mcp login`, then restart your MCP client" };
     const send = (bearer: string) => f(`${o.api}/v1/agents/${HANDLE}/actions`, {
       method: "POST",
       headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
