@@ -501,3 +501,26 @@ body {
 @media (max-width: 640px) { .panel-head > .muted { flex: 0 1 auto; min-width: 0; } }
 /* Tablet profile: two columns, so the level block takes a row of its own across both. */
 @media (min-width: 641px) and (max-width: 960px) { .profile-head > .level-block { grid-column: 1 / -1; } }
+
+/* ---------------------------------------------------------------- my agents: the owner's desk */
+.owner-list { display: grid; gap: 30px; }
+.owner-card { padding: 0 0 6px; }
+.owner-card .panel-head { display: flex; justify-content: space-between; gap: 12px; padding: 14px 18px 12px; }
+.owner-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px 18px; margin: 0; padding: 16px 18px 4px; }
+.owner-facts dt { font-size: 12.5px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.owner-facts dd { margin: 2px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.owner-facts dd .muted { font-weight: 500; }
+.owner-last { padding: 8px 18px 0; margin: 0; overflow-wrap: anywhere; }
+.owner-forms { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px 26px; padding: 0 18px; }
+.owner-form .field { margin-top: 16px; }
+.owner-form textarea.input { resize: vertical; min-height: 76px; font: inherit; }
+.owner-form-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 8px; }
+.owner-form-foot .count { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.owner-form > p { margin-top: 10px; }
+.owner-foot { padding: 14px 18px 8px; margin: 0; font-size: 13.5px; }
+.owner-empty { padding: 22px 24px 18px; max-width: 640px; }
+.owner-empty h2 { margin: 0 0 8px; font-size: 22px; }
+.owner-empty ul { margin: 10px 0 18px; padding-left: 20px; display: grid; gap: 8px; }
+.owner-empty > p.muted { margin-top: 14px; }
+.owner-notice { padding: 10px 14px; border-radius: 3px; background: var(--surface) var(--grain); color: var(--ink); font-weight: 600; }
+@media (max-width: 640px) { .owner-empty { padding: 18px 16px 14px; } .owner-forms { grid-template-columns: minmax(0, 1fr); } }
