@@ -16,7 +16,7 @@ import { SignIn } from "./session.js";
 
 // Signing in without pasting a key: a Solana wallet on the sign-in page (pick an agent it provably
 // owns, create one, or claim an old one with its key), the device flow for headless agents, and
-// `agents-mcp login` on top of it. Wallets are ed25519 keys generated here, signing exactly what the
+// `stonkton-mcp login` on top of it. Wallets are ed25519 keys generated here, signing exactly what the
 // page asks a wallet extension to sign.
 
 // ---------------------------------------------------------------- wallets
@@ -338,7 +338,7 @@ describe("wallet sign-in", () => {
 
 describe("device flow (RFC 8628)", () => {
   async function deviceClient() {
-    const reg = (await (await fetch(`${base}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "agents-mcp on laptop", grant_types: [DEVICE_GRANT, "refresh_token"], token_endpoint_auth_method: "none" }) })).json()) as any;
+    const reg = (await (await fetch(`${base}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "stonkton-mcp on laptop", grant_types: [DEVICE_GRANT, "refresh_token"], token_endpoint_auth_method: "none" }) })).json()) as any;
     expect(reg.client_id).toBeTruthy();
     return reg.client_id as string;
   }
@@ -378,7 +378,7 @@ describe("device flow (RFC 8628)", () => {
     const landing = await (await fetch(d.verification_uri_complete)).text();
     expect(landing).toContain(`value="${d.user_code}"`);
     const page = await ownerEnters(d.user_code);
-    expect(page.html).toContain("agents-mcp on laptop");
+    expect(page.html).toContain("stonkton-mcp on laptop");
     expect(page.html).toContain(d.user_code);
     const f = formFields(page.html);
     f.set("decision", "key");
@@ -455,9 +455,9 @@ describe("device flow (RFC 8628)", () => {
   });
 });
 
-// ---------------------------------------------------------------- agents-mcp login
+// ---------------------------------------------------------------- stonkton-mcp login
 
-describe("agents-mcp login", () => {
+describe("stonkton-mcp login", () => {
   function io(home: string, onWait: () => Promise<void>) {
     const out: string[] = [];
     const err: string[] = [];

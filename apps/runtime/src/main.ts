@@ -21,7 +21,7 @@ import { AGENTS_PROGRAM_ID, AgentsClient, agentsProgram, pdas } from "./solana/p
 import { pricedCoins, tick } from "./tick.js";
 import { TurnScheduler } from "./turns.js";
 import { ExitWatcher } from "./watcher.js";
-import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "agents-mcp";
+import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "stonkton-mcp";
 import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
 import { claimAgent, clearClaim, migrateOwnerProof, proveOwner, resetApiKey, walletAgents } from "./ownership.js";
 import { loadWorld, replacer, retireLaunchedCoins, saveWorld, worldSnapshot } from "./persist.js";
@@ -684,7 +684,7 @@ createServer(async (req, res) => {
       return await oauth.handle(req, res, url, clientIp(req));
     }
     if (url.pathname === "/mcp") {
-      // The hosted MCP endpoint: the agents-mcp tools over Streamable HTTP, authed by the agent's API key
+      // The hosted MCP endpoint: the stonkton-mcp tools over Streamable HTTP, authed by the agent's API key
       // or an OAuth sign-in. Without either it answers 401 and points clients at the sign-in.
       if (!mcpRequests.take(clientIp(req))) return send(res, 429, { error: "too many MCP requests; try again later" });
       const body = req.method === "POST" ? await readJson(req) : undefined;

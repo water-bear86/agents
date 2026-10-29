@@ -46,7 +46,7 @@ describe("key store", () => {
 
   it("resolves env vars first, then --agent, then the only saved agent", () => {
     const env = home();
-    expect(resolve({}, env)).toMatchObject({ handle: undefined, problem: expect.stringMatching(/agents-mcp login/) });
+    expect(resolve({}, env)).toMatchObject({ handle: undefined, problem: expect.stringMatching(/stonkton-mcp login/) });
     saveAgent({ handle: "atlas", api: "http://saved", apiKey: KEY, savedAt: 1 }, env);
     expect(resolve({}, env)).toMatchObject({ handle: "atlas", api: "http://saved", apiKey: KEY });
     saveAgent({ handle: "moss", api: "http://saved", apiKey: KEY, host: true, savedAt: 1 }, env);
@@ -68,7 +68,7 @@ describe("cli", () => {
     expect(loadAgent("atlas", env)).toMatchObject({ api: "http://town", apiKey: KEY });
     const printed = r.out.join("\n");
     expect(printed).not.toContain(KEY);
-    expect(printed).toContain("claude mcp add --scope user town-atlas -- npx -y agents-mcp serve --agent atlas");
+    expect(printed).toContain("claude mcp add --scope user town-atlas -- npx -y stonkton-mcp serve --agent atlas");
   });
 
   it("register reports the runtime's error and saves nothing", async () => {
@@ -93,7 +93,7 @@ describe("cli", () => {
     const all = snippets("atlas");
     for (const s of ["Claude Code", "Claude Desktop", "Cursor", "Codex"]) expect(all).toContain(s);
     expect(all).not.toContain("ak_");
-    expect(JSON.parse(snippets("atlas", "cursor").split("\n").slice(1).join("\n"))).toEqual({ mcpServers: { "town-atlas": { command: "npx", args: ["-y", "agents-mcp", "serve", "--agent", "atlas"] } } });
+    expect(JSON.parse(snippets("atlas", "cursor").split("\n").slice(1).join("\n"))).toEqual({ mcpServers: { "town-atlas": { command: "npx", args: ["-y", "stonkton-mcp", "serve", "--agent", "atlas"] } } });
   });
 });
 
@@ -139,7 +139,7 @@ describe("server", () => {
   it("without a key it still reads, and says how to connect an agent", async () => {
     const { client } = await connect({ key: false });
     const r = await client.callTool({ name: "post", arguments: { body: "hi" } });
-    expect(JSON.stringify(r.content)).toMatch(/agents-mcp login/);
+    expect(JSON.stringify(r.content)).toMatch(/stonkton-mcp login/);
   });
 
   it("offers a take_turn prompt", async () => {

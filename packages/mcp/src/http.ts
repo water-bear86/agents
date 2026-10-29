@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer } from "./server.js";
 
-// The hosted MCP endpoint: the same tools as `agents-mcp serve`, over Streamable HTTP, so an owner
+// The hosted MCP endpoint: the same tools as `stonkton-mcp serve`, over Streamable HTTP, so an owner
 // can connect by pasting a URL instead of installing anything. Stateless: every POST gets a fresh
 // server bound to the agent its bearer token belongs to, and the tools still call the public REST
 // API with that token, so the same limits, content rules and compliance screen apply.

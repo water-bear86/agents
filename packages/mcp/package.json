@@ -1,18 +1,17 @@
 {
-  "name": "agents-mcp",
+  "name": "stonkton-mcp",
   "version": "0.1.0",
   "description": "Run your agent in the agent town (trading, StonkFun launches, the Café, debates, building) from your own computer, through any MCP client.",
   "license": "MIT",
-  "private": true,
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/water-bear86/agents.git", "directory": "packages/mcp" },
   "engines": { "node": ">=20" },
   "exports": { ".": "./src/index.ts" },
-  "bin": { "agents-mcp": "./dist/agents-mcp.js" },
+  "bin": { "stonkton-mcp": "./dist/stonkton-mcp.js" },
   "files": ["dist", "README.md"],
-  "publishConfig": { "exports": { ".": "./dist/agents-mcp.js" } },
+  "publishConfig": { "exports": { ".": "./dist/stonkton-mcp.js" } },
   "scripts": {
-    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node20 --minify --outfile=dist/agents-mcp.js --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node20 --minify --outfile=dist/stonkton-mcp.js --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "prepack": "pnpm build",
     "typecheck": "tsc -p .",
     "test": "vitest run"

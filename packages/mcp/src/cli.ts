@@ -10,10 +10,10 @@ import { SignIn } from "./session.js";
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
 /** The npm package name: what owners type after `npx -y`. */
-export const PKG = "agents-mcp";
+export const PKG = "stonkton-mcp";
 const STYLES = ["sniper", "momentum", "scalper", "conviction", "contrarian"];
 
-const HELP = `agents-mcp ${VERSION}: run your agent in the town from your own computer, through any MCP client.
+const HELP = `stonkton-mcp ${VERSION}: run your agent in the town from your own computer, through any MCP client.
 
   npx -y ${PKG} login
       Sign in: open the link it prints, sign in with your wallet (or make a new agent there), and the
@@ -89,7 +89,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
         });
         return { ok: r.ok, status: r.status, d: (await r.json().catch(() => ({}))) as Record<string, any> };
       };
-      const reg = await post("/oauth/register", { client_name: `agents-mcp on ${hostname().slice(0, 60)}`, grant_types: [DEVICE_GRANT, "refresh_token"], token_endpoint_auth_method: "none" }, true);
+      const reg = await post("/oauth/register", { client_name: `stonkton-mcp on ${hostname().slice(0, 60)}`, grant_types: [DEVICE_GRANT, "refresh_token"], token_endpoint_auth_method: "none" }, true);
       if (!reg.ok || !reg.d.client_id) { io.err(`Couldn't start signing in on ${api}: ${reg.d.error_description ?? reg.d.error ?? `HTTP ${reg.status}`}`); return 1; }
       const clientId = String(reg.d.client_id);
       const dev = await post("/oauth/device_authorization", { client_id: clientId, scope: "read act" });
@@ -104,7 +104,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
         const t = await post("/oauth/token", { grant_type: DEVICE_GRANT, device_code: String(dev.d.device_code), client_id: clientId });
         if (t.ok && t.d.access_token) {
           const handle = String(t.d.agent ?? "");
-          if (!validHandle(handle)) { io.err("You signed in read-only (Just look around). To play an agent, run `agents-mcp login` again and choose one."); return 1; }
+          if (!validHandle(handle)) { io.err("You signed in read-only (Just look around). To play an agent, run `stonkton-mcp login` again and choose one."); return 1; }
           io.out(`Signed in as @${handle} on ${api}.`);
           save({ handle, api, oauth: { clientId, refreshToken: String(t.d.refresh_token), accessToken: String(t.d.access_token), expiresAt: Date.now() + Number(t.d.expires_in ?? 3600) * 1000 }, host: o.host || undefined, savedAt: Date.now() });
           return 0;
@@ -112,7 +112,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
         const e = String(t.d.error ?? "");
         if (e === "authorization_pending" && Date.now() < deadline) continue;
         if (e === "slow_down") { interval += 5; continue; }
-        io.err(e === "access_denied" ? "Sign-in cancelled." : e === "expired_token" || e === "authorization_pending" ? "The code expired before anyone signed in. Run `agents-mcp login` again." : `Couldn't sign in: ${t.d.error_description ?? (e || `HTTP ${t.status}`)}`);
+        io.err(e === "access_denied" ? "Sign-in cancelled." : e === "expired_token" || e === "authorization_pending" ? "The code expired before anyone signed in. Run `stonkton-mcp login` again." : `Couldn't sign in: ${t.d.error_description ?? (e || `HTTP ${t.status}`)}`);
         return 1;
       }
     }
@@ -132,7 +132,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     }
     case "add": {
       const handle = o.handle ?? arg ?? "";
-      if (!validHandle(handle)) { io.err("usage: agents-mcp add <handle>"); return 1; }
+      if (!validHandle(handle)) { io.err("usage: stonkton-mcp add <handle>"); return 1; }
       const apiKey = (await io.secret(`API key for @${handle}: `)).trim();
       if (!/^ak_[0-9a-f]{48}$/.test(apiKey)) { io.err("That doesn't look like an API key (they start with ak_)."); return 1; }
       const r = await io.fetch(`${api}/v1/agents/${handle}`);
@@ -154,7 +154,7 @@ export async function main(argv: string[], io: Io): Promise<number> {
     case "serve": {
       const r = resolve({ agent: o.agent ?? arg, api: o.api }, io.env);
       // stdout carries the MCP protocol, so everything else goes to stderr.
-      io.err(r.handle ? `[agents-mcp] serving @${r.handle} on ${r.api}` : `[agents-mcp] read-only, ${r.problem}`);
+      io.err(r.handle ? `[stonkton-mcp] serving @${r.handle} on ${r.api}` : `[stonkton-mcp] read-only, ${r.problem}`);
       const signIn = r.saved && new SignIn(r.saved, { env: io.env, fetch: io.fetch });
       const server = createServer({ api: r.api, handle: r.handle, apiKey: r.apiKey, token: signIn ? (failed) => signIn.token(failed) : undefined, host: r.host || !!o.host, fetch: io.fetch });
       await server.connect(new StdioServerTransport());

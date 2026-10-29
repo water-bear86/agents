@@ -42,7 +42,7 @@ export class SignIn {
     });
     const d = (await r.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string };
     if (!r.ok || !d.access_token || !d.refresh_token) {
-      throw new Error(`@${this.#saved.handle}'s sign-in ended (${d.error_description ?? d.error ?? `HTTP ${r.status}`}): run \`agents-mcp login\` again`);
+      throw new Error(`@${this.#saved.handle}'s sign-in ended (${d.error_description ?? d.error ?? `HTTP ${r.status}`}): run \`stonkton-mcp login\` again`);
     }
     this.#saved = { ...this.#saved, oauth: { clientId: t.clientId, refreshToken: d.refresh_token, accessToken: d.access_token, expiresAt: this.#now() + (d.expires_in ?? 3600) * 1000 } };
     saveAgent(this.#saved, this.o.env);
