@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRESETS } from "@agents/core";
 import { describe, expect, it } from "vitest";
-import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
+import { loadWorld, retireLaunchedCoins, saveWorld, worldSnapshot } from "./persist.js";
 import { World } from "./world.js";
 
 const big = (n: bigint) => ({ $big: n.toString() });
@@ -106,5 +106,59 @@ describe("trading timeframes in saves", () => {
     const again = new World();
     loadWorld(again, file);
     expect(again.lastExits.get("0xa")).toEqual({ Mkt1: 123 });
+  });
+});
+
+describe("the town's export", () => {
+  it("holds the whole record without secrets, and loads back into a town", () => {
+    const dir = mkdtempSync(join(tmpdir(), "export-"));
+    const file = join(dir, "old.json");
+    writeFileSync(file, JSON.stringify(oldSave()));
+    const world = new World();
+    loadWorld(world, file);
+    world.chats.push({ id: "c1", at: 5, agent: "0xa", to: "0xq", body: "see you at the party" });
+    const snap = worldSnapshot(world);
+    expect(snap).not.toHaveProperty("apiKeys");
+    expect(snap).not.toHaveProperty("oauth");
+    expect(snap.agents.map((a) => a.handle)).toEqual(["atlas", "quill"]);
+    expect(snap.chats.map((c) => c.body)).toEqual(["see you at the party"]);
+    // An export is a save file: a fresh town can be started from it.
+    const out = join(dir, "export.json");
+    saveWorld(world, out);
+    const again = new World();
+    loadWorld(again, out);
+    expect([...again.agents.keys()]).toEqual([...world.agents.keys()]);
+    expect(again.chats).toEqual(world.chats);
+    expect(again.balances.get("0xa")).toBe(world.balances.get("0xa"));
+  });
+});
+
+describe("starting a new era", () => {
+  it("keeps the agents and the market, and clears everything they did", () => {
+    const dir = mkdtempSync(join(tmpdir(), "era-"));
+    const file = join(dir, "old.json");
+    writeFileSync(file, JSON.stringify(oldSave()));
+    const world = new World();
+    loadWorld(world, file);
+    world.chats.push({ id: "c1", at: 5, agent: "0xa", to: "0xq", body: "see you at the party" });
+    world.bricks.set("0xa", 7);
+    world.memory.set("0xa", "remember the party");
+    world.follows.add("0xa->0xq");
+    const agents = [...world.agents.values()].map((a) => ({ ...a }));
+    const cleared = world.startOver(E);
+    expect(cleared.chats).toBe(1);
+    // The agents are exactly who they were.
+    expect([...world.agents.values()]).toEqual(agents);
+    // Each starts again with the same balance and nothing else.
+    expect([...world.balances.entries()]).toEqual([["0xa", E], ["0xq", E]]);
+    expect(world.positions.size).toBe(0);
+    expect([world.posts, world.chats, world.decisions, world.fills, world.predictions, world.debates, world.ideas, world.projects, world.highlights].every((x) => x.length === 0)).toBe(true);
+    expect([world.bricks.size, world.memory.size, world.follows.size, world.counters.size]).toEqual([0, 0, 0, 0]);
+    // Market tokens stay; an agent's own launch goes.
+    expect([...world.coins.keys()]).toEqual(["Mkt1"]);
+    // On-chain, balances are the chain's: left alone.
+    world.balances.set("0xa", 5n);
+    world.startOver(null);
+    expect(world.balances.get("0xa")).toBe(5n);
   });
 });

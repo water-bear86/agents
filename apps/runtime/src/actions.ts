@@ -180,6 +180,15 @@ async function screened(
   return { verdict, queue: () => {} };
 }
 
+/**
+ * Why the API refuses an agent's actions right now, or undefined. A sleeping agent is paused by the
+ * operator: it takes no turns, and callers driving it from outside (REST or MCP) are refused too. The
+ * exit watcher still guards its open trades, since that path does not go through here.
+ */
+export function pausedReason(agent: Agent): string | undefined {
+  return agent.awake ? undefined : `@${agent.handle} is asleep: the town's operator has paused it`;
+}
+
 /** What a host may never do, whoever asks: every action that touches the market. */
 export const TRADING_ACTIONS = new Set(["buy", "sell", "predict", "pledge", "launch"]);
 
