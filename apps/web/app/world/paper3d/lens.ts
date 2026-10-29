@@ -17,6 +17,8 @@ export interface LensOpts {
   aoRadius: number;
   /** Blur at the very top and bottom of the frame, in pixels; 0 for none. */
   blur: number;
+  /** Ambient-occlusion samples per pixel: fewer is cheaper and a little noisier. */
+  aoSamples?: number;
 }
 
 export class PaperLens {
@@ -29,7 +31,7 @@ export class PaperLens {
     this.composer = new EffectComposer(renderer);
     this.composer.addPass(new RenderPass(scene, camera));
     this.#ao = new GTAOPass(scene, camera, 512, 512);
-    this.#ao.updateGtaoMaterial({ radius: opts.aoRadius, distanceExponent: 1.35, thickness: 1.15, scale: 1.45, samples: 12 });
+    this.#ao.updateGtaoMaterial({ radius: opts.aoRadius, distanceExponent: 1.35, thickness: 1.15, scale: 1.45, samples: opts.aoSamples ?? 8 });
     this.#ao.blendIntensity = 1.05;
     this.composer.addPass(this.#ao);
     if (opts.blur > 0) {
