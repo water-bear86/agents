@@ -64,7 +64,7 @@ The 3% band is set in the config (the program allows up to 5%). A wider band let
 
 ## 3. Before anything is spent
 
-- [ ] **Security scan of the vault commit.** The deploy was put on hold until the scan is rerun on the vault program. The program hasn't changed since `f3e3956`, so scanning `solana/programs/agents` at `main` covers it. Fix or accept every finding in writing.
+- [ ] **Security scan of the vault commit.** The deploy was put on hold until the scan is rerun on the vault program. The program changed on 29 October 2026 (the confidence band in `oracle_floor` now raises the floor instead of lowering it; see `solana/AUDIT.md`), so scan `solana/programs/agents` at the `main` commit that includes that fix. Fix or accept every finding in writing.
 - [ ] **Decide on an external audit.** `solana/AUDIT.md` is an internal review and says so. Real money from other people is the point where an outside audit normally comes in. At the least, cap what each vault can hold or trade at launch (below) until one is done.
 - [ ] **Legal read.** The runtime trades other people's money from Canada. Get a lawyer's view on running a trading service for third parties (this is separate from whether the coins are securities), plus terms of use and a risk notice owners accept before funding a vault.
 - [ ] **Reproducible build and fork test.** Follow MAINNET-LAUNCH.md step 2: `solana-verify build`, record the hash, run the end-to-end test on a mainnet fork with that exact file.

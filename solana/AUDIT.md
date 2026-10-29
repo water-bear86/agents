@@ -40,7 +40,14 @@ Out of scope, but the program depends on them:
   - one side SOL and the other a whitelisted token
   - fresh Pyth prices for SOL (a fixed feed id) and the token
 
-  The prices must come from Pyth's own sponsored feed accounts, not from an update account anyone could create with a price of their choosing. Anyone can post a newer signed price to a sponsored account, but never an older one, so a session key can choose its moment only within the `max_age` window. Prices must be fully verified, at most `max_age` old (90 s planned for mainnet), with a confidence band within 2% of the price. What the vault gives is valued at the bottom of its band and what it gets at the top, which gives `floor = fair value × (1 − max_slippage)`.
+  The prices must come from Pyth's own sponsored feed accounts, not from an update account anyone could create with a price of their choosing. Anyone can post a newer signed price to a sponsored account, but never an older one, so a session key can choose its moment only within the `max_age` window. Prices must be fully verified, at most `max_age` old (90 s planned for mainnet), with a confidence band within 2% of the price. What the vault gives is valued at the top of its band (`price + conf`) and what it gets at the bottom (`price - conf`), so fair value is the most the band says the input could be worth, and `floor = fair value × (1 − max_slippage)`. A wider band raises the floor; it never lowers it.
+
+  **What the band costs in slippage.** A band of b% on each side raises fair value by about 2b% over the midpoint (exactly `(1 + b_in) / (1 − b_out)`), so it uses about 2b% of the slippage allowance. With 300 bps allowed:
+  - SOL and the listed tokens: bands measured at 0.2% at most (docs/REAL-MONEY-LAUNCH.md), so about 0.4% is used and about 2.6% is left for the route's pool fee and price impact. On 29 October 2026 the live sponsored feeds read SOL 0.085% and JUP, WIF, TRUMP, FARTCOIN, BONK and MEW 0.04% to 0.12%, so about 0.1% to 0.2% was used.
+  - MEW: measured up to 0.45%, so with SOL at 0.2% about 0.65% is used and about 2.35% is left.
+  - Bands at the 2% limit on both sides would use about 4%, more than the allowance, so every session-key swap is refused until the bands narrow. That fails safe, but it also blocks stop-loss exits in a disorderly market; the owner can still trade.
+
+  A direct Jupiter route on an open AMM normally fills within a pool fee (0.25% to 1%) plus a little price impact of the live price, so 300 bps still lets normal trades through.
 - For a session-key buy, the caps apply.
 
 **After the CPI:**
@@ -51,7 +58,7 @@ Out of scope, but the program depends on them:
 
 ## What a stolen session key can do
 
-It can trade at up to `max_slippage_bps` (300 bps on mainnet) worse than the cautious edge of a sponsored oracle price, which includes sandwiching its own trades. That price can be up to `max_age` old, and the key picks the moment, so against the live market a trade can also lose however far the token moved in its favour since that price. On a fast memecoin that can be a few percent within 90 s.
+It can trade at up to `max_slippage_bps` (300 bps on mainnet) worse than the cautious edge of a sponsored oracle price (the edge that asks most of the trade, so never more than 3% below the midpoint, and less the wider the band), which includes sandwiching its own trades. That price can be up to `max_age` old, and the key picks the moment, so against the live market a trade can also lose however far the token moved in its favour since that price. On a fast memecoin that can be a few percent within 90 s.
 
 - **Sells have no cap.** The key can sell all of an agent's tokens back to SOL at once, at the floor.
 - **Buys are capped.** The rolling cap refills `daily_limit` per day, so up to about twice `daily_limit` can be spent in any 24 hours. What it buys can be sold straight back, so each capped buy can lose the margin twice.
@@ -86,7 +93,14 @@ Ways to tighten this later, each a program change: a session-key sell cap measur
 
 A clean build from a fresh copy of the commit gave the same bytes. Any change under `programs/` or to `Cargo.lock` changes the hash; rebuild and record it again.
 
-**`apps/runtime/src/solana/e2e.ts`: 37 checks** (37 of 37 passed on 27 October 2026 on a fresh Surfpool fork running exactly the build above)
+**Rebuild after the confidence-band correction (29 October 2026).** The hashes above and the 37-check result below were for the program before the correction (see "Correction, 29 October 2026"). That change alters `oracle_floor`, so both were redone on the corrected source with the same tools and image:
+- executable hash: `5f708ece8134ae8ccc8472e534bb58b6bb6c1e2f44f562a2421ba279d3400a8b`
+- file sha256: `902a8966e124c2be6d044701f7205e9a14cf16f0af2d715779542661b74f0bdb`, 483,936 bytes
+- fork run: that exact file deployed to a fresh Surfpool fork (`solana-verify get-program-hash` on the fork matched), then `solana:e2e`: 37 of 37 passed, including the real Jupiter buys and sells with the tighter floor.
+
+These are the hashes to deploy. Any further change under `programs/` or to `Cargo.lock` before deploy means redoing both (docs/MAINNET-LAUNCH.md step 2).
+
+**`apps/runtime/src/solana/e2e.ts`: 37 checks** (37 of 37 passed on 27 October 2026 on the original build, and again on 29 October 2026 on the corrected build, each on a fresh Surfpool fork running exactly that file)
 - Runs on a local mainnet fork (Surfpool), so it uses mainnet's real Jupiter, pools and Pyth accounts. Our program is deployed locally.
 - Setup: only the upgrade authority can set up the platform, and only the admin can whitelist.
 - Admin handover: a proposed admin has no power until it accepts, and only it can accept. The website reads the platform record and the whitelist the same way Anchor does.
@@ -134,11 +148,11 @@ A clean build from a fresh copy of the commit gave the same bytes. Any change un
 
 ## Security review, 27 October 2026 (before mainnet)
 
-A full review of `programs/agents` at commit `eaf462d` (program unchanged since `f3e3956`): two independent reviews of the code (the swap path; the oracle, roles and owner paths), cargo-audit and osv-scanner on `Cargo.lock`, and gitleaks on the repository. No Critical or High findings.
+A full review of `programs/agents` at commit `eaf462d` (program unchanged since `f3e3956`; `oracle_floor` was corrected afterwards, see the correction below): two independent reviews of the code (the swap path; the oracle, roles and owner paths), cargo-audit and osv-scanner on `Cargo.lock`, and gitleaks on the repository. No Critical or High findings.
 
 | # | Severity | Finding | Outcome |
 |---|---|---|---|
-| 1 | Medium | The floor used Pyth's midpoint price, so a confidence band up to 2% wide loosened it, and the documented worst case left out the price's age, uncapped sells and round trips. | **Fixed:** each side is valued at the cautious edge of its band (`oracle_floor`, unit test `oracle_floor_takes_the_cautious_side_of_the_confidence_band`). **Documented:** the age window and uncapped sells, in "What a stolen session key can do". A sell cap or a shorter price age is the owner's call. |
+| 1 | Medium | The floor used Pyth's midpoint price, so a confidence band up to 2% wide loosened it, and the documented worst case left out the price's age, uncapped sells and round trips. | **Fixed (corrected 29 October 2026):** each side is valued at the cautious edge of its band: the input at `price + conf`, the output at `price - conf` (`oracle_floor`, unit test `oracle_floor_takes_the_cautious_side_of_the_confidence_band`, which now requires the banded floor to be above the midpoint floor). The first fix used the opposite edges, which lowered the floor; see the correction below. **Documented:** the age window and uncapped sells, in "What a stolen session key can do". A sell cap or a shorter price age is the owner's call. |
 | 2 | Low | Session-key swaps relied on the whitelist alone to keep Token-2022 accounts out; the post-swap checks compare only the base 165 bytes of the accounts traded. | **Fixed:** session-key swaps require plain SPL Token accounts. It can't fail today, so no test can reach it; the end-to-end swaps confirm it lets normal trades through. |
 | 3 | Low | A route can use the vault's forwarded signature on a third party's token account that names the vault as delegate. | **Accepted:** not the vault's money, and the net checks hold. Documented above. |
 | 4 | Low | The session key can close empty vault token accounts while paused. | **Accepted:** rent goes to the vault; griefing only. Documented above. |
@@ -148,6 +162,12 @@ A full review of `programs/agents` at commit `eaf462d` (program unchanged since 
 | 8 | Info | Dependency advisories: borsh 0.10.4 (RUSTSEC-2023-0033, zero-sized types), block-buffer (panic), bincode and libsecp256k1 (unmaintained), rand 0.7.3 (unsound with a custom logger). All arrive through anchor-lang, solana-program and pythnet-sdk. | **Accepted:** none is reachable from the program (it deserialises no zero-sized types and uses no randomness). They go away with the next Anchor and Pyth SDK upgrades. |
 
 What the reviews checked and found sound: the `route` discriminator (no other Jupiter instruction shares it) and its account and argument offsets; the trailing-bytes behaviour, contained by measuring what left the vault; account confusion (same mint or account on both sides, non-ATA vault accounts, repeated route accounts, a forged whitelist entry); the wrap step and caps; what a route can do with the vault's signature (transfers, rent, reassigning the vault, delegates, closing); reentrancy (refused by the runtime); Pyth verification level, feed id and account pinning; the floor's exponents, rounding and overflow; `init_platform`'s upgrade-authority check; the two-step admin handover; owner withdrawals and Token-2022 transfer hooks.
+
+## Correction, 29 October 2026: confidence band direction
+
+The first fix for finding 1 took the edges the wrong way round. It valued what the vault gives at `price - conf` and what it gets at `price + conf`, and the floor is `amount_in × p_in / p_out`, so both choices lowered the floor below the midpoint one. Its unit test asserted that (1 SOL at $150 ± 1% had to return only 147.03 USDC, banded floor below midpoint) while its comment said "never looser". With `MAX_CONFIDENCE_BPS` at 200, a stolen session key could fill about `max_slippage` plus twice the band (about 7%) below the market instead of 3%.
+
+The program was not deployed to mainnet with this code. The corrected `oracle_floor` takes the input at `price + conf` and the output at `price - conf`, still refuses a band as wide as the price (on either side), and its unit test now expects 153.03 USDC for that buy and 1.020 SOL for the matching sell, and checks the banded floor is above the midpoint floor with and without slippage. The HyperEVM port (`hyper/src/PriceFloor.sol`, `test_confidenceBandTightensTheFloor` in water-bear86/agents-hyper) takes the same direction.
 
 ## Ask the auditor to look hardest at
 

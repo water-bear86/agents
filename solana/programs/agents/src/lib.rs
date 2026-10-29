@@ -415,17 +415,20 @@ fn oracle_price(update: Option<&Account<PriceUpdateV2>>, feed: &[u8; 32], clock:
 
 /// What `amount_in` is worth on the other side at the oracle prices, less `slippage_bps`.
 /// Prices are USD per whole token as `price * 10^exponent`; SOL has 9 decimals. Each side is taken
-/// at the edge of its confidence band that favours the vault (what's sold at `price - conf`, what's
-/// bought at `price + conf`), so a wide band tightens the floor instead of loosening it.
+/// at the edge of its confidence band that asks more of the trade: what the vault gives at the top
+/// (`price + conf`), what it gets at the bottom (`price - conf`). Fair value is then the most the
+/// band says the input could be worth in the output, so a wide band raises the floor instead of
+/// lowering it. A band as wide as the price itself is refused.
 pub fn oracle_floor(amount_in: u64, buy: bool, sol: &Price, token: &Price, decimals: u8, slippage_bps: u16) -> Result<u64> {
     require!(sol.price > 0 && token.price > 0, AgentsError::BadPrice);
+    require!(sol.conf < sol.price as u64 && token.conf < token.price as u64, AgentsError::BadPrice);
     let low = |p: &Price| (p.price as u128).checked_sub(p.conf as u128).filter(|v| *v > 0).ok_or(AgentsError::BadPrice);
     let high = |p: &Price| (p.price as u128).checked_add(p.conf as u128).ok_or(AgentsError::BadPrice);
     // buy:  tokens = lamports * sol / token * 10^(decimals - 9);  sell: lamports = tokens * token / sol * 10^(9 - decimals)
     let (p_in, p_out, k) = if buy {
-        (low(sol)?, high(token)?, decimals as i32 + sol.exponent - token.exponent - 9)
+        (high(sol)?, low(token)?, decimals as i32 + sol.exponent - token.exponent - 9)
     } else {
-        (low(token)?, high(sol)?, token.exponent - sol.exponent + 9 - decimals as i32)
+        (high(token)?, low(sol)?, token.exponent - sol.exponent + 9 - decimals as i32)
     };
     let pow = |e: i32| 10u128.checked_pow(e.unsigned_abs()).ok_or(AgentsError::BadPrice);
     let mut num = (amount_in as u128).checked_mul(p_in).ok_or(AgentsError::BadPrice)?;
@@ -770,17 +773,24 @@ mod tests {
         // SOL $150 ± $1.50 (1%), USDC $1 ± $0.01 (1%).
         let sol = conf(150_00000000, 1_50000000, -8);
         let usdc = conf(1_00000000, 1_000000, -8);
-        // A buy values the SOL paid at $148.50 and the tokens bought at $1.01: 1 SOL must return at least 147.03 USDC.
-        assert_eq!(oracle_floor(1_000_000_000, true, &sol, &usdc, 6, 0).unwrap(), 147_029_702);
-        // A sell values the tokens sold at $0.99 and the SOL bought at $151.50: 150 USDC must return at least 0.980 SOL.
-        assert_eq!(oracle_floor(150_000_000, false, &sol, &usdc, 6, 0).unwrap(), 980_198_019);
-        // Never looser than the midpoint floor.
+        // A buy values the SOL paid at $151.50 and the tokens bought at $0.99: 1 SOL must return at least 153.03 USDC.
+        assert_eq!(oracle_floor(1_000_000_000, true, &sol, &usdc, 6, 0).unwrap(), 153_030_303);
+        // A sell values the tokens sold at $1.01 and the SOL bought at $148.50: 150 USDC must return at least 1.020 SOL.
+        assert_eq!(oracle_floor(150_000_000, false, &sol, &usdc, 6, 0).unwrap(), 1_020_202_020);
+        // Always tighter than the midpoint floor, in both directions, with or without slippage.
         let mid = |p: &Price| usd(p.price, p.exponent);
-        assert!(oracle_floor(1_000_000_000, true, &sol, &usdc, 6, 300).unwrap() < oracle_floor(1_000_000_000, true, &mid(&sol), &mid(&usdc), 6, 300).unwrap());
-        assert!(oracle_floor(150_000_000, false, &sol, &usdc, 6, 300).unwrap() < oracle_floor(150_000_000, false, &mid(&sol), &mid(&usdc), 6, 300).unwrap());
-        // A band as wide as the price leaves nothing to value the input at: refused, not a zero floor.
+        for slippage in [0, 300] {
+            assert!(oracle_floor(1_000_000_000, true, &sol, &usdc, 6, slippage).unwrap() > oracle_floor(1_000_000_000, true, &mid(&sol), &mid(&usdc), 6, slippage).unwrap());
+            assert!(oracle_floor(150_000_000, false, &sol, &usdc, 6, slippage).unwrap() > oracle_floor(150_000_000, false, &mid(&sol), &mid(&usdc), 6, slippage).unwrap());
+        }
+        // With 3% slippage, a 1% band on each side lets a buy fill about 1% below the midpoint value
+        // of 150 USDC (148.44), where the old direction let it fill about 5% below (142.62).
+        assert_eq!(oracle_floor(1_000_000_000, true, &sol, &usdc, 6, 300).unwrap(), 148_439_393);
+        // A band as wide as the price, on either side, is refused rather than turned into a floor.
         assert!(oracle_floor(1_000_000_000, true, &conf(150, 150, 0), &usdc, 6, 0).is_err());
+        assert!(oracle_floor(1_000_000_000, true, &sol, &conf(1, 1, 0), 6, 0).is_err());
         assert!(oracle_floor(150_000_000, false, &sol, &conf(1, 2, 0), 6, 0).is_err());
+        assert!(oracle_floor(150_000_000, false, &conf(150, 200, 0), &usdc, 6, 0).is_err());
     }
 
     #[test]
