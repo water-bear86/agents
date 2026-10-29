@@ -21,6 +21,14 @@ export const fmtMinutes = (m: number) => (m < 120 ? `${Math.round(m)} min` : m <
 /** How many of the newest coins an agent's turn shows. */
 export const PROMPT_COINS = 25;
 
+/**
+ * The longest reply a turn may ask the model for (TURN_MAX_TOKENS, default 4096). A turn's answer is a
+ * short thought and up to three actions, so this is plenty, reasoning included. Without a cap the
+ * provider reserves the model's whole output window (131,072 tokens) for every turn, and turns fail
+ * as soon as the credit balance can't cover that worst case.
+ */
+export const TURN_MAX_TOKENS = Number(process.env.TURN_MAX_TOKENS ?? 4096);
+
 /** The coins worth pricing every minute: the ones turns show, and every coin an agent holds. */
 export function pricedCoins(world: World): string[] {
   return [...new Set([...[...world.coins.keys()].slice(-PROMPT_COINS), ...[...world.positions.values()].flat().map((p) => p.token)])];
@@ -180,6 +188,7 @@ export async function tick(world: World, agent: Agent, deps: TickDeps): Promise<
         model: agent.modelId,
         messages: [{ role: "system", content: SYSTEM(agent, world.units, launchesFor(agent, deps.chain)) }, { role: "user", content: context(world, agent, deps.quoter) }],
         temperature: 0.8,
+        maxTokens: TURN_MAX_TOKENS,
       });
       run.setAttrs({ servedModel: r.servedModel, servedModels: [r.servedModel] });
       let parsed: { thought?: string; actions?: Action[] } = {};

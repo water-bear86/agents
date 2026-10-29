@@ -7,7 +7,7 @@ import { PRESETS, closedTrades, emptyCounters, milliNative, oneNative, planFor, 
 import { LlmClient } from "@agents/llm";
 import { Tracer, buildTree, type SpanRecord, type SpanSink } from "@agents/trace";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { applyAction, coinUnits, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
+import { applyAction, coinUnits, pausedReason, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { MARKET, PaperChain, syncMarket } from "./solana/paper.js";
@@ -24,7 +24,7 @@ import { ExitWatcher } from "./watcher.js";
 import { TownOAuth, handleMcpHttp, type OAuthSnapshot } from "agents-mcp";
 import { enrollmentMessage, sha256Hex, verifySignature } from "./enroll.js";
 import { claimAgent, clearClaim, migrateOwnerProof, proveOwner, resetApiKey, walletAgents } from "./ownership.js";
-import { loadWorld, retireLaunchedCoins, saveWorld } from "./persist.js";
+import { loadWorld, replacer, retireLaunchedCoins, saveWorld, worldSnapshot } from "./persist.js";
 import { BUILD_MS, MEMORY, World, activePledge, bonds, friendLevel, memoryQuota, standingOf, type Agent } from "./world.js";
 
 const env = process.env;
@@ -856,6 +856,30 @@ createServer(async (req, res) => {
       return send(res, 201, { agent: publicAgent(a), apiKey: key });
     }
 
+    if (resource === "admin" && id === "reset" && req.method === "POST") {
+      // Operator-only: start a new era. Agents keep who they are; everything they did is cleared and each
+      // starts again with 1 of the native coin (paper and sim; on-chain balances are the chain's).
+      // Export the town first (GET /v1/admin/export): this can't be undone.
+      if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
+      const b = await readJson(req);
+      if (b.confirm !== "start a new era") return send(res, 400, { error: "this clears the town's whole history; send {\"confirm\": \"start a new era\"}" });
+      const cleared = world.startOver(onchain ? null : 1n * E);
+      rankSnapshots.length = 0;
+      seen = null;
+      seenFriends.clear();
+      persist();
+      console.log(`[admin] started a new era: ${world.agents.size} agents kept; cleared ${Object.entries(cleared).map(([k, n]) => `${n} ${k}`).join(", ")}`);
+      return send(res, 200, { agents: [...world.agents.values()].map((a) => a.handle), cleared });
+    }
+    if (resource === "admin" && id === "export" && req.method === "GET") {
+      // Operator-only: the whole town's record (agents, posts, chats, trades, calls, debates, memory and
+      // the rest) as a save file the runtime can load again. API keys and sign-ins are left out.
+      if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
+      const body = JSON.stringify({ exportedAt: new Date().toISOString(), ...worldSnapshot(world) }, replacer);
+      res.writeHead(200, { "content-type": "application/json", "content-disposition": `attachment; filename="town-${new Date().toISOString().slice(0, 10)}.json"` });
+      console.log(`[admin] exported the town (${(body.length / 1e6).toFixed(1)} MB)`);
+      return res.end(body);
+    }
     if (resource === "admin" && id === "agents" && sub && req.method === "POST" && url.pathname.endsWith("/host")) {
       // Operator-only: make an agent a host (it never trades, whoever drives it) or a regular agent again.
       if (!isAdmin(req)) return send(res, 401, { error: "not authorized" });
@@ -911,6 +935,8 @@ createServer(async (req, res) => {
       if (sub === "actions" && req.method === "POST") {
         const token = (req.headers.authorization ?? "").replace(/^Bearer /, "");
         if (actingAccount(token) !== a.account) return send(res, 401, { error: "bad api key" });
+        const paused = pausedReason(a);
+        if (paused) return send(res, 409, { error: paused });
         if (!actionRequests.take(a.account)) return send(res, 429, { error: "too many action requests for this agent; try again later" });
         const b = await readJson(req);
         const all: Action[] = Array.isArray(b.actions) ? b.actions : [];
