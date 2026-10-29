@@ -10,6 +10,7 @@ import { PaperLens } from "./lens";
 import { PALETTE, Paper } from "./materials";
 import { Kit, PX } from "./models";
 import { StandeePrinter, makeStandee } from "./standee";
+import { Frames, pixelRatio, smallScreen } from "./frames";
 
 export const ROOM = 7;
 export const WALL_H = 196 * PX;
@@ -156,7 +157,8 @@ export class PaperRoom {
     l.position.set(...s.at);
     l.target.position.set(...s.aim);
     l.castShadow = true;
-    l.shadow.mapSize.set(1024, 1024);
+    const size = smallScreen() ? 512 : 1024;
+    l.shadow.mapSize.set(size, size);
     l.shadow.bias = -0.0006;
     l.shadow.normalBias = 0.02;
     l.shadow.radius = 3;
@@ -171,17 +173,19 @@ export class PaperRoom {
   #key = "";
   #ro: ResizeObserver;
   #textures: THREE.Texture[] = [];
+  /** A room never moves on its own, so it's drawn only when it changes. */
+  #frames = new Frames(() => { this.lens.render(); return false; });
 
-  constructor(readonly host: HTMLElement) {
+  constructor(readonly host: HTMLElement, readonly opts: { onLost?: () => void } = {}) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    this.renderer.setPixelRatio(pixelRatio());
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = PALETTE.day.exposure;
     host.appendChild(this.renderer.domElement);
-    this.lens = new PaperLens(this.renderer, this.scene, this.camera, { aoRadius: 0.55, blur: 2.5 });
+    this.lens = new PaperLens(this.renderer, this.scene, this.camera, { aoRadius: 0.55, blur: 2.5, aoSamples: smallScreen() ? 6 : 8 });
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const envScene = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(envScene, 0.05).texture;
@@ -209,9 +213,15 @@ export class PaperRoom {
     this.camera.lookAt(t);
     this.#ro = new ResizeObserver(() => this.#resize());
     this.#ro.observe(host);
+    this.renderer.domElement.addEventListener("webglcontextlost", this.#lost);
     this.#resize();
-    this.renderer.setAnimationLoop(() => this.lens.render());
   }
+
+  #lost = (e: Event) => {
+    e.preventDefault();
+    this.#frames.dispose();
+    this.opts.onLost?.();
+  };
 
   #resize() {
     const w = this.host.clientWidth, h = this.host.clientHeight;
@@ -221,7 +231,7 @@ export class PaperRoom {
     const a = w / h, H = 9.4;
     this.camera.left = (-H * a) / 2; this.camera.right = (H * a) / 2; this.camera.top = H / 2; this.camera.bottom = -H / 2;
     this.camera.updateProjectionMatrix();
-    this.lens.render();
+    this.#frames.request();
   }
 
   update(spec: RoomSpec, night: boolean) {
@@ -293,7 +303,7 @@ export class PaperRoom {
       s.scale.setScalar(a.scale ?? 1.25);
       s.position.set(a.x, 0, a.y);
       const card = s.getObjectByName("card") as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
-      void this.printer.print(a.bot).then((tex) => { card.material.map = tex; card.material.needsUpdate = true; });
+      void this.printer.print(a.bot).then((tex) => { card.material.map = tex; card.material.needsUpdate = true; this.#frames.request(); });
       this.#room.add(s);
     }
     if (spec.away) {
@@ -307,6 +317,7 @@ export class PaperRoom {
       sign.castShadow = true;
       this.#room.add(sign);
     }
+    this.#frames.request();
   }
 
   #board(b: Board) {
@@ -381,7 +392,7 @@ export class PaperRoom {
         frame.castShadow = frame.receiveShadow = true;
         const pic = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.64), new THREE.MeshPhysicalMaterial({ roughness: 0.88, color: 0xffffff, sheen: 0.35, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xf7f1e6), specularIntensity: 0.2 }));
         pic.position.z = 0.03;
-        void this.printer.print(p.bot).then((tex) => { (pic.material as THREE.MeshPhysicalMaterial).map = tex; (pic.material as THREE.MeshPhysicalMaterial).needsUpdate = true; });
+        void this.printer.print(p.bot).then((tex) => { (pic.material as THREE.MeshPhysicalMaterial).map = tex; (pic.material as THREE.MeshPhysicalMaterial).needsUpdate = true; this.#frames.request(); });
         frame.add(pic);
         const y = p.z * PX;
         if (p.wall === "right") frame.position.set(p.a, y, 0.04); else { frame.rotation.y = Math.PI / 2; frame.position.set(0.04, y, p.a); }
@@ -392,7 +403,8 @@ export class PaperRoom {
   }
 
   dispose() {
-    this.renderer.setAnimationLoop(null);
+    this.#frames.dispose();
+    this.renderer.domElement.removeEventListener("webglcontextlost", this.#lost);
     this.#ro.disconnect();
     for (const t of this.#textures) t.dispose();
     this.paper.dispose();
