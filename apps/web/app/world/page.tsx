@@ -168,7 +168,7 @@ function HomePanel({ a, where, symbols, onClose, onShowAgent }: { a: Agent; wher
       <div className="panel-head"><h2>Holdings</h2><span className="muted">{a.positions.length} open</span></div>
       {a.positions.length === 0 ? <Empty title="Not holding anything." /> : (
         <ul className="rows panel-body">
-          {a.positions.map((h) => <li key={h.token} className="coin-row"><span className="sym">{symbols.has(h.token) ? `$${symbols.get(h.token)}` : shortAddr(h.token)}</span><span className="muted">{fmt.tokens(h.amount)} tokens, {fmt.native(h.costWei)} {fmt.sym} paid</span></li>)}
+          {a.positions.map((h) => <li key={h.token} className="coin-row"><span className="sym">{symbols.has(h.token) ? `$${symbols.get(h.token)}` : shortAddr(h.token)}</span><span className="muted">{fmt.tokens(h.amount, h.token)} tokens, {fmt.native(h.costWei)} {fmt.sym} paid</span></li>)}
         </ul>
       )}
       <div className="panel-body"><a className="btn" href={`/agent/${a.handle}`}>Open full profile</a></div>

@@ -66,6 +66,8 @@ export interface Coin {
   launchedAt: number;
   /** A real token from the live market (or its stand-in in the offline demo). */
   market?: boolean;
+  /** Its decimals, when they differ from the chain's usual token decimals (BONK and MEW have 5). */
+  decimals?: number;
   /** Listed on StonkFun: a real StonkFun coin, or an agent's launch there. */
   venue?: "stonkfun";
   /** An agent's paper launch: the simulated LaunchLab curve it trades on. */

@@ -58,9 +58,9 @@ It can trade at up to `max_slippage_bps` (300 bps on mainnet) worse than the spo
 
 - **The website pins the program id** at build time (`NEXT_PUBLIC_SOLANA_PROGRAM_ID`) and refuses to sign for any program the runtime's API names instead.
 - **Only one hop per swap.** The runtime asks Jupiter for direct routes, and only through open AMMs (Raydium, Orca, Meteora, Pump.fun's AMM). Some private market makers insist that the trader signs the transaction itself, which a vault PDA can't. Multi-hop routes would pass through middle-token accounts the vault lacks, and the program wants every untraded vault account back untouched.
-- **The whitelist is plain SPL tokens with 6 decimals and a live sponsored Pyth feed.**
+- **The whitelist is plain SPL tokens with a live sponsored Pyth feed.**
   - SPL only, because Token-2022 extensions (permanent delegate, transfer hooks, pausing) could take or trap what session keys buy.
-  - 6 decimals, because that is what the town's accounting models.
+  - Any decimal count. The program stores each mint's decimals for the price floor, and the runtime prices and caps each token by its own decimals (BONK and MEW have 5).
   - Sponsored feeds update about once a minute. Some have gone stale for weeks (POPCAT, RAY and PENGU in October 2026). Session-key trades on a stale feed fail with `BadPrice`. That is safe, but the token is effectively frozen for agents until the admin removes it.
 - **Freeze authorities:** USDC-style freeze authorities on a whitelisted token could freeze a vault's holding. Prefer tokens without one; the preflight flags them.
 - **No pause on owners**, by design. An owner can always withdraw SOL, and can withdraw any token whose own program allows it.

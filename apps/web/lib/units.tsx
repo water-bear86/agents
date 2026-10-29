@@ -16,10 +16,23 @@ export interface ChainInfo {
 }
 
 const Ctx = createContext<ChainInfo>({ units: EVM, mode: "sim" });
+/** Coins whose decimals differ from the chain's usual ones (BONK and MEW have 5), by token. */
+const DecimalsCtx = createContext<ReadonlyMap<string, number>>(new Map());
 
 /** Fetches the runtime's chain units once, so every amount on the site uses the right decimals and symbol. */
 export function UnitsProvider({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState<ChainInfo>({ units: EVM, mode: "sim" });
+  const [decimals, setDecimals] = useState<ReadonlyMap<string, number>>(new Map());
+  useEffect(() => {
+    // The tradable list changes slowly; its odd-decimal coins are re-read every ten minutes.
+    let stop = false;
+    const read = () => fetch(`${API}/v1/coins`).then((r) => (r.ok ? r.json() : null)).then((d: { coins?: { token: string; decimals?: number }[] } | null) => {
+      if (!stop && d?.coins) setDecimals(new Map(d.coins.filter((c) => typeof c.decimals === "number").map((c) => [c.token, c.decimals!])));
+    }).catch(() => {});
+    void read();
+    const t = setInterval(read, 10 * 60_000);
+    return () => { stop = true; clearInterval(t); };
+  }, []);
   useEffect(() => {
     let stop = false;
     fetch(`${API}/v1/chain`).then((r) => (r.ok ? r.json() : null)).then((d: Partial<ChainInfo> | null) => {
@@ -27,18 +40,20 @@ export function UnitsProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
     return () => { stop = true; };
   }, []);
-  return <Ctx.Provider value={info}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={info}><DecimalsCtx.Provider value={decimals}>{children}</DecimalsCtx.Provider></Ctx.Provider>;
 }
 
 /** Formatters bound to the chain in use: `native("1500000000")` is "1.500" on Solana and "<0.0001" on EVM. */
 export function useUnits() {
   const u = useContext(Ctx).units;
+  const odd = useContext(DecimalsCtx);
   return {
     units: u,
     /** Native currency ticker: ETH or SOL. */
     sym: u.nativeSymbol,
     native: (v: string | number | undefined, signed = false) => formatAmount(v, u.nativeDecimals, signed),
-    tokens: (v: string | number | undefined) => formatTokens(v, u.tokenDecimals),
+    /** A token amount in whole tokens; pass the token so coins with their own decimals read right. */
+    tokens: (v: string | number | undefined, token?: string) => formatTokens(v, (token ? odd.get(token) : undefined) ?? u.tokenDecimals),
   };
 }
 

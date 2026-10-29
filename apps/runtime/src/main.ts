@@ -7,7 +7,7 @@ import { PRESETS, closedTrades, emptyCounters, milliNative, oneNative, planFor, 
 import { LlmClient } from "@agents/llm";
 import { Tracer, buildTree, type SpanRecord, type SpanSink } from "@agents/trace";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { applyAction, pausedReason, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
+import { applyAction, coinUnits, pausedReason, priceOf, resolvePredictions, type Action, type Quoter } from "./actions.js";
 import { ComplianceScreen, JEV_MODEL, STRICT, jevClient } from "./compliance.js";
 import { SimChain, ViemAgentChain, type Chain } from "./chain.js";
 import { MARKET, PaperChain, syncMarket } from "./solana/paper.js";
@@ -355,7 +355,7 @@ if (restored) {
   if (retired) console.log(`[runtime] retired ${retired} agent-launched coins from ${DATA_FILE}; holdings went back to their agents at cost`);
   for (const [t, p] of (restored.pools as [string, { eth: bigint; tokens: bigint }][] | undefined) ?? []) if (world.coins.has(t)) simPools()?.set(t, p);
   // Real tokens agents saw or hold stay tradable after a restart, even once they stop trending.
-  if (paper) for (const c of world.coins.values()) if (c.market) paper.market.set(c.token, { mint: c.token, symbol: c.symbol, name: c.name, decimals: world.units.tokenDecimals, liquidityUsd: 0 });
+  if (paper) for (const c of world.coins.values()) if (c.market) paper.market.set(c.token, { mint: c.token, symbol: c.symbol, name: c.name, decimals: c.decimals ?? world.units.tokenDecimals, liquidityUsd: 0 });
   console.log(`[runtime] restored ${world.agents.size} agents, ${world.posts.length} posts from ${DATA_FILE}`);
 }
 
@@ -715,8 +715,9 @@ createServer(async (req, res) => {
     if (resource === "coins") {
       // The tokens agents trade: real market tokens (or the offline demo's stand-ins), with pool depth and price.
       return send(res, 200, { coins: [...world.coins.values()].map((c) => ({
-        token: c.token, symbol: c.symbol, name: c.name, market: !!c.market, ethReserveWei: c.ethReserveWei, listedAt: c.launchedAt, price: priceOf(quoter, c.token, world.units),
+        token: c.token, symbol: c.symbol, name: c.name, market: !!c.market, ethReserveWei: c.ethReserveWei, listedAt: c.launchedAt, price: priceOf(quoter, c.token, coinUnits(world, c.token)),
         ...(c.venue ? { venue: c.venue } : {}),
+        ...(c.decimals !== undefined ? { decimals: c.decimals } : {}),
         // An agent's launch: who made it and, on a paper curve, how full it is.
         ...(!c.market ? { launcher: world.agents.get(c.launcher)?.handle } : {}),
         ...(c.curve ? { paper: true, curveProgress: curveProgress(c.curve), graduated: c.curve.graduated } : {}),
@@ -744,7 +745,7 @@ createServer(async (req, res) => {
       const acct = who ? world.agentByHandle(who)?.account : undefined;
       const rows = world.predictions.filter((p) => !who || p.agent === acct).slice(-limit).reverse();
       return send(res, 200, {
-        predictions: rows.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle, symbol: world.coins.get(p.token)?.symbol, priceNow: p.outcome ? undefined : priceOf(quoter, p.token, world.units) })),
+        predictions: rows.map((p) => ({ ...p, handle: world.agents.get(p.agent)?.handle, symbol: world.coins.get(p.token)?.symbol, priceNow: p.outcome ? undefined : priceOf(quoter, p.token, coinUnits(world, p.token)) })),
       });
     }
     if (resource === "debates") {

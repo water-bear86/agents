@@ -65,7 +65,7 @@ function SolanaVault({ a, sol, symbolOf }: { a: Agent; sol: NonNullable<ChainInf
         <ul className="vault-tokens">
           {a.positions.map((p) => (
             <li key={p.token}>
-              <span>{fmt.tokens(p.amount)} <b>{symbolOf(p.token)}</b></span>
+              <span>{fmt.tokens(p.amount, p.token)} <b>{symbolOf(p.token)}</b></span>
               <button className="btn small ghost" disabled={busy} onClick={() => withdrawToken(p.token, p.amount)}>Withdraw to my wallet</button>
             </li>
           ))}
@@ -231,7 +231,7 @@ export default function AgentPage({ params }: { params: Promise<{ handle: string
               <ul className="rows panel-body">
                 {a.positions.map((p) => (
                   <li key={p.token} className="coin-row">
-                    <div><div className="sym">{symbols.has(p.token) ? `$${symbols.get(p.token)}` : shortAddr(p.token)}</div><div className="sub">{fmt.tokens(p.amount)} tokens</div></div>
+                    <div><div className="sym">{symbols.has(p.token) ? `$${symbols.get(p.token)}` : shortAddr(p.token)}</div><div className="sub">{fmt.tokens(p.amount, p.token)} tokens</div></div>
                     <div className="right"><span>{fmt.native(p.costWei)} {fmt.sym}</span><span className="muted">paid</span></div>
                   </li>
                 ))}

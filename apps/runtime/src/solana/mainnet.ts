@@ -120,7 +120,7 @@ export async function preflight(conn: Connection, c: MainnetConfig): Promise<Lin
     }
   }
 
-  // Each whitelisted token: a plain SPL mint on this cluster with 6 decimals (what the town models), and a live Pyth feed.
+  // Each whitelisted token: a plain SPL mint on this cluster (any decimals the town can model: BONK and MEW have 5), and a live Pyth feed.
   const now = Date.now() / 1000;
   const feeds = [{ symbol: "SOL", feed: SOL_USD_FEED, mint: "" }, ...(c.whitelist ?? [])];
   const priceInfos = await conn.getMultipleAccountsInfo(feeds.map((f) => feedAccount(f.feed)));
@@ -133,7 +133,7 @@ export async function preflight(conn: Connection, c: MainnetConfig): Promise<Lin
     const info = await conn.getParsedAccountInfo(new PublicKey(w.mint));
     const parsed = (info.value?.data as { parsed?: { info?: { decimals: number; freezeAuthority: string | null } } } | undefined)?.parsed?.info;
     const spl = info.value?.owner.equals(new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"));
-    say(!!spl && parsed?.decimals === 6, `${w.symbol} ${w.mint}: ${spl ? "SPL Token" : "not an SPL Token mint"}, ${parsed?.decimals ?? "?"} decimals${parsed?.freezeAuthority ? ", has a freeze authority" : ""}`);
+    say(!!spl && Number.isInteger(parsed?.decimals) && parsed!.decimals <= 9, `${w.symbol} ${w.mint}: ${spl ? "SPL Token" : "not an SPL Token mint"}, ${parsed?.decimals ?? "?"} decimals${parsed?.freezeAuthority ? ", has a freeze authority" : ""}`);
   }
   say(null, key(c.runtime.sessionKeyPublic) ? `runtime session key ${c.runtime.sessionKeyPublic}` : "runtime session key not set yet (needed before the runtime trades on mainnet, not for the deploy)");
   for (const p of configProblems(c)) say(false, p);

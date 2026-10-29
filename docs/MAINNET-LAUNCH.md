@@ -42,7 +42,7 @@ A later upgrade that makes the program bigger extends it first (`solana program 
 
 ### 1. Settings
 Put the owner's wallet in `owner` in `solana/mainnet.config.json`, and review the whitelist and oracle settings. Starting values:
-- **Whitelist:** JUP, WIF, TRUMP and FARTCOIN. Each is a plain SPL token with 6 decimals, a live Pyth feed and over $1M of liquidity (checked October 2026).
+- **Whitelist:** JUP, WIF, TRUMP, FARTCOIN, BONK and MEW. Each is a plain SPL token with a live Pyth feed and over $1M of liquidity (checked October 2026). BONK and MEW have 5 decimals, the others 6.
 - **Oracle:** prices at most 60 s old, fills at most 3% below them. The program caps these at 120 s and 5%.
 
 ### 2. Reproducible build
@@ -137,6 +137,6 @@ This sets up the platform with the oracle settings, whitelists the tokens, and p
 ## Running it
 
 - **Pause:** the admin pauses every session key from `/admin`. Owners can still trade and withdraw.
-- **Whitelist:** the admin adds a token on `/admin` with its mint and its Pyth USD feed id from pyth.network/price-feeds. Check first that the token is a plain SPL token with 6 decimals and that its sponsored feed is live; the preflight checks both. Remove tokens whose feed goes stale.
+- **Whitelist:** the admin adds a token on `/admin` with its mint and its Pyth USD feed id from pyth.network/price-feeds. Check first that the token is a plain SPL token (not Token-2022) and that its sponsored feed is live; the preflight checks both. Remove tokens whose feed goes stale.
 - **Upgrades:** build with `solana-verify build`, upgrade with the owner's wallet as upgrade authority, then verify the build again.
 - **A stolen session key:** pause on `/admin`, move the runtime to a new key, and have owners point their agents at it (`set_session`).

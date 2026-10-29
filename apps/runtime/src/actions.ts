@@ -1,4 +1,4 @@
-import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAllowed, type AgentState, type ChainUnits, type CoinView, type ExitTrigger, type TradeIntent } from "@agents/core";
+import { EVM_UNITS, checkIntent, milliNative, noveltyCheck, spotPrice, tickerAllowed, withTokenDecimals, type AgentState, type ChainUnits, type CoinView, type ExitTrigger, type TradeIntent } from "@agents/core";
 import type { Tracer } from "@agents/trace";
 import { canLaunch, type Chain, type SimChain } from "./chain.js";
 import { describe as describeVerdict, type ComplianceScreen, type Verdict } from "./compliance.js";
@@ -44,6 +44,9 @@ export const MAX_OPEN_IDEAS = 3;
 /** Open calls an agent may have at once, and the window bounds in minutes. */
 export const MAX_OPEN_CALLS = 3;
 export const CALL_MINUTES = { min: 1, max: 120 };
+/** The chain's units for one coin: its own decimals and supply when they differ from the usual. */
+export const coinUnits = (world: World, token: string): ChainUnits => withTokenDecimals(world.units, world.coins.get(token)?.decimals);
+
 /** Spot price in whole native coins (ETH or SOL) per whole token, from a small quote so fees and size barely matter. */
 export function priceOf(quoter: Quoter, token: string, u: ChainUnits = EVM_UNITS): number {
   const probe = milliNative(u);
@@ -55,7 +58,7 @@ export function resolvePredictions(world: World, quoter: Quoter, now = Date.now(
   const done = [];
   for (const p of world.predictions) {
     if (p.outcome || p.resolveAt > now) continue;
-    const exit = world.coins.has(p.token) ? priceOf(quoter, p.token, world.units) : NaN;
+    const exit = world.coins.has(p.token) ? priceOf(quoter, p.token, coinUnits(world, p.token)) : NaN;
     p.exitPrice = exit;
     const move = (exit - p.entryPrice) / p.entryPrice;
     p.outcome = !Number.isFinite(move) || Math.abs(move) < 1e-6 ? "flat" : (move > 0) === (p.direction === "up") ? "right" : "wrong";
@@ -111,7 +114,7 @@ export function agentState(world: World, a: Agent, now = Date.now()): AgentState
 export function coinView(world: World, q: Quoter, token: string): CoinView | null {
   const c = world.coins.get(token);
   if (!c) return null;
-  return { token, launcherOwner: c.launcherOwner, opened: c.opened, totalSupply: world.units.tokenSupply, quoteBuy: (e) => q.quoteBuy(token, e), quoteSell: (t) => q.quoteSell(token, t), priceAt: q.priceAt?.(token) };
+  return { token, launcherOwner: c.launcherOwner, opened: c.opened, totalSupply: coinUnits(world, token).tokenSupply, quoteBuy: (e) => q.quoteBuy(token, e), quoteSell: (t) => q.quoteSell(token, t), priceAt: q.priceAt?.(token) };
 }
 
 /**
@@ -220,7 +223,7 @@ export async function applyAction(world: World, chain: Chain, quoter: Quoter, ag
         const open = world.predictions.filter((x) => x.agent === agent.account && !x.outcome);
         if (open.length >= MAX_OPEN_CALLS) return { action, ok: false, detail: `already has ${MAX_OPEN_CALLS} open calls` };
         if (open.some((x) => x.token === action.token)) return { action, ok: false, detail: `already has an open call on $${coin.symbol}` };
-        const entryPrice = priceOf(quoter, action.token, world.units);
+        const entryPrice = priceOf(quoter, action.token, coinUnits(world, action.token));
         if (!Number.isFinite(entryPrice)) return { action, ok: false, detail: "no price for this coin yet" };
         const minutes = Math.min(CALL_MINUTES.max, Math.max(CALL_MINUTES.min, Math.round(Number(action.minutes) || 10)));
         const now = Date.now();

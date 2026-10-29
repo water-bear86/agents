@@ -103,6 +103,8 @@ export interface Coin {
   listedAt: number;
   /** Listed on StonkFun: a real StonkFun coin, or an agent's launch there. */
   venue?: "stonkfun";
+  /** Its decimals, when they differ from the chain's usual token decimals. */
+  decimals?: number;
   /** An agent's launch: who launched it. */
   launcher?: string;
   /** A paper launch on a simulated StonkFun curve, how full the curve is (0 to 1), and whether it graduated. */

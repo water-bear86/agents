@@ -32,6 +32,19 @@ export const SOLANA_UNITS: ChainUnits = {
   family: "solana", nativeSymbol: "SOL", nativeDecimals: 9, nativeBaseName: "lamports", tokenDecimals: 6, tokenSupply: 1_000_000_000n * pow10(6),
 };
 
+/**
+ * The same units for one token with its own decimal count (BONK and MEW have 5, most SPL coins 6).
+ * Supply stays one billion whole tokens, so supply caps mean the same share whatever the decimals.
+ */
+export function withTokenDecimals(u: ChainUnits, decimals: number | undefined): ChainUnits {
+  if (decimals === undefined || decimals === u.tokenDecimals) return u;
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > MAX_TOKEN_DECIMALS) throw new Error(`unsupported token decimals: ${decimals}`);
+  return { ...u, tokenDecimals: decimals, tokenSupply: 1_000_000_000n * pow10(decimals) };
+}
+
+/** The most decimals a token may have and still be modelled (SPL mints go up to 9 in practice). */
+export const MAX_TOKEN_DECIMALS = 18;
+
 export const unitsFor = (family: ChainFamily): ChainUnits => (family === "solana" ? SOLANA_UNITS : EVM_UNITS);
 
 /** One whole native coin, and a thousandth of one, in the smallest unit. */

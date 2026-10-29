@@ -3,7 +3,7 @@
 // and fills come from Jupiter's live mainnet quotes (the real pools, with size and price impact);
 // the mainnet RPC double-checks each token's mint before it's tradable.
 
-import type { ChainUnits, Order } from "@agents/core";
+import { MAX_TOKEN_DECIMALS, type ChainUnits, type Order } from "@agents/core";
 import type { Chain } from "../chain.js";
 import type { Quoter } from "../actions.js";
 import type { World } from "../world.js";
@@ -175,13 +175,13 @@ export class PaperChain implements Chain, Quoter {
 
   /**
    * A fixed universe instead of the trending list: on mainnet, the tokens the program whitelists.
-   * Tokens the town can't model (another decimal count) are left out.
+   * Each keeps its own decimals (BONK and MEW have 5); prices and supply caps follow them.
    */
   async track(mints: string[]): Promise<MarketToken[]> {
     if (!mints.length) { this.market.clear(); return []; }
     const list = await this.#jup<Array<Record<string, any>>>(`/tokens/v2/search?query=${mints.join(",")}`);
     const picked: MarketToken[] = list
-      .filter((t) => mints.includes(t.id) && t.decimals === this.units.tokenDecimals)
+      .filter((t) => mints.includes(t.id) && Number.isInteger(t.decimals) && t.decimals >= 0 && t.decimals <= MAX_TOKEN_DECIMALS)
       .map((t) => ({
         mint: t.id, symbol: String(t.symbol).replace(/[^A-Za-z0-9]/g, "").slice(0, 10).toUpperCase() || "TOKEN", name: String(t.name).slice(0, 32),
         decimals: t.decimals, liquidityUsd: t.liquidity, mcapUsd: t.mcap, change1h: t.stats1h?.priceChange, createdAt: t.firstPool?.createdAt ?? t.createdAt,
@@ -254,8 +254,8 @@ export class PaperChain implements Chain, Quoter {
       const usd = read || t.venuePriceUsd;
       if (!usd) continue;
       if (p?.liquidity) t.liquidityUsd = p.liquidity;
-      // USD per whole token -> lamports per smallest unit.
-      const price = (usd / this.#solUsd) * 10 ** (this.units.nativeDecimals - this.units.tokenDecimals);
+      // USD per whole token -> lamports per smallest unit, by the token's own decimals.
+      const price = (usd / this.#solUsd) * 10 ** (this.units.nativeDecimals - t.decimals);
       this.#price.set(mint, price);
       if (read) { this.#priceAt.set(mint, at); this.#record(mint, at, price); }
     }
@@ -350,11 +350,17 @@ export class PaperChain implements Chain, Quoter {
 export function syncMarket(world: World, paper: PaperChain) {
   for (const t of paper.market.values()) {
     const c = world.coins.get(t.mint);
-    if (c) { c.ethReserveWei = paper.reserveOf(t.mint); continue; }
+    const decimals = t.decimals !== world.units.tokenDecimals ? t.decimals : undefined;
+    if (c) {
+      c.ethReserveWei = paper.reserveOf(t.mint);
+      if (decimals !== undefined) c.decimals = decimals; else delete c.decimals;
+      continue;
+    }
     world.coins.set(t.mint, {
       token: t.mint, symbol: t.symbol, name: t.name, launcher: MARKET, launcherOwner: MARKET, opened: true,
       ethReserveWei: paper.reserveOf(t.mint), launchedAt: t.createdAt ? Date.parse(t.createdAt) : Date.now(), market: true,
       ...(t.venue ? { venue: t.venue } : {}),
+      ...(decimals !== undefined ? { decimals } : {}),
     });
   }
   // Agents' paper launches: the world holds each curve (and saves it); the chain trades on the same object.
